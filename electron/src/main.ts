@@ -11,7 +11,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
 import { findFreePort, spawnSidecar } from './sidecar'
-import { getDefaultDirs, loadConfig, saveConfig, updateConfig } from './config'
+import {
+  getDefaultDirs,
+  loadConfig,
+  saveConfig,
+  setAsideUnusableConfig,
+  updateConfig,
+} from './config'
+import { firstLaunchConfig, libraryDirsOf, withChosenLibrary } from './appConfig'
 import {
   isDisplayPref,
   sanitizeWindowColors,
@@ -19,6 +26,16 @@ import {
   THEME_PREF_KEY,
   withDisplayPref,
 } from './displayPrefs'
+import {
+  dirsChanged,
+  isFolderKind,
+  isMissingOrEmpty,
+  parseLibraryDirs,
+  provisionalDirsToDelete,
+  unavailableLinkedError,
+  type FolderKind,
+  type LibraryDirs,
+} from './libraryDirs'
 import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
@@ -33,10 +50,11 @@ const MAX_LOG_BYTES = 5 * 1024 * 1024
 const QUIT_GRACE_MS = 15_000
 
 let mainWindow: BrowserWindow | null = null
-let setupWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
-let currentAppDataDir: string | null = null
-let currentImageLibraryDir: string | null = null
+// The folders the backend runs on (in dev, the config's: the developer runs the backend).
+let currentDirs: LibraryDirs | null = null
+// Set while restartBackend() swaps the backend for one on other folders.
+let restarting = false
 
 // The packaged UI is served by the sidecar, so its origin is the backend's.
 let backendOrigin: string | null = null
@@ -143,52 +161,10 @@ async function pickDirectory(
   return result.canceled ? null : result.filePaths[0]
 }
 
-type StorageKind = 'appData' | 'imageLibrary'
-
-const STORAGE_PICKER: Record<StorageKind, { title: string; foreignDetail: string }> = {
-  appData: {
-    title: 'Choose App Data Folder',
-    foreignDetail:
-      'Scene Atlas keeps its database, thumbnails and search index here. ' +
-      'A new or empty folder keeps them apart from your other files.',
-  },
-  imageLibrary: {
-    title: 'Choose Image Library Folder',
-    foreignDetail:
-      'Scene Atlas keeps its own copy of every image you import here, in its own ' +
-      'folder layout. It will not show the files already in this folder: bring ' +
-      'your existing maps in with Import instead.\n\nA new or empty folder is best.',
-  },
-}
-
-/** Pick a storage folder, warning when it already holds files Scene Atlas didn't create
- * (most likely the user's existing collection, design/electron.md). Null when cancelled. */
-async function pickStorageDir(
-  win: BrowserWindow | null,
-  kind: StorageKind,
-  defaultPath?: string,
-  otherRoot?: string,
-): Promise<string | null> {
-  const { title, foreignDetail } = STORAGE_PICKER[kind]
-  for (;;) {
-    const chosen = await pickDirectory(win, title, defaultPath)
-    if (!chosen || !hasForeignEntries(chosen, otherRoot)) return chosen
-    const options: Electron.MessageBoxOptions = {
-      type: 'warning',
-      title: 'Folder is not empty',
-      message: 'This folder already has other files in it.',
-      detail: foreignDetail,
-      buttons: ['Choose Another Folder', 'Use This Folder'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    }
-    const { response } = win
-      ? await dialog.showMessageBox(win, options)
-      : await dialog.showMessageBox(options)
-    if (response === 1) return chosen
-    defaultPath = chosen
-  }
+const FOLDER_PICKER_TITLES: Record<FolderKind, string> = {
+  appData: 'Choose Search Data Folder',
+  store: 'Choose Imported Maps Folder',
+  linked: 'Choose Your Maps Folder',
 }
 
 /** Files and folders to import (design/local-ingest.md). Empty when cancelled. */
@@ -233,15 +209,20 @@ function isAbsolutePath(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
 }
 
-// Display choices (design/first-run.md): the UI keeps them in the config as well as its
-// localStorage, which is tied to the backend's port. Synchronous on purpose: the preload
-// needs them before the page's first paint.
+// What the UI needs before its first paint, so synchronous on purpose (once per page load):
+// - display choices (design/first-run.md): the UI keeps them in the config as well as its
+//   localStorage, which is tied to the backend's port;
+// - libraryChosen (design/library-setup.md §2.2): the wizard resumes after its library step.
 ipcMain.on('prefs:get-sync', (event) => {
   try {
     assertTrusted(event)
-    event.returnValue = loadConfig()?.displayPrefs ?? {}
+    const config = loadConfig()
+    event.returnValue = {
+      displayPrefs: config?.displayPrefs ?? {},
+      libraryChosen: config?.libraryChosen ?? false,
+    }
   } catch {
-    event.returnValue = {}
+    event.returnValue = { displayPrefs: {}, libraryChosen: false }
   }
 })
 
@@ -268,36 +249,6 @@ handleTrusted('window:set-colors', (event, raw) => {
   }
 })
 
-handleTrusted('setup:get-default-dirs', () => getDefaultDirs())
-
-handleTrusted('setup:choose-directory', (event, kind, currentDir, otherRoot) => {
-  if (kind !== 'appData' && kind !== 'imageLibrary') throw new Error('Invalid storage kind')
-  return pickStorageDir(
-    BrowserWindow.fromWebContents(event.sender),
-    kind,
-    isAbsolutePath(currentDir) ? currentDir : undefined,
-    isAbsolutePath(otherRoot) ? otherRoot : undefined,
-  )
-})
-
-// Synchronous on purpose: mainWindow is assigned before this returns, so a
-// second invocation (double-click) sees it and can't spawn a second sidecar.
-handleTrusted('setup:complete', (_event, appDataDir, imageLibraryDir) => {
-  if (mainWindow) return { error: null }
-  if (!isAbsolutePath(appDataDir) || !isAbsolutePath(imageLibraryDir)) {
-    return { error: 'Both locations must be absolute folder paths.' }
-  }
-
-  // The backend refuses to start unless both roots already exist.
-  const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
-  if (dirError) return { error: dirError }
-
-  saveConfig({ appDataDir, imageLibraryDir })
-  void launchApp(appDataDir, imageLibraryDir)
-  setupWindow?.close()
-  return { error: null }
-})
-
 handleTrusted('imports:choose-folders', (event) =>
   pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'folders'),
 )
@@ -305,71 +256,62 @@ handleTrusted('imports:choose-files', (event) =>
   pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'files'),
 )
 
-handleTrusted('system:get-app-data-dir', () => currentAppDataDir)
-handleTrusted('system:get-image-library-dir', () => currentImageLibraryDir)
+// The library's folders (design/library-setup.md): the setup wizard's library step and
+// Settings choose them; the backend checks them (POST /library/inspect) before they're applied.
 
-handleTrusted('system:choose-app-data-dir', (event) =>
-  pickStorageDir(
+handleTrusted('library:get-dirs', () => {
+  const defaults = getDefaultDirs()
+  const dirs = currentDirs ?? { ...defaults, linked: null }
+  return { ...dirs, defaults }
+})
+
+handleTrusted('library:choose-folder', (event, kind, current) => {
+  if (!isFolderKind(kind)) throw new Error('Invalid folder kind')
+  const start = isAbsolutePath(current) ? current : (currentDirs?.[kind] ?? undefined)
+  return pickDirectory(
     BrowserWindow.fromWebContents(event.sender),
-    'appData',
-    currentAppDataDir ?? getDefaultDirs().appDataDir,
-    currentImageLibraryDir ?? undefined,
-  ),
-)
+    FOLDER_PICKER_TITLES[kind],
+    start,
+  )
+})
 
-handleTrusted('system:choose-image-library-dir', (event) =>
-  pickStorageDir(
-    BrowserWindow.fromWebContents(event.sender),
-    'imageLibrary',
-    currentImageLibraryDir ?? getDefaultDirs().imageLibraryDir,
-    currentAppDataDir ?? undefined,
-  ),
-)
+// Resolves only when the folders are rejected or nothing changed. Otherwise the backend
+// restarts on the new folders in this window, which then loads the UI afresh.
+handleTrusted('library:apply', (_event, raw) => {
+  // A second click while the window is already restarting.
+  if (restarting) return new Promise(() => {})
+  const parsed = parseLibraryDirs(raw)
+  if ('error' in parsed) return { error: parsed.error, restarted: false }
+  const next = parsed.dirs
+  const config = loadConfig()
+  if (!config) return { error: "Couldn't read the app's settings file.", restarted: false }
 
-// Saves new paths to config and restarts.
-// Called only when user explicitly clicks "Restart Now" in the Settings UI.
-handleTrusted('system:change-storage-dirs', async (_event, newAppDataDir, newImageLibraryDir) => {
-  if (!isAbsolutePath(newAppDataDir) || !isAbsolutePath(newImageLibraryDir)) {
-    return { error: 'Both locations must be absolute folder paths.' }
+  // The backend refuses to start unless both roots already exist. The linked folder is
+  // never created or written: it may be offline, and the backend reports that.
+  const dirError = unavailableLinkedError(next) ?? prepareStorageDirs(next.appData, next.store)
+  if (dirError) return { error: dirError, restarted: false }
+
+  const current = currentDirs ?? libraryDirsOf(config)
+  const changed = dirsChanged(current, next)
+  const replaced = config.provisional && changed ? provisionalDirsToDelete(current, next) : []
+  saveConfig(withChosenLibrary(config, next))
+  if (!changed) return { error: null, restarted: false }
+
+  if (isDev) {
+    // No sidecar to restart: the developer's backend keeps its own folders.
+    currentDirs = next
+    console.warn(
+      '[electron] Library folders saved to the config; the dev backend ignores them. ' +
+        'Restart it with APP_DATA_DIR, IMAGE_LIBRARY_DIR and LINKED_LIBRARY_DIR to use them.',
+    )
+    return { error: null, restarted: false }
   }
-  const dirError = prepareStorageDirs(newAppDataDir, newImageLibraryDir)
-  if (dirError) return { error: dirError }
 
-  saveConfig({ ...loadConfig(), appDataDir: newAppDataDir, imageLibraryDir: newImageLibraryDir })
-  // app.exit() skips will-quit, so stop the old backend explicitly; otherwise it
-  // keeps running against the old store while the relaunched app starts a new one.
-  await stopSidecar()
-  app.relaunch()
-  app.exit(0)
-  return { error: null }
+  void restartBackend(next, replaced)
+  return new Promise(() => {})
 })
 
 // Windows
-
-function showSetupWindow(): void {
-  setupWindow = new BrowserWindow({
-    width: 600,
-    height: 640,
-    resizable: true,
-    minWidth: 520,
-    minHeight: 560,
-    ...borderlessOptions(),
-    webPreferences: {
-      preload: path.join(__dirname, 'setup.preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  hardenWindow(setupWindow)
-  setupWindow.loadFile(path.join(__dirname, '..', 'setup.html'))
-
-  setupWindow.on('closed', () => {
-    setupWindow = null
-    if (!mainWindow) app.quit()
-  })
-}
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -451,18 +393,25 @@ function rotateLog(logPath: string): void {
   }
 }
 
-async function launchApp(appDataDir: string, imageLibraryDir: string): Promise<void> {
-  currentAppDataDir = appDataDir
-  currentImageLibraryDir = imageLibraryDir
+function launchApp(dirs: LibraryDirs): void {
   backendOrigin = null
   backendError = null
   mainWindow = createMainWindow()
+  void startBackend(dirs)
+}
+
+/** Start the sidecar on *dirs*; the main window shows its UI once it is ready. */
+async function startBackend(dirs: LibraryDirs): Promise<void> {
+  currentDirs = dirs
+  backendOrigin = null
+  backendError = null
 
   // Dev: the developer runs the backend themselves; Vite proxies /api to it.
   if (isDev) return
 
+  const { appData: appDataDir, store: imageLibraryDir, linked: linkedLibraryDir } = dirs
   // A config-loaded start can point at a drive that is no longer mounted.
-  const dirError = prepareStorageDirs(appDataDir, imageLibraryDir)
+  const dirError = unavailableLinkedError(dirs) ?? prepareStorageDirs(appDataDir, imageLibraryDir)
   if (dirError) {
     signalBackendError(dirError)
     return
@@ -488,10 +437,9 @@ async function launchApp(appDataDir: string, imageLibraryDir: string): Promise<v
     if (!logStream.writableEnded) logStream.end()
   }
   writeLog(`\n--- Scene Atlas started ${new Date().toISOString()} ---\n`)
-  writeLog(`port=${port} appData=${appDataDir} imageLibrary=${imageLibraryDir}\n`)
-  console.log(
-    `[electron] Spawning backend on port ${port}, appData=${appDataDir}, imageLibrary=${imageLibraryDir}`,
-  )
+  const folders = `appData=${appDataDir} imageLibrary=${imageLibraryDir} linked=${linkedLibraryDir ?? '-'}`
+  writeLog(`port=${port} ${folders}\n`)
+  console.log(`[electron] Spawning backend on port ${port}, ${folders}`)
   console.log(`[electron] Sidecar log: ${logPath}`)
 
   // Recent output lines are shown in the error screen.
@@ -508,6 +456,7 @@ async function launchApp(appDataDir: string, imageLibraryDir: string): Promise<v
     port,
     appDataDir,
     imageLibraryDir,
+    linkedLibraryDir,
     onReady: (readyPort) => {
       ready = true
       console.log(`[electron] Backend ready on port ${readyPort}`)
@@ -541,20 +490,29 @@ async function launchApp(appDataDir: string, imageLibraryDir: string): Promise<v
   })
 }
 
-/** Ask the sidecar to shut down; resolves when it exits or after timeoutMs. */
-function stopSidecar(timeoutMs = 5000): Promise<void> {
+/**
+ * Ask the sidecar to shut down; resolves when it exits or after timeoutMs. Past the
+ * timeout it is killed on Windows (where kill() terminates outright, so it is only the
+ * fallback) or, with *force*, everywhere, and waited for a little longer.
+ */
+function stopSidecar(timeoutMs = 5000, force = false): Promise<void> {
   const child = sidecarProcess
   sidecarProcess = null
   if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   console.log('[electron] Stopping backend sidecar')
   return new Promise((resolve) => {
+    let killTimer: NodeJS.Timeout | undefined
     const timer = setTimeout(() => {
-      // On Windows kill() terminates outright, so it is only the fallback there.
-      if (isWindows && child.exitCode === null) child.kill()
-      resolve()
+      if (!(isWindows || force) || child.exitCode !== null) {
+        resolve()
+        return
+      }
+      child.kill('SIGKILL')
+      killTimer = setTimeout(resolve, 2000)
     }, timeoutMs)
     child.once('exit', () => {
       clearTimeout(timer)
+      clearTimeout(killTimer)
       resolve()
     })
     // Closing stdin makes the sidecar's watchdog shut down gracefully on every platform.
@@ -563,21 +521,86 @@ function stopSidecar(timeoutMs = 5000): Promise<void> {
   })
 }
 
-// Lifecycle
-
-function start(): void {
-  const config = loadConfig()
-  // Every window, including the loading page, follows the UI's theme choice
-  nativeTheme.themeSource = themeSourceFor(config?.displayPrefs ?? {})
-  if (config) {
-    void launchApp(config.appDataDir, config.imageLibraryDir)
-  } else {
-    showSetupWindow()
+/**
+ * Swap the backend for one on *dirs* without closing the window (design/library-setup.md
+ * §2.2): the loading page while the old backend stops and the new one starts, then the UI
+ * it serves. *replacedProvisional* are first-launch folders the new ones replace.
+ */
+async function restartBackend(dirs: LibraryDirs, replacedProvisional: string[]): Promise<void> {
+  restarting = true
+  try {
+    const win = mainWindow
+    backendError = null
+    await win?.loadFile(LOADING_PAGE).catch(() => {})
+    backendOrigin = null
+    // Forced past the grace period: the new backend may need the same folders' locks.
+    await stopSidecar(QUIT_GRACE_MS, true)
+    await removeProvisionalDirs(replacedProvisional)
+    // Closed meanwhile (macOS keeps running): the next window starts its own backend.
+    if (!win || mainWindow !== win) return
+    await startBackend(dirs)
+  } finally {
+    restarting = false
   }
 }
 
+/**
+ * Delete first-launch folders the user replaced in setup. Nothing can have been imported
+ * into them (the gallery is gated until setup is complete), and each is kept if it holds
+ * anything Scene Atlas didn't create.
+ */
+async function removeProvisionalDirs(dirs: string[]): Promise<void> {
+  const defaultBase = path.dirname(getDefaultDirs().appData)
+  for (const dir of dirs) {
+    if (hasForeignEntries(dir)) {
+      console.log(`[electron] Keeping ${dir}: it holds other files`)
+      continue
+    }
+    // Windows can hold the stopped backend's files open for a moment.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+        break
+      } catch (err) {
+        if (attempt === 5) {
+          console.warn(`[electron] Couldn't delete ${dir}:`, err)
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
+    // The "Scene Atlas" folder the defaults sit in, once nothing is left in it.
+    if (path.dirname(dir) === defaultBase) {
+      try {
+        fs.rmdirSync(defaultBase) // only succeeds when empty
+      } catch {
+        // Something else is in it, or it's gone already.
+      }
+    }
+  }
+}
+
+// Lifecycle
+
+function start(): void {
+  let config = loadConfig()
+  if (!config) {
+    // First launch: a library on the default folders, so the backend (and the setup
+    // wizard it serves) can start. The wizard's library step can replace them.
+    const aside = setAsideUnusableConfig()
+    if (aside) console.warn(`[electron] Config couldn't be read; moved to ${aside}`)
+    const defaults = getDefaultDirs()
+    const empty = isMissingOrEmpty(defaults.appData) && isMissingOrEmpty(defaults.store)
+    config = firstLaunchConfig(defaults, empty)
+    saveConfig(config)
+  }
+  // Every window, including the loading page, follows the UI's theme choice
+  nativeTheme.themeSource = themeSourceFor(config.displayPrefs ?? {})
+  launchApp(libraryDirsOf(config))
+}
+
 app.on('second-instance', () => {
-  const win = mainWindow ?? setupWindow
+  const win = mainWindow
   if (!win) return
   if (win.isMinimized()) win.restore()
   win.focus()

@@ -1,68 +1,39 @@
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import {
-  sanitizeDisplayPrefs,
-  sanitizeWindowColors,
-  type DisplayPrefs,
-  type WindowColors,
-} from './displayPrefs'
+import { parseConfig, type AppConfig } from './appConfig'
 import { defaultStorageBase } from './storageDirs'
 
-interface AppConfig {
-  appDataDir: string
-  imageLibraryDir: string
-  /** The UI's display choices, so they survive a change of backend port (displayPrefs.ts) */
-  displayPrefs?: DisplayPrefs
-  /** The UI's last background and text colours, for the window and title bar at launch */
-  windowColors?: WindowColors
-}
-
-/** Legacy config shape written by older versions. */
-interface LegacyConfig {
-  dataDir?: string
-}
+export type { AppConfig }
 
 function getConfigPath(): string {
   return path.join(app.getPath('userData'), 'scene-atlas-config.json')
-}
-
-/** Migrate a legacy single-root config to the two-root schema.
- *
- * appDataDir      ← dataDir           (unchanged; fast data already lives here)
- * imageLibraryDir ← dataDir/store/images  (existing image root becomes new library root)
- */
-function migrateLegacyConfig(legacy: LegacyConfig): AppConfig {
-  const dataDir = legacy.dataDir!
-  return {
-    appDataDir: dataDir,
-    imageLibraryDir: path.join(dataDir, 'store', 'images'),
-  }
 }
 
 export function loadConfig(): AppConfig | null {
   const configPath = getConfigPath()
   if (!fs.existsSync(configPath)) return null
   try {
-    const raw = fs.readFileSync(configPath, 'utf-8')
-    const parsed = JSON.parse(raw) as AppConfig & LegacyConfig
+    const result = parseConfig(JSON.parse(fs.readFileSync(configPath, 'utf-8')))
+    if (!result) return null
+    if (result.migrated) saveConfig(result.config)
+    return result.config
+  } catch {
+    return null
+  }
+}
 
-    if (parsed.dataDir && !parsed.appDataDir) {
-      const migrated = migrateLegacyConfig(parsed)
-      saveConfig(migrated)
-      return migrated
-    }
-
-    if (!parsed.appDataDir || !parsed.imageLibraryDir) return null
-    // Older configs may also carry convertToWebp or pendingStoredFormat: the stored format
-    // is now chosen in the setup wizard and kept by the backend (design/first-run.md).
-    const windowColors = sanitizeWindowColors(parsed.windowColors)
-    return {
-      appDataDir: parsed.appDataDir,
-      imageLibraryDir: parsed.imageLibraryDir,
-      displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
-      ...(windowColors ? { windowColors } : {}),
-    }
+/**
+ * Move a config file that exists but can't be used out of the way, so a first-launch
+ * config can replace it without losing it. Returns where it went, or null.
+ */
+export function setAsideUnusableConfig(): string | null {
+  const configPath = getConfigPath()
+  if (!fs.existsSync(configPath)) return null
+  const aside = `${configPath}.unusable-${Date.now()}`
+  try {
+    fs.renameSync(configPath, aside)
+    return aside
   } catch {
     return null
   }
@@ -74,19 +45,20 @@ export function saveConfig(config: AppConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
 }
 
-/** Merge *patch* into the saved config. No-op before setup has saved one. */
+/** Merge *patch* into the saved config. No-op before one has been saved. */
 export function updateConfig(patch: Partial<AppConfig>): void {
   const config = loadConfig()
   if (config) saveConfig({ ...config, ...patch })
 }
 
-export function getDefaultDirs(): { appDataDir: string; imageLibraryDir: string } {
+/** Where a new library goes: `<base>/data` and `<base>/images` (defaultStorageBase). */
+export function getDefaultDirs(): { appData: string; store: string } {
   const base = defaultStorageBase(process.platform, process.env, {
     home: app.getPath('home'),
     documents: app.getPath('documents'),
   })
   return {
-    appDataDir: path.join(base, 'data'),
-    imageLibraryDir: path.join(base, 'images'),
+    appData: path.join(base, 'data'),
+    store: path.join(base, 'images'),
   }
 }

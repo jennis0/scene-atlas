@@ -4,8 +4,7 @@ import * as path from 'path'
 import { Readable } from 'stream'
 import { app } from 'electron'
 
-/** Find a free TCP port by binding to port 0 and reading what the OS assigned. */
-/** *preferred* if it is free, otherwise any free port. */
+/** *preferred* if it is free, otherwise any free port (bind to 0, read what the OS assigned). */
 export async function findFreePort(preferred?: number): Promise<number> {
   if (preferred !== undefined) {
     try {
@@ -66,6 +65,9 @@ export interface SidecarOptions {
   port: number
   appDataDir: string
   imageLibraryDir: string
+  /** The user's own maps folder, passed only when one is configured. It may be missing
+   * (a drive that isn't plugged in): the backend reports it as offline. */
+  linkedLibraryDir?: string | null
   /** Called when the backend prints SCENE_ATLAS_READY on stdout. */
   onReady: (port: number) => void
   onLog: (line: string) => void
@@ -75,7 +77,7 @@ export interface SidecarOptions {
 
 /** Spawn the backend sidecar; calls onReady(port) when it prints SCENE_ATLAS_READY. */
 export function spawnSidecar(options: SidecarOptions): ChildProcess {
-  const { port, appDataDir, imageLibraryDir, onReady, onLog, onError } = options
+  const { port, appDataDir, imageLibraryDir, linkedLibraryDir, onReady, onLog, onError } = options
   const child = spawn(
     getSidecarPath(),
     [
@@ -85,6 +87,7 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       appDataDir,
       '--image-library-dir',
       imageLibraryDir,
+      ...(linkedLibraryDir ? ['--linked-library-dir', linkedLibraryDir] : []),
       '--parent-pid',
       String(process.pid),
     ],
