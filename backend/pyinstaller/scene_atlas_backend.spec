@@ -16,8 +16,14 @@
 # for downloading and onnxruntime for inference.
 
 import sys
+from importlib.metadata import distributions, packages_distributions
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    copy_metadata,
+)
 
 # Project root (2 levels up from this spec file: backend/pyinstaller -> backend -> root)
 project_root = Path(SPECPATH).parent.parent
@@ -33,6 +39,32 @@ lancedb_datas, lancedb_binaries, lancedb_hiddenimports = collect_all('lancedb')
 ort_datas    = collect_data_files('onnxruntime')
 ort_binaries = collect_dynamic_libs('onnxruntime')
 
+# ── Every distribution's metadata (.dist-info). Packages read it at import time, e.g.
+# httpcore2 and httpx2 call importlib.metadata.version() on themselves, and PyInstaller
+# bundles metadata only when a hook asks for it; without it model downloads failed.
+# The build venv holds just the runtime deps, so this is all of them (a few MB), minus
+# PyInstaller's own. entry.py --self-check imports every bundled package to catch more.
+_BUILD_TOOLS = {'pyinstaller', 'pyinstaller-hooks-contrib', 'altgraph', 'pefile',
+                'pywin32-ctypes', 'macholib'}
+metadata_datas = []
+for _dist in distributions():
+    _dist_name = _dist.metadata['Name']
+    if _dist_name and _dist_name.lower() not in _BUILD_TOOLS:
+        metadata_datas += copy_metadata(_dist_name)
+
+# ── The runtime deps' top-level modules, for entry.py --self-check. Listed here, where
+# every package's metadata exists: at runtime a package with missing metadata (the
+# failure above) would be missing from packages_distributions() too, and go unchecked.
+import json as _json
+_self_check_modules = sorted(
+    module
+    for module, dists in packages_distributions().items()
+    if not all(d.lower() in _BUILD_TOOLS for d in dists)
+)
+_self_check_file = Path(workpath) / 'self_check_modules.json'
+_self_check_file.parent.mkdir(parents=True, exist_ok=True)
+_self_check_file.write_text(_json.dumps(_self_check_modules))
+
 import os as _os
 import platform as _platform
 import re as _re
@@ -41,7 +73,8 @@ a = Analysis(
     [str(project_root / 'backend' / 'pyinstaller' / 'entry.py')],
     pathex=[str(project_root)],
     binaries=tokenizers_binaries + ort_binaries + lancedb_binaries,
-    datas=tokenizers_datas + ort_datas + lancedb_datas + [
+    datas=tokenizers_datas + ort_datas + lancedb_datas + metadata_datas + [
+        (str(_self_check_file), '.'),
         # Alembic migrations: alembic.ini + backend/alembic/ bundled into _MEIPASS root
         # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
         (str(project_root / 'alembic.ini'),          '.'),
@@ -134,8 +167,8 @@ a = Analysis(
         # Pillow's AVIF codec (7 MB): AVIF isn't an import format, and the plugin
         # sets SUPPORTED = False without it.
         'PIL._avif',
-        # Download accelerator: plain HTTP is enough for a one-off model download.
-        'hf_xet',
+        # Not hf_xet: the model repos are on Hugging Face's Xet storage, and
+        # huggingface-hub 2.x can't download Xet files without it (no HTTP fallback).
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -171,21 +204,10 @@ _PYARROW_UNUSED_RE = _re.compile(
     r')$'
 )
 
-# .dist-info directories are package metadata — safe to strip at runtime
-# EXCEPT for packages that read their own metadata at import time:
-#  - onnxruntime: DirectML uses entry_points.txt for plugin registration
-#  - lancedb: reads its version via importlib.metadata at import
-_DIST_INFO_RE = _re.compile(r'\.dist-info/')
-
+# .dist-info directories are all kept (see metadata_datas above): a whitelist of the
+# packages that read their metadata broke whenever a dependency started to.
 def _keep_entry(entry):
     name = entry[0].replace('\\', '/')
-    if _DIST_INFO_RE.search(name):
-        if 'onnxruntime' in name:
-            pass  # keep — DirectML needs entry_points.txt
-        elif 'lancedb' in name:
-            pass  # keep — lancedb reads its own version via importlib.metadata at import
-        else:
-            return False
     if _CUDA_LIB_RE.search(name) or _PYARROW_UNUSED_RE.search(name):
         return False
     return True

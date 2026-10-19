@@ -153,10 +153,12 @@ macOS is built only on the arm64 runner; there is no Intel or universal build.
 
 **Sidecar build environment:** `build_sidecar.py` runs PyInstaller from `.venv-sidecar`, which `uv sync --frozen --managed-python --no-install-project --extra <ort_extra> --group sidecar` keeps at exactly the runtime dependencies plus PyInstaller (the `sidecar` dependency group). PyInstaller bundles every module it can import, optional imports included, so building from the dev venv used to bundle IPython, prompt_toolkit, pygments, transformers' safetensors and onnx's protobuf. A package that isn't installed can't be bundled, so the spec needs no dev-tool excludes. The Python is uv-managed (as in CI), never a system or Microsoft Store one.
 
+**Package metadata and the self-check:** the spec bundles every distribution's `.dist-info` (`copy_metadata` over the build venv, minus PyInstaller's own), since packages read their metadata at import: `httpcore2` and `httpx2` call `importlib.metadata.version()` on themselves, so before this the frozen app couldn't download a model ("No package metadata was found for httpcore2"). PyInstaller only bundles metadata when a hook asks, and a whitelist of packages known to read it broke as soon as a dependency started to. The spec also writes `self_check_modules.json` (the runtime deps' top-level modules, listed at build time while all the metadata exists); `scene-atlas-backend --self-check` imports each one that was bundled, and `smoke_sidecar.py` runs it before starting the server. That catches frozen-only import failures on paths startup never touches (model downloads, video).
+
 **What the spec leaves out:** each was checked against the PE import tables of the bundled binaries and the importing code's `try/except ImportError`:
 - pyarrow's Arrow Flight, Substrait and cloud filesystems (`_flight`, `_substrait`, `_s3fs`, `_gcsfs`, `_azurefs`, `_hdfs`, with the `arrow_flight`/`arrow_python_flight`/`arrow_substrait`/`arrow_s3` libraries only they load), plus the headers, Cython sources, import libraries and tests the wheel ships. LanceDB uses none of them.
 - Pillow's AVIF codec (`PIL._avif`, 7 MB); AVIF isn't an import format.
-- `hf_xet`; model downloads use plain HTTP.
+- Not `hf_xet`, which an earlier spec excluded: the model repos are on Hugging Face's Xet storage, and huggingface-hub 2.x can't download Xet files without it.
 
 **Size** (Windows, 2026-10-18; the installer is the download):
 
@@ -234,7 +236,7 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `electron-builder.yml` | Build targets, sidecar bundling, locales, fuses |
 | `scripts/build/build_sidecar.py` | Syncs `.venv-sidecar` and runs PyInstaller |
 | `scripts/build/build_electron.py` | Frontend → sidecar → TypeScript → electron-builder (`--dev` for an unpacked app only) |
-| `scripts/build/smoke_sidecar.py` | Starts the built sidecar and checks it serves the API and UI |
+| `scripts/build/smoke_sidecar.py` | Runs the built sidecar's `--self-check`, then starts it and checks it serves the API and UI |
 | `scripts/build/make_icon.py` | Draws the placeholder `assets/icon.png` |
 | `e2e/packaged/` | Packaged-app tests (windows, sidecar lifecycle), `npm run test:packaged` |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |

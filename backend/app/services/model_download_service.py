@@ -144,9 +144,10 @@ def download_model(name: str, progress_fn=None) -> dict:
         progress_fn(0, 100, "Fetching model info...")
     subfolder: str | None = entry.get("hf_subfolder")
     revision: str | None = entry.get("hf_revision")
-    try:
-        from huggingface_hub import model_info as hf_model_info
+    # Outside the try: a failed import is a packaging bug, not an unreachable server.
+    from huggingface_hub import model_info as hf_model_info
 
+    try:
         info = hf_model_info(repo_id, revision=revision)
         commit_sha: str = info.sha or "unknown"
     except Exception as exc:
