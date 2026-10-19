@@ -367,12 +367,12 @@ class TestInspect:
     def test_maps_folder_is_counted(self, tmp_path):
         result = inspect(linked=maps_folder(tmp_path / "Maps", 3))
         assert result.outcome == "new"
-        assert result.linked == li.LinkedFolder("maps", 3, False)
+        assert result.linked == li.LinkedSummary("maps", 3, False)
         assert result.library is None
 
     def test_count_stops_at_the_limit(self, tmp_path):
         result = inspect(linked=maps_folder(tmp_path / "Maps", 5), max_items=4)
-        assert result.linked == li.LinkedFolder("maps", 4, True)
+        assert result.linked == li.LinkedSummary("maps", 4, True)
 
     @pytest.mark.parametrize("make", [True, False])
     def test_empty_or_new_folder(self, tmp_path, make):
@@ -380,7 +380,7 @@ class TestInspect:
         if make:
             linked.mkdir()
         result = inspect(linked=linked)
-        assert (result.outcome, result.linked) == ("new", li.LinkedFolder("empty", 0, False))
+        assert (result.outcome, result.linked) == ("new", li.LinkedSummary("empty", 0, False))
 
     def test_library_in_a_linked_folder_opens_with_its_hints(self, lib, tmp_path):
         lib.linked = maps_folder(tmp_path / "Battle Maps", 2)
@@ -389,7 +389,7 @@ class TestInspect:
 
         result = inspect(linked=lib.linked)
         assert result.outcome == "open"
-        assert result.linked == li.LinkedFolder("library", 0, False)
+        assert result.linked == li.LinkedSummary("library", 0, False)
         assert result.library == li.FoundLibrary(
             library_id,
             False,
