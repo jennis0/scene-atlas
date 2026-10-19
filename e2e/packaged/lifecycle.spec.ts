@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import {
   applyLibrary,
+  applyLibraryAndRestart,
   cleanUp,
   isAlive,
   launch,
@@ -18,9 +19,9 @@ import {
   readConfig,
   sidecars,
   waitForBackendUi,
-  waitForChosenLibraryUi,
-  waitForPage,
+  waitForLoadingPage,
   waitUntil,
+  writeConfig,
   type Profile,
 } from "./app";
 
@@ -79,12 +80,9 @@ test("an unusable storage folder is reported on the loading page, in the app's f
   // A folder can't be created inside a file, on any OS.
   const blocker = path.join(profile.root, "not-a-folder");
   fs.writeFileSync(blocker, "");
-  fs.writeFileSync(
-    path.join(profile.userData, "scene-atlas-config.json"),
-    JSON.stringify({ appDataDir: path.join(blocker, "data"), imageLibraryDir: profile.images }),
-  );
+  writeConfig(profile, { appDataDir: path.join(blocker, "data"), imageLibraryDir: profile.images });
   const app = await launch(profile);
-  const loading = await waitForPage(app.browser, (url) => url.endsWith("/loading.html"));
+  const loading = await waitForLoadingPage(app.browser);
 
   await expect(loading.locator("body")).toContainText("can't be used", { timeout: 30_000 });
   const loaded = await loading.evaluate(async () => {
@@ -107,7 +105,7 @@ test("folders the backend refuses can be chosen again from the loading page", as
     JSON.stringify({ format: 1, library_id: "4f1c0000-0000-4000-8000-000000000000", role: "store", hints: {} }),
   );
   const app = await launch(profile);
-  const loading = await waitForPage(app.browser, (url) => url.endsWith("/loading.html"));
+  const loading = await waitForLoadingPage(app.browser);
 
   await expect(loading.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 60_000 });
   await loading.getByRole("button", { name: "Choose folders…" }).click();
@@ -202,10 +200,7 @@ test("choosing other folders in setup restarts the backend in the window and del
   });
   expect(isAlive(oldSidecar.pid)).toBe(true);
 
-  // Doesn't settle: the window goes to the loading page and back to the UI.
-  void applyLibrary(page, { appData: newAppData, store, linked: maps }).catch(() => {});
-  await waitUntil("old backend to exit", () => !isAlive(oldSidecar.pid), 30_000);
-  await waitForChosenLibraryUi(page);
+  await applyLibraryAndRestart(page, { appData: newAppData, store, linked: maps }, oldSidecar.pid);
 
   // Same app process and window; a new backend on the new folders, with the linked one.
   expect(isAlive(app.child.pid!)).toBe(true);
@@ -236,10 +231,7 @@ test("changing folders later restarts the backend in the window and keeps the ol
 
   const newAppData = path.join(profile.root, "moved-app-data");
   const newImages = path.join(profile.root, "moved-images");
-  void applyLibrary(page, { appData: newAppData, store: newImages, linked: null }).catch(() => {});
-
-  await waitUntil("old backend to exit", () => !isAlive(oldSidecar.pid), 30_000);
-  await waitForChosenLibraryUi(page);
+  await applyLibraryAndRestart(page, { appData: newAppData, store: newImages, linked: null }, oldSidecar.pid);
   expect(isAlive(app.child.pid!)).toBe(true);
   const [newSidecar] = await sidecars(newAppData);
   expect(newSidecar).toBeDefined();
