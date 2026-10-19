@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-
-/** The desktop app's library folders (electronAPI.getStorageDirs) */
-export type StorageDirs = Awaited<ReturnType<NonNullable<Window['electronAPI']>['getStorageDirs']>>
+import type { StorageDirs } from '@/electron'
 
 /** The desktop app's configured folders; null outside the desktop app, until loaded, or
  * when they couldn't be read. */

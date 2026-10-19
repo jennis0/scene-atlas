@@ -39,22 +39,22 @@ export interface InspectResult {
   store_has_maps: boolean
 }
 
-export type LinkedState = 'online' | 'offline' | 'detached'
+export interface LinkedFolder {
+  state: 'online' | 'offline' | 'detached'
+  /** The folder's base name, shown in both modes */
+  name: string
+  /** Only in the desktop app; never on servers */
+  path: string | null
+  image_count: number
+  missing_count: number
+  /** ISO */
+  last_scan_at: string | null
+  scanning: boolean
+}
 
 export interface LibraryStatus {
   library_id: string
-  linked: null | {
-    state: LinkedState
-    /** The folder's base name, shown in both modes */
-    name: string
-    /** Only in the desktop app; never on servers */
-    path: string | null
-    image_count: number
-    missing_count: number
-    /** ISO */
-    last_scan_at: string | null
-    scanning: boolean
-  }
+  linked: LinkedFolder | null
 }
 
 export const libraryApi = {

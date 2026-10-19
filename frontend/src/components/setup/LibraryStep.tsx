@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import type { LibraryDirs, LibraryFolderKind } from '@/electron'
 import { useLibraryInspect } from '@/hooks/useLibraryInspect'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
-import { libraryApi, type InspectRequest, type InspectResult } from '@/lib/api/libraryApi'
+import { libraryApi, type InspectResult } from '@/lib/api/libraryApi'
 import { ChoiceCard } from './ChoiceCard'
 import { LoadFailed } from './LoadFailed'
 import { SetupFrame } from './SetupFrame'
 import type { StepNav } from './steps'
 
 type Choice = 'new' | 'linked'
-type FolderKind = 'appData' | 'store' | 'linked'
 
 /** The store's default place inside a linked folder (design/library-setup.md §1) */
 const STORE_IN_LINKED = 'Scene Atlas'
@@ -27,7 +27,6 @@ function joinPath(base: string, name: string): string {
   return `${base.replace(/[\\/]+$/, '')}${sep}${name}`
 }
 
-/** "Found 56,214 images." for a maps folder */
 function foundText(linked: NonNullable<InspectResult['linked']>): string {
   const count = linked.image_count.toLocaleString()
   return linked.capped ? `Found more than ${count} images.` : `Found ${count} images.`
@@ -68,12 +67,11 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
   const storePath = store ?? defaultStore ?? null
   const appDataPath = appData ?? dirs?.defaults.appData ?? null
 
-  const request = useMemo<InspectRequest | null>(() => {
-    if (!storePath || !appDataPath || (choice === 'linked' && !linkedPath)) return null
-    return { app_data: appDataPath, store: storePath, ...(linkedPath && { linked: linkedPath }) }
-  }, [appDataPath, storePath, linkedPath, choice])
-  const { state: inspect, retry } = useLibraryInspect(request)
-  const result = inspect.status === 'done' ? inspect.result : null
+  const proposed: LibraryDirs | null =
+    storePath && appDataPath && (choice === 'new' || linkedPath)
+      ? { appData: appDataPath, store: storePath, linked: linkedPath }
+      : null
+  const { state: inspect, result, refusal, retry } = useLibraryInspect(proposed)
 
   // Another library (not the one this wizard runs on, which has a marker too)
   const found =
@@ -131,7 +129,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
     setLinked(folder)
   }
 
-  const pick = async (kind: FolderKind) => {
+  const pick = async (kind: LibraryFolderKind) => {
     const current = { appData: appDataPath, store: storePath, linked }[kind] ?? undefined
     const chosen = await window.electronAPI?.chooseFolder(kind, current)
     if (!chosen) return
@@ -147,15 +145,11 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
 
   const handleContinue = async () => {
     const api = window.electronAPI
-    if (!api || !storePath || !appDataPath) return
+    if (!api || !proposed) return
     setApplying(true)
     setApplyError(null)
     try {
-      const outcome = await api.applyLibrary({
-        appData: appDataPath,
-        store: storePath,
-        linked: linkedPath,
-      })
+      const outcome = await api.applyLibrary(proposed)
       if (outcome.error) {
         setApplyError(outcome.error)
         setApplying(false)
@@ -172,7 +166,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
 
   const error: ReactNode =
     applyError ??
-    (result?.outcome === 'error' ? (result.message ?? "Couldn't use these folders.") : null) ??
+    refusal ??
     (inspect.status === 'failed' ? (
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         Couldn&apos;t check these folders.
@@ -200,7 +194,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
         onClick: () => void handleContinue(),
         label: found?.setup_completed ? 'Open library' : undefined,
         busy: applying,
-        disabled: request === null || result === null || result.outcome === 'error',
+        disabled: !result || !!refusal,
       }}
       error={error}
     >

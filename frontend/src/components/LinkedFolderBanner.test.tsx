@@ -6,11 +6,12 @@ import { libraryApi, type LibraryStatus } from '@/lib/api/libraryApi'
 import { LinkedFolderBanner } from './LinkedFolderBanner'
 
 vi.mock('@/lib/api/libraryApi', () => ({ libraryApi: { scan: vi.fn() } }))
+vi.mock('@/lib/import/ImportManager', () => ({ getImportManager: () => ({ refresh: vi.fn() }) }))
 
-function status(state: 'online' | 'offline' | 'detached'): LibraryStatus {
+function status(state: 'online' | 'offline' | 'detached' | null): LibraryStatus {
   return {
     library_id: 'lib',
-    linked: {
+    linked: state && {
       state,
       name: 'Battle Maps',
       path: null,
@@ -31,13 +32,8 @@ describe('LinkedFolderBanner', () => {
     await waitFor(() => expect(libraryApi.scan).toHaveBeenCalledWith('manual'))
   })
 
-  it.each(['online', 'detached'] as const)('is hidden while the folder is %s', (state) => {
+  it.each(['online', 'detached', null] as const)('is hidden when the folder is %s', (state) => {
     renderWithProviders(<LinkedFolderBanner status={status(state)} />)
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-  })
-
-  it('is hidden without a linked folder', () => {
-    renderWithProviders(<LinkedFolderBanner status={{ library_id: 'lib', linked: null }} />)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

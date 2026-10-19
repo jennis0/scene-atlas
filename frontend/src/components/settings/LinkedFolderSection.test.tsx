@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { renderWithProviders } from '@/test/renderWithProviders'
-import { libraryApi, type LibraryStatus } from '@/lib/api/libraryApi'
+import { libraryApi, type LibraryStatus, type LinkedFolder } from '@/lib/api/libraryApi'
 import { settingsApi } from '@/lib/api/settingsApi'
 import type { AppSettings } from '@/types'
 import { LinkedFolderSection } from './LinkedFolderSection'
@@ -21,13 +22,12 @@ vi.mock('@/lib/api/libraryApi', () => ({
     removeLinked: vi.fn(),
   },
 }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/api/settingsApi', () => ({ settingsApi: { get: vi.fn(), patch: vi.fn() } }))
 const refresh = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/import/ImportManager', () => ({ getImportManager: () => ({ refresh }) }))
 
-type Linked = NonNullable<LibraryStatus['linked']>
-
-function withLinked(over: Partial<Linked> = {}): LibraryStatus {
+function withLinked(over: Partial<LinkedFolder> = {}): LibraryStatus {
   return {
     library_id: 'lib',
     linked: {
@@ -136,6 +136,35 @@ describe('LinkedFolderSection', () => {
       }),
     )
     expect(libraryApi.removeLinked).toHaveBeenCalled()
+  })
+
+  it("keeps the folder configured when its maps couldn't be removed", async () => {
+    vi.mocked(libraryApi.status).mockResolvedValue(withLinked())
+    vi.mocked(libraryApi.removeLinked).mockRejectedValue(new Error('The library is busy.'))
+    const user = userEvent.setup()
+    renderWithProviders(<LinkedFolderSection open />)
+    await user.click(await screen.findByRole('button', { name: 'Stop using' }))
+    await user.click(screen.getByRole('button', { name: 'Stop using this folder' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('The library is busy.'))
+    expect(window.electronAPI!.applyLibrary).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('says why when the desktop app refuses to drop the folder, and shows the maps gone', async () => {
+    vi.mocked(libraryApi.status).mockResolvedValue(withLinked())
+    vi.mocked(libraryApi.removeLinked).mockResolvedValue({ removed: 56214 })
+    vi.mocked(window.electronAPI!.applyLibrary).mockResolvedValue({
+      error: "Couldn't save the settings.",
+      restarted: false,
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<LinkedFolderSection open />)
+    await user.click(await screen.findByRole('button', { name: 'Stop using' }))
+    vi.mocked(libraryApi.status).mockResolvedValue(withLinked({ state: 'detached' }))
+    await user.click(screen.getByRole('button', { name: 'Stop using this folder' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't save the settings."))
+    expect(await screen.findByRole('status')).toHaveTextContent('no longer used')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('on a server, shows the state and counts but not the path or Stop using', async () => {
