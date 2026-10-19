@@ -46,8 +46,16 @@ function isOwnEntry(name: string): boolean {
   )
 }
 
-function pathFor(platform: NodeJS.Platform): path.PlatformPath {
+/** Path functions for *platform*, so the helpers here can be tested for any OS. */
+export function pathFor(platform: NodeJS.Platform): path.PlatformPath {
   return platform === 'win32' ? path.win32 : path.posix
+}
+
+export function isAbsolutePath(
+  value: unknown,
+  platform: NodeJS.Platform = process.platform,
+): value is string {
+  return typeof value === 'string' && value.trim() !== '' && pathFor(platform).isAbsolute(value)
 }
 
 /**

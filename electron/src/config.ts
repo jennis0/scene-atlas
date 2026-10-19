@@ -2,9 +2,8 @@ import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { parseConfig, type AppConfig } from './appConfig'
+import type { DefaultDirs } from './libraryDirs'
 import { defaultStorageBase } from './storageDirs'
-
-export type { AppConfig }
 
 function getConfigPath(): string {
   return path.join(app.getPath('userData'), 'scene-atlas-config.json')
@@ -52,7 +51,7 @@ export function updateConfig(patch: Partial<AppConfig>): void {
 }
 
 /** Where a new library goes: `<base>/data` and `<base>/images` (defaultStorageBase). */
-export function getDefaultDirs(): { appData: string; store: string } {
+export function getDefaultDirs(): DefaultDirs {
   const base = defaultStorageBase(process.platform, process.env, {
     home: app.getPath('home'),
     documents: app.getPath('documents'),

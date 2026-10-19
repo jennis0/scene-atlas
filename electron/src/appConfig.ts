@@ -1,14 +1,14 @@
 // The desktop app's config (scene-atlas-config.json): its shape, and reading it from
 // whatever an older version or a hand edit left on disk. Node-only (no electron import)
 // so it can be unit tested with `node --test`; config.ts does the file I/O.
-import * as path from 'path'
 import {
   sanitizeDisplayPrefs,
   sanitizeWindowColors,
   type DisplayPrefs,
   type WindowColors,
 } from './displayPrefs.ts'
-import type { LibraryDirs } from './libraryDirs.ts'
+import type { DefaultDirs, LibraryDirs } from './libraryDirs.ts'
+import { isAbsolutePath, pathFor } from './storageDirs.ts'
 
 export interface AppConfig {
   appDataDir: string
@@ -24,11 +24,6 @@ export interface AppConfig {
   displayPrefs?: DisplayPrefs
   /** The UI's last background and text colours, for the window and title bar at launch */
   windowColors?: WindowColors
-}
-
-function isAbsolutePath(value: unknown, platform: NodeJS.Platform): value is string {
-  const p = platform === 'win32' ? path.win32 : path.posix
-  return typeof value === 'string' && value.trim() !== '' && p.isAbsolute(value)
 }
 
 /**
@@ -50,11 +45,10 @@ export function parseConfig(
   // Single-root format: appDataDir ← dataDir, imageLibraryDir ← dataDir/store/images (the
   // existing image root becomes the library root).
   if (typeof parsed.dataDir === 'string' && parsed.dataDir && !parsed.appDataDir) {
-    const p = platform === 'win32' ? path.win32 : path.posix
     return {
       config: {
         appDataDir: parsed.dataDir,
-        imageLibraryDir: p.join(parsed.dataDir, 'store', 'images'),
+        imageLibraryDir: pathFor(platform).join(parsed.dataDir, 'store', 'images'),
         provisional: false,
         libraryChosen: true,
       },
@@ -84,10 +78,7 @@ export function parseConfig(
 
 /** The config written on a first launch: the default folders, provisional only when
  * nothing was in them (so deleting them later can't delete anything of the user's). */
-export function firstLaunchConfig(
-  defaults: { appData: string; store: string },
-  defaultsAreEmpty: boolean,
-): AppConfig {
+export function firstLaunchConfig(defaults: DefaultDirs, defaultsAreEmpty: boolean): AppConfig {
   return {
     appDataDir: defaults.appData,
     imageLibraryDir: defaults.store,
@@ -109,7 +100,7 @@ export function libraryDirsOf(config: AppConfig): LibraryDirs {
  * can choose them. Display choices are kept; the refused folders are left as they are. */
 export function withDefaultLibrary(
   config: AppConfig,
-  defaults: { appData: string; store: string },
+  defaults: DefaultDirs,
   defaultsAreEmpty: boolean,
 ): AppConfig {
   const { linkedLibraryDir: _dropped, ...rest } = config

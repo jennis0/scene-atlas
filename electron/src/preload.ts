@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+// Types only: a sandboxed preload can't load local modules.
+import type { DefaultDirs, FolderKind, LibraryDirs } from './libraryDirs'
 
-// Remember the last error so a subscriber that registers after it arrived still
-// receives it. The main process re-sends it on every page load.
 // What the loading page can offer after a startup failure (design/library-setup.md §3.3).
 interface StartupActions {
   retry: boolean
@@ -10,6 +10,8 @@ interface StartupActions {
 type ErrorListener = (message: string, actions: StartupActions) => void
 const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false }
 
+// Remember the last error so a subscriber that registers after it arrived still
+// receives it. The main process re-sends it on every page load.
 let backendError: string | null = null
 let backendErrorActions: StartupActions = NO_ACTIONS
 const errorListeners = new Set<ErrorListener>()
@@ -31,13 +33,6 @@ try {
   libraryChosen = state?.libraryChosen === true
 } catch {
   // Main process unavailable: the UI falls back to its localStorage
-}
-
-type FolderKind = 'appData' | 'store' | 'linked'
-interface LibraryDirs {
-  appData: string
-  store: string
-  linked: string | null
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -63,7 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // The library's folders (design/library-setup.md)
   libraryChosen,
-  getStorageDirs: (): Promise<LibraryDirs & { defaults: { appData: string; store: string } }> =>
+  getStorageDirs: (): Promise<LibraryDirs & { defaults: DefaultDirs }> =>
     ipcRenderer.invoke('library:get-dirs'),
   chooseFolder: (kind: FolderKind, current?: string): Promise<string | null> =>
     ipcRenderer.invoke('library:choose-folder', kind, current),

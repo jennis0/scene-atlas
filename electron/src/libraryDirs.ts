@@ -4,8 +4,7 @@
 // tested with `node --test`. The backend is authoritative for the library rules; these
 // checks only stop Electron from creating or deleting folders it shouldn't.
 import * as fs from 'fs'
-import * as path from 'path'
-import { isSameOrInside, isSamePath } from './storageDirs.ts'
+import { isAbsolutePath, isSameOrInside, isSamePath, pathFor } from './storageDirs.ts'
 
 export type FolderKind = 'appData' | 'store' | 'linked'
 
@@ -18,18 +17,15 @@ export interface LibraryDirs {
   linked: string | null
 }
 
+/** The two storage folders a new library gets (config.ts getDefaultDirs). */
+export type DefaultDirs = Pick<LibraryDirs, 'appData' | 'store'>
+
 export function isFolderKind(value: unknown): value is FolderKind {
   return value === 'appData' || value === 'store' || value === 'linked'
 }
 
-function pathFor(platform: NodeJS.Platform): path.PlatformPath {
-  return platform === 'win32' ? path.win32 : path.posix
-}
-
 function absolute(value: unknown, platform: NodeJS.Platform): string | null {
-  if (typeof value !== 'string' || value.trim() === '') return null
-  const p = pathFor(platform)
-  return p.isAbsolute(value) ? p.resolve(value) : null
+  return isAbsolutePath(value, platform) ? pathFor(platform).resolve(value) : null
 }
 
 /**

@@ -41,7 +41,7 @@ import {
   type FolderKind,
   type LibraryDirs,
 } from './libraryDirs'
-import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
+import { hasForeignEntries, isAbsolutePath, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -214,10 +214,6 @@ function handleTrusted(
     assertTrusted(event)
     return listener(event, ...args)
   })
-}
-
-function isAbsolutePath(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
 }
 
 // What the UI needs before its first paint, so synchronous on purpose (once per page load):
