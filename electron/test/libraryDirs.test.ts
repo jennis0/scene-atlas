@@ -94,6 +94,13 @@ describe('dirsChanged', () => {
     assert.equal(dirsChanged(linked, { ...win, linked: 'D:\\Other' }, 'win32'), true)
     assert.equal(dirsChanged(linked, { ...win, linked: 'd:\\maps' }, 'win32'), false)
   })
+
+  test('case matters only where the file system ignores it', () => {
+    const mac = { appData: '/Users/sam/SA/data', store: '/Users/sam/SA/images', linked: null }
+    const renamed = { ...mac, store: '/Users/sam/sa/Images/' }
+    assert.equal(dirsChanged(mac, renamed, 'darwin'), false)
+    assert.equal(dirsChanged(mac, renamed, 'linux'), true)
+  })
 })
 
 describe('provisionalDirsToDelete', () => {
