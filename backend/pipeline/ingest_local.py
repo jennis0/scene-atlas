@@ -18,7 +18,7 @@ import json
 import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -180,7 +180,7 @@ def add_local_items(
             db,
             job,
             archive.source_path,
-            PurePosixPath(archive.relative_path).name,
+            archive.relative_path,
             max_files=archive_limits.max_files,
             max_uncompressed_bytes=archive_limits.max_uncompressed_bytes,
             max_file_size=max_file_size,

@@ -394,7 +394,7 @@ export class ImportManager {
       this.updateUpload(jobId, { phase: 'archives' })
       for (const archive of archives) {
         await this.withRetries(run, () =>
-          this.client.uploadArchive(jobId, archive.file, { signal: run.controller.signal }),
+          this.client.uploadArchive(jobId, archive, { signal: run.controller.signal }),
         )
       }
     }

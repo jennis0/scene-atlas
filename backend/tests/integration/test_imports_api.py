@@ -356,6 +356,28 @@ def test_archive_member_paths_that_collide_are_prefixed(api):
     assert paths == ["Map/a.png", "Second/Map/a.png"]
 
 
+def test_flat_archive_is_grouped_under_its_name_and_folder(api):
+    job_id = api.create()
+    body = _zip({"Day.png": image_bytes(15), "Night.png": image_bytes(16)})
+    name = "Creator/Golden Forest.zip"
+    api.client.put(f"{BASE}/{job_id}/archives", params={"name": name}, content=body)
+    groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
+    assert [(g["author"], g["group_name"], g["counts"]["total"]) for g in groups] == [
+        ("Creator", "Golden Forest", 2)
+    ]
+
+
+def test_lone_flat_archive_names_its_group(api):
+    """With no folder, the zip's name is the group when the files carry it (parser Pass 0)."""
+    job_id = api.create()
+    body = _zip(
+        {"GoldenForest_Day.png": image_bytes(17), "GoldenForest_Night_Snow.png": image_bytes(18)}
+    )
+    api.client.put(f"{BASE}/{job_id}/archives", params={"name": "Golden Forest.zip"}, content=body)
+    groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
+    assert [(g["author"], g["group_name"]) for g in groups] == [("Unknown", "Golden Forest")]
+
+
 def test_corrupt_archive_becomes_failed_item(api):
     job_id = api.create()
     r = api.client.put(f"{BASE}/{job_id}/archives", params={"name": "bad.zip"}, content=b"nope")

@@ -13,6 +13,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.models import ImportItem, ImportJob
 from backend.app.services import ingest_state as st
+from backend.app.services.image_parser import ImageParser
 from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.validation import check_zip_safety, verify_media_mime
 
@@ -64,6 +66,43 @@ def _settle(item: ImportItem, event: ItemEvent, reason: str, *, kind: str | None
     item.error_kind = kind
 
 
+@cache
+def _folder_parser() -> ImageParser:
+    return ImageParser()
+
+
+def _strip_name_copies(parts: list[str], zip_stem: str) -> list[str]:
+    """Drop leading folders that repeat the zip's name ("Golden Forest/" in Golden Forest.zip)."""
+    while len(parts) > 1 and _folder_parser().same_name(parts[0], zip_stem):
+        parts = parts[1:]
+    return parts
+
+
+def place_members(paths: list[str], archive_name: str) -> dict[str, str]:
+    """Map member paths (normalised) to the relative paths their items get.
+
+    A zip whose media sit at its root, or only in folders that add nothing to its name
+    (Gridded, VTT, or a copy of the zip's name), is one pack named after the zip: its
+    members go under ``<zip's folder>/<zip stem>/``, as if it had been extracted there,
+    minus any copy of the name. Otherwise its own folders name things, and members keep
+    their paths inside the zip. See design/ingestion.md §7.
+    """
+    archive = PurePosixPath(archive_name)
+    zip_stem = archive.stem
+    parser = _folder_parser()
+    stripped = {path: _strip_name_copies(path.split("/"), zip_stem) for path in paths}
+    media_folders = {
+        folder
+        for path, parts in stripped.items()
+        if kind_for_path(path) in ("image", "video")
+        for folder in parts[:-1]
+    }
+    if not all(parser.is_generic_folder(f) or parser.same_name(f, zip_stem) for f in media_folders):
+        return {path: path for path in paths}
+    prefix = PurePosixPath(archive.parent, zip_stem)
+    return {path: str(PurePosixPath(prefix, *parts)) for path, parts in stripped.items()}
+
+
 def _extract(zf: ZipFile, member, dest: Path) -> str:
     """Extract one member to ``dest`` (via a temp name), returning its SHA-256."""
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -94,7 +133,8 @@ def expand_archive(
     unless ``keep_source`` (a local import reads the user's own zip in place).
 
     - A zip that fails the safety check becomes one failed ``archive`` item.
-    - Member paths are used as relative paths; if one collides with a path
+    - ``name`` is the zip's relative path, folders included where known.
+    - Members are placed by ``place_members``; if a path collides with one
       already in the job, it's prefixed with the zip's name.
     - OS junk is ignored; unsupported files and nested archives are skipped.
     """
@@ -121,12 +161,16 @@ def expand_archive(
         staging.mkdir(parents=True, exist_ok=True)
 
         with ZipFile(zip_path) as zf:
+            members = []
             for member in zf.infolist():
                 if member.is_dir():
                     continue
                 path = normalise_relative_path(member.filename)
-                if not path or is_os_junk(path):
-                    continue
+                if path and not is_os_junk(path):
+                    members.append((member, path))
+            placed = place_members([path for _, path in members], archive_name)
+            for member, member_path in members:
+                path = placed[member_path]
                 if path in taken:
                     path = f"{zip_stem}/{path}"
                 if path in taken:

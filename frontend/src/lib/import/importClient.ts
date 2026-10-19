@@ -21,6 +21,7 @@ import type {
   ManifestFile,
   IncludeResult,
   ManifestResponse,
+  PickedFile,
   QueueStatus,
   SortedOutList,
 } from './types'
@@ -94,13 +95,14 @@ export const importClient = {
     return data
   },
 
+  /** Upload a zip, named by its relative path so the server knows the folder it was in. */
   async uploadArchive(
     jobId: string,
-    file: File,
+    archive: PickedFile,
     options: UploadOptions = {},
   ): Promise<ArchiveResult> {
-    const { data } = await api.put<ArchiveResult>(`${BASE}/${jobId}/archives`, file, {
-      params: { name: file.name },
+    const { data } = await api.put<ArchiveResult>(`${BASE}/${jobId}/archives`, archive.file, {
+      params: { name: archive.relativePath },
       headers: rawBody,
       timeout: 0,
       signal: options.signal,
