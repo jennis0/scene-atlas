@@ -22,7 +22,7 @@ interface ScenePanelProps {
   sceneFilters: SceneFilters
   activeImageId: number
   onSceneClick: (scene: Image) => void
-  scrollRef: React.RefObject<HTMLDivElement>
+  scrollRef: React.RefObject<HTMLDivElement | null>
 }
 
 /** The viewer's scrolling list of the other images in the group, with its filter bar. */
