@@ -63,12 +63,25 @@ Your library
       D:\Battle Maps                                [Choose]
       Found 56,214 images.
 
+      Scene Atlas adds the maps and scenes in this folder, and any
+      you add to it later. Tokens and other art are skipped. Your
+      files are never changed, moved or deleted. Maps you import in
+      the app go in the Imported maps folder, not into your own folders.
+
 Imported maps    D:\Battle Maps\Scene Atlas         [Change]
+                 Stores full resolution images. It can be stored on any large drive.
 Search data      C:\Users\…\Scene Atlas\data        [Change]
-                 Uses several GB. Best on a fast drive.
+                 Stores metadata and thumbnails. Best on a fast drive.
 ```
 
 Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics.
+
+The paragraph under "Use a folder of maps you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
+
+- What's added: maps and scenes. Auto image type skips tokens and other art, so the copy mustn't promise "everything".
+- That files added later are picked up too (§4.3).
+- That their files are never changed, moved or deleted.
+- That imports made in the app go to the Imported maps folder, not into the user's own folder layout.
 
 **Picking a folder.** Every folder the user picks is checked by the backend (`POST /library/inspect`, §3.4) before Continue is enabled. The result can be one of the following.
 
@@ -226,7 +239,19 @@ Any other result is refused. (`relative_path` in import items is display-only an
 
 ### 4.3 Scanning
 
-A scan runs at backend startup, when **Check for changes** is clicked in Settings, and when a linked folder is first configured. It never watches the folder. Steps:
+A scan runs:
+
+- at backend startup;
+- when a linked folder is first configured;
+- **every 15 minutes** while the app runs, through the scheduler;
+- in the desktop app, **when the window regains focus**, at most once a minute. This covers copying maps in with Explorer or Finder and switching back;
+- when **Check for changes** is clicked in Settings.
+
+A scan that finds nothing new reads no files. It lists the folder and compares sizes and modification times, which takes about 3 s for 60k files on a local disk. It also creates no job, so it is invisible.
+
+It never watches the folder. OS file events are unreliable on large synced folders, network shares and Docker bind mounts, and need a handle per folder.
+
+Steps:
 
 1. **Walk.** `os.scandir`, sorted, using the local import's walker (`ingest_local._walk`):
    - Symlinks are skipped and OS junk is dropped.
@@ -380,7 +405,8 @@ Each phase leaves main working, but the feature ships as one PR from `feature/li
    - migration: `library_sources`, `source_files`, `images.source_file_id`, nullable `storage_key`, `import_items.source_file_id`;
    - the source interface, the walker shared with local import, scan and diff;
    - processing linked items, moves and duplicates, write-back to `source_files`;
-   - startup and manual scans, offline and detached states.
+   - scans at startup, every 15 minutes, on window focus (a desktop IPC event to a scan endpoint, rate-limited to once a minute) and on demand, never two at once;
+   - offline and detached states.
 3. **Everything that touches originals** (backend): the §4.6 table, including the two deletion bugs, `file_state` in the API, purge, export, removing images and "Stop using this folder".
 4. **Electron:**
    - remove the storage window;

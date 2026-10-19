@@ -571,7 +571,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
    - a store: originals of copied imports, backups, a marker;
    - an optional, **read-only** linked folder.
 3. **One linked folder.** Files are referenced as `(source_id, rel_key)` and indexed in `source_files`, so rescans don't re-hash files they've seen.
-   - Scans run at startup and on demand, with no file watching.
+   - Scans run at startup, every 15 minutes, when the desktop window regains focus, and on demand. There's no file watching: a scan with no changes only lists the folder.
    - Moves are matched by content hash. Missing files keep their images.
    - Removing an image never touches the file.
    - On the desktop, the store defaults to `<linked folder>/Scene Atlas`.
