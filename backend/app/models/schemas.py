@@ -444,6 +444,8 @@ class TagCategoryResponse(TagCategoryBase):
 
 
 StoredFormatName = Literal["original", "webp", "jpeg", "png"]
+# How often the linked folder is rescanned, in minutes; 0 = only at startup.
+LinkedRescanMinutes = Literal[0, 5, 15, 60]
 
 
 class AppSettings(BaseModel):
@@ -486,6 +488,9 @@ class AppSettings(BaseModel):
     stored_quality: int = Field(default=90, ge=1, le=100)  # lossy WebP and JPEG
     stored_lossless: bool = True  # lossless WebP for lossless sources (never for JPEGs)
 
+    # Linked folder (design/library-setup.md §4.3)
+    linked_rescan_minutes: LinkedRescanMinutes = 15
+
     # Model selection (managed via POST /api/v1/models/active — not in AppSettingsPatch)
     active_model: str = ""  # "" = auto-detect at startup; "small"|"medium"|"large" once set
 
@@ -511,3 +516,56 @@ class AppSettingsPatch(BaseModel):
     stored_format: StoredFormatName | None = None
     stored_quality: int | None = Field(None, ge=1, le=100)
     stored_lossless: bool | None = None
+    linked_rescan_minutes: LinkedRescanMinutes | None = None
+
+
+# Library (design/library-setup.md §3, "Interfaces between the parts")
+
+
+class InspectRequest(BaseModel):
+    """Folders the user is choosing, as absolute paths; any may be left out."""
+
+    app_data: str | None = Field(None, min_length=1, max_length=4096)
+    store: str | None = Field(None, min_length=1, max_length=4096)
+    linked: str | None = Field(None, min_length=1, max_length=4096)
+
+
+class InspectLinked(BaseModel):
+    kind: Literal["maps", "empty", "library"]
+    image_count: int  # supported images found; 0 for "library"
+    capped: bool  # counting stopped at max_local_import_items
+
+
+class InspectHints(BaseModel):
+    app_data: str | None
+    store: str | None
+    linked: str | None
+
+
+class InspectLibrary(BaseModel):
+    library_id: str
+    setup_completed: bool | None  # None when its app data wasn't found
+    hints: InspectHints  # absolute
+
+
+class InspectResult(BaseModel):
+    outcome: Literal["new", "open", "error"]
+    message: str | None  # the refusal, for "error"
+    linked: InspectLinked | None  # present when ``linked`` was sent
+    library: InspectLibrary | None  # a library found in any of the sent folders
+    store_has_maps: bool  # the ``store`` folder already holds images that aren't a library's
+
+
+class LinkedLibraryStatus(BaseModel):
+    state: Literal["online", "offline", "detached"]
+    name: str  # the folder's base name
+    path: str | None  # desktop app only; never on servers
+    image_count: int
+    missing_count: int
+    last_scan_at: datetime | None
+    scanning: bool
+
+
+class LibraryStatus(BaseModel):
+    library_id: str
+    linked: LinkedLibraryStatus | None

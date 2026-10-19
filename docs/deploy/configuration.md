@@ -20,8 +20,11 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 |----------|---------|-------------|
 | `APP_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
 | `IMAGE_LIBRARY_DIR` | `./images`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+| `LINKED_LIBRARY_DIR` | unset | A folder of your own maps that Scene Atlas reads where they are and never writes to. Optional; a read-only mount is recommended. It may be missing at startup |
 
 A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `IMAGE_LIBRARY_DIR` or move the folder.
+
+Each library is recognised by a `scene-atlas-library.json` file at the root of `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR`. The backend refuses to start if the two folders belong to different libraries, if `IMAGE_LIBRARY_DIR` doesn't hold the maps the database expects (for example a drive that isn't mounted), or if either folder is `LINKED_LIBRARY_DIR` or contains it. The log says which, on a line starting `STARTUP ERROR:`.
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 

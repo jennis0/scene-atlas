@@ -125,6 +125,19 @@ There is no restriction on which absolute paths are accepted, so code running in
 - DNS rebinding: in app mode `LoopbackHostMiddleware` (`backend/app/host_check.py`) rejects requests whose `Host` isn't `127.0.0.1`, `localhost` or `[::1]` (400), so a rebound web page can't reach this or any other endpoint.
 - Only media is ingested: each file passes the magic-byte check (`verify_media_mime`) before it's copied; symlinks aren't followed; sources are never written.
 
+### 6b. MEDIUM: Library inspection reads paths named by the client
+
+**Status**: Mitigated.
+
+`POST /library/inspect` ([library-setup.md](library-setup.md#34-post-libraryinspect-desktop-only)) looks at folders the setup wizard names: it reads library markers, opens `battlemap.db` read-only, and walks a folder to count images. Controls:
+- Desktop app only (404 unless `APP_MODE=app`), behind the loopback `Host` check, like `local-sources` (6a).
+- Read-only: nothing is created or changed, except that SQLite may leave `-wal`/`-shm` files beside a database it opened read-only.
+- Returns an outcome, counts, library IDs and the library's own folder hints; never file names. Paths must be absolute.
+- The folders themselves are never set through the API: they reach the backend only as sidecar arguments or env vars.
+- Admission-controlled (`acquire_heavy_op`), since counting a large folder takes seconds.
+
+Linked-folder reads (the containment check) are planned with linked scanning and will be added here.
+
 ### 7. MEDIUM: CORS Configuration
 
 **Status**: Done.

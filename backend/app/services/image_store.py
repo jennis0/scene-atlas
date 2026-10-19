@@ -16,8 +16,9 @@ class ImageStore:
     """Hash-sharded filesystem storage for images."""
 
     def __init__(self, base_dir: Path):
+        # The root isn't created here: a missing library folder must stay missing (an
+        # unmounted drive), and the startup check decides when a new one is made.
         self.base_dir = base_dir
-        self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _key_to_path(self, key: str) -> Path:
         """Convert storage key to sharded path.

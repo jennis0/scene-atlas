@@ -6,6 +6,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
     # APP_DATA_DIR set, the library goes inside it (default_image_library_dir).
     app_data_dir: Path = _REPO_ROOT / "data"
     image_library_dir: Path = _LEGACY_LIBRARY_DIR
+    # The linked folder (LINKED_LIBRARY_DIR): the user's own maps, read where they are and
+    # never written. Optional, and it need not exist (design/library-setup.md).
+    linked_library_dir: Path | None = None
 
     # Whether to validate that roots exist on startup.
     # Set to True in production entry points (entry.py).  False by default so
@@ -110,6 +114,12 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:8000",
     ]
+
+    @field_validator("linked_library_dir", mode="before")
+    @classmethod
+    def _empty_linked_dir_is_none(cls, value):
+        # LINKED_LIBRARY_DIR= (e.g. an unset variable in a compose file) means no folder.
+        return None if isinstance(value, str) and not value.strip() else value
 
     # Paths derived from the two roots. They are not fields, so env vars such as
     # DATABASE_URL cannot set them. Each is computed on first access and cached;

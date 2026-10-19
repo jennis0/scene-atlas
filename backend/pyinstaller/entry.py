@@ -77,6 +77,12 @@ def main():
         help="Image library directory (cold storage: originals, backups)",
     )
     parser.add_argument(
+        "--linked-library-dir",
+        type=str,
+        default=None,
+        help="The user's own maps folder, read in place (optional; need not exist)",
+    )
+    parser.add_argument(
         "--parent-pid",
         type=int,
         default=None,
@@ -100,6 +106,10 @@ def main():
     # Must set env vars before any backend.app import triggers Settings()
     os.environ["APP_DATA_DIR"] = args.app_data_dir
     os.environ["IMAGE_LIBRARY_DIR"] = args.image_library_dir
+    if args.linked_library_dir:
+        os.environ["LINKED_LIBRARY_DIR"] = args.linked_library_dir
+    else:
+        os.environ.pop("LINKED_LIBRARY_DIR", None)
     os.environ["VALIDATE_ROOTS"] = "1"  # Settings() will raise if roots don't exist
     os.environ["API_PORT"] = str(args.port)
     os.environ["API_HOST"] = "127.0.0.1"

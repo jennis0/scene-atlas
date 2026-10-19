@@ -1,15 +1,25 @@
 """The packaged-sidecar entry point, run as Electron runs it (from source)."""
 
+import json
 import os
 import queue
 import socket
 import subprocess
 import sys
 import threading
+import urllib.request
+import uuid
 from pathlib import Path
 
 import pytest
 
+from backend.app.library_identity import (
+    APP_DATA_NOT_HERE,
+    STARTUP_MESSAGES,
+    Marker,
+    read_marker,
+    write_marker,
+)
 from backend.tests.unit.test_storage_lock import child_can_lock
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -29,8 +39,9 @@ class Sidecar:
         self.port = _free_port()
         self.data_dir = tmp_path / "data"
         library = tmp_path / "images"
-        self.data_dir.mkdir()
-        library.mkdir()
+        self.library_dir = library
+        self.data_dir.mkdir(exist_ok=True)
+        library.mkdir(exist_ok=True)
         self.lines: queue.Queue[str] = queue.Queue()
         self.proc = subprocess.Popen(
             [
@@ -129,3 +140,31 @@ def test_without_parent_pid_stdin_eof_is_ignored(sidecar_factory):
     sidecar.proc.stdin.close()
     with pytest.raises(subprocess.TimeoutExpired):
         sidecar.proc.wait(timeout=3)
+
+
+def test_linked_library_dir_is_passed_to_the_backend(sidecar_factory, tmp_path):
+    linked = tmp_path / "Battle Maps"  # need not exist
+    sidecar = sidecar_factory("--linked-library-dir", str(linked))
+    sidecar.wait_ready()
+    url = f"http://127.0.0.1:{sidecar.port}/api/v1/library/status"
+    with urllib.request.urlopen(url, timeout=10) as response:  # nosec B310
+        status = json.load(response)
+    assert status["linked"]["name"] == "Battle Maps"
+    assert status["linked"]["path"] == str(linked)
+    marker = read_marker(sidecar.library_dir)
+    assert marker is not None and marker.library_id == status["library_id"]
+
+
+def test_library_refusal_is_a_startup_error(sidecar_factory, tmp_path):
+    """Electron shows the STARTUP ERROR line's text as the loading page's headline."""
+    (tmp_path / "images").mkdir()
+    write_marker(tmp_path / "images", Marker(str(uuid.uuid4()), "store", {}))
+    sidecar = sidecar_factory()
+    assert sidecar.proc.wait(timeout=STARTUP_TIMEOUT) != 0
+    expected = f"STARTUP ERROR: {STARTUP_MESSAGES[APP_DATA_NOT_HERE]}"
+    output = []
+    while not any(expected in line for line in output):
+        try:
+            output.append(sidecar.lines.get(timeout=10))
+        except queue.Empty:
+            pytest.fail("No startup error; output:\n" + "".join(output[-30:]))

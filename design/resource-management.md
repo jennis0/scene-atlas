@@ -110,7 +110,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 ## Settings Sources
 
 - **`app_settings` table** — all concurrency settings, import limits and algorithm parameters. Seeded once by `seed_default_settings()` (resource defaults above, hardcoded values for the rest). Changed via `PATCH /api/v1/settings` in every deployment mode. `.env` is never used to seed it, so first boot behaves the same in all modes.
-- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir` and `--image-library-dir` to the sidecar on its command line, and saves the setup wizard's WebP choice through the settings API.
+- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir`, `--image-library-dir` and, when a folder is linked, `--linked-library-dir` to the sidecar on its command line, and saves the setup wizard's WebP choice through the settings API.
 
 | Setting | Default source | Takes effect |
 |---------|---------------|--------------|
@@ -120,6 +120,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 | `scheduler_enabled` | `True` | Restart |
 | `ingestion_batch_size` | 16 | Next batch (read per batch) |
 | Import limits | hardcoded | Next request (read per request) |
+| `linked_rescan_minutes` | 15 (allowed: 0, 5, 15, 60) | Not read yet: linked folder scanning is planned ([library-setup.md](library-setup.md#43-scanning)) |
 
 The Settings UI exposes `max_concurrent_prepare` (labelled "Parallel image processing", 1–16; restart required); the others are only editable through the API.
 

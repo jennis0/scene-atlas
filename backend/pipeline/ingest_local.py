@@ -22,8 +22,10 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from backend.app.library_identity import MARKER_FILENAME
 from backend.app.models import ImportItem, ImportJob
 from backend.app.services import ingest_state as st
+from backend.app.storage_lock import LOCK_FILENAME
 
 from .ingest_archive import ArchiveCounts, expand_archive
 from .ingest_queue import (
@@ -93,8 +95,16 @@ def availability_dirs(roots: Iterable[Path]) -> list[str]:
     return list(dict.fromkeys(str(root if root.is_dir() else root.parent) for root in roots))
 
 
+# A folder holding either is a Scene Atlas library's own (app data or store).
+_LIBRARY_ENTRIES = frozenset({MARKER_FILENAME, LOCK_FILENAME})
+
+
 def _walk(top: Path) -> Iterator[os.DirEntry]:
-    """Every regular file under ``top``, depth first in name order, without symlinks."""
+    """Every regular file under ``top``, depth first in name order, without symlinks.
+
+    Library folders are left out, with everything under them, so a library kept inside
+    the folder being read (the desktop default for a linked folder) is never imported.
+    """
     stack = [top]
     while stack:
         folder = stack.pop()
@@ -103,6 +113,8 @@ def _walk(top: Path) -> Iterator[os.DirEntry]:
                 entries = sorted(it, key=lambda e: e.name)
         except OSError:
             continue  # unreadable folder: skip it rather than fail the import
+        if any(entry.name in _LIBRARY_ENTRIES for entry in entries):
+            continue
         subfolders = []
         for entry in entries:
             if entry.is_symlink():
@@ -112,6 +124,20 @@ def _walk(top: Path) -> Iterator[os.DirEntry]:
             elif entry.is_file(follow_symlinks=False):
                 yield entry
         stack.extend(reversed(subfolders))
+
+
+def count_media(root: Path, limit: int) -> tuple[int, bool]:
+    """How many supported images and videos are under the folder ``root``, junk left out:
+    ``(count, capped)``, where ``capped`` means counting stopped at ``limit``."""
+    count = 0
+    for entry in _walk(root):
+        relative = Path(entry.path).relative_to(root).as_posix()
+        if is_os_junk(relative) or kind_for_path(relative) not in ("image", "video"):
+            continue
+        if count == limit:
+            return count, True
+        count += 1
+    return count, False
 
 
 def _local_file(path: Path, relative: str, stat: os.stat_result) -> LocalFile:

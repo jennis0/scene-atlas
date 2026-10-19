@@ -1,9 +1,16 @@
 """Unit tests for Pydantic schema validation."""
 
 import pytest
+from pydantic import ValidationError
 
 from backend.app.models.import_schemas import HashEntry, ManifestFile, ManifestRequest
-from backend.app.models.schemas import MAX_GROUP_EDIT_DELETES, GroupEditRequest, TagBase
+from backend.app.models.schemas import (
+    MAX_GROUP_EDIT_DELETES,
+    AppSettings,
+    AppSettingsPatch,
+    GroupEditRequest,
+    TagBase,
+)
 
 
 class TestTagBase:
@@ -59,3 +66,17 @@ class TestGroupEditRequest:
         GroupEditRequest(**body, delete_image_ids=[1] * MAX_GROUP_EDIT_DELETES)
         with pytest.raises(ValueError):
             GroupEditRequest(**body, delete_image_ids=[1] * (MAX_GROUP_EDIT_DELETES + 1))
+
+
+class TestLinkedRescanMinutes:
+    def test_default_is_fifteen(self):
+        assert AppSettings().linked_rescan_minutes == 15
+
+    @pytest.mark.parametrize("value", [0, 5, 15, 60])
+    def test_allowed_values(self, value):
+        assert AppSettingsPatch(linked_rescan_minutes=value).linked_rescan_minutes == value
+
+    @pytest.mark.parametrize("value", [1, 30, -5, 61])
+    def test_other_values_are_rejected(self, value):
+        with pytest.raises(ValidationError):
+            AppSettingsPatch(linked_rescan_minutes=value)
