@@ -39,7 +39,7 @@
   --vp-c-brand-soft: hsla(38, 60%, 45%, 0.14);
 
   /* The logo's pages: navy on light, parchment on dark */
-  --sa-mark-page: hsl(222, 22%, 8%);
+  --sa-mark-page: hsl(222deg 22% 8%);
 
   /* Borders */
   --vp-c-border: hsl(36, 14%, 78%);

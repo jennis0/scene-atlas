@@ -39,7 +39,7 @@ The icons and favicons are fixed in the Navy palette: the OS shows app icons bef
 
 - **Web UI:** `BrandMark` (`frontend/src/components/brand/`) sits beside the wordmark in the gallery header and the setup wizard. The pages use `fill-mark-page` and the band `fill-primary`, so the mark follows palette, light/dark and contrast level: on dark themes the pages are the text colour (parchment for navy), on light themes they are the palette's dark background (navy for the default palette). It is sized in `em` so it scales with the wordmark and the text size setting, and is `aria-hidden` because the wordmark next to it carries the name.
 - **Electron storage and loading windows:** these are plain HTML before React loads. The script injects the same paths as inline SVG, coloured by each page's `--mark-page` (navy on light, `--fg` on dark) and `--primary` (classes `mark-page` and `mark-band`), so they follow the OS light/dark setting like the rest of those pages.
-- **Website:** the landing page (`docs/.vitepress/theme/components/Landing.vue`, at https://jennis0.github.io/scene-atlas/) imports `markPaths.ts` and colours it with the VitePress tokens: `--sa-mark-page` (navy on light, parchment on dark, in `custom.css`) and `--vp-c-brand-1`. The docs workflow also redeploys when `markPaths.ts` changes.
+- **Website:** the landing page (`docs/.vitepress/theme/components/Landing.vue`, at <https://jennis0.github.io/scene-atlas/>) imports `markPaths.ts` and colours it with the VitePress tokens: `--sa-mark-page` (navy on light, parchment on dark, in `custom.css`) and `--vp-c-brand-1`. The docs workflow also redeploys when `markPaths.ts` changes.
 
 ## Rebuilding
 
