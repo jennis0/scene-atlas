@@ -23,8 +23,8 @@ function parse(raw: string | null): number {
 /** One level in (+1) or out (−1), clamped to the levels; 0 goes back to 100%. */
 export function nextZoom(current: number, step: number): number {
   if (step === 0) return DEFAULT_ZOOM
-  const levels = step > 0 ? ZOOM_LEVELS : [...ZOOM_LEVELS].reverse()
-  return levels.find((level) => (step > 0 ? level > current : level < current)) ?? current
+  if (step > 0) return ZOOM_LEVELS.find((level) => level > current) ?? current
+  return ZOOM_LEVELS.filter((level) => level < current).pop() ?? current
 }
 
 // Read lazily: the desktop's copy of the choices is synced into localStorage at startup,

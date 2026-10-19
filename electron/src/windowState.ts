@@ -28,14 +28,22 @@ export const MIN_SIZE = { width: 900, height: 600 }
 const GRAB = { width: 100, height: 20 }
 
 const isInt = (value: unknown): value is number => Number.isInteger(value)
+const isSize = (value: unknown): value is number => isInt(value) && value > 0
+
+function asRecord(raw: unknown): Record<string, unknown> | null {
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : null
+}
 
 /** The saved state from the config, or null if it's missing or malformed. */
 export function sanitizeWindowState(raw: unknown): WindowState | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const { x, y, width, height, maximized } = raw as Record<string, unknown>
-  if (!isInt(x) || !isInt(y) || !isInt(width) || !isInt(height)) return null
-  if (width <= 0 || height <= 0 || typeof maximized !== 'boolean') return null
-  return { x, y, width, height, maximized }
+  const record = asRecord(raw)
+  if (!record) return null
+  const { x, y, width, height, maximized } = record
+  const valid =
+    isInt(x) && isInt(y) && isSize(width) && isSize(height) && typeof maximized === 'boolean'
+  return valid ? { x, y, width, height, maximized } : null
 }
 
 function overlap(a: Rect, b: Rect): { width: number; height: number } {
@@ -56,23 +64,26 @@ function clamp(value: number, min: number, max: number): number {
  * to grab it: a monitor may have been unplugged since.
  */
 export function restoredBounds(saved: WindowState | null, workAreas: Rect[]): OpenBounds {
-  const primary = workAreas[0]
-  const size = saved ?? DEFAULT_SIZE
-  const topEdge = saved && { x: saved.x, y: saved.y, width: saved.width, height: GRAB.height }
-  const screen = topEdge
-    ? workAreas.find((area) => {
-        const shared = overlap(topEdge, area)
-        return shared.width >= GRAB.width && shared.height >= GRAB.height
-      })
-    : undefined
-  const area = screen ?? primary
-  const bounds: OpenBounds = {
-    width: area ? clamp(size.width, MIN_SIZE.width, area.width) : size.width,
-    height: area ? clamp(size.height, MIN_SIZE.height, area.height) : size.height,
+  const screen = saved ? screenUnderTopEdge(saved, workAreas) : undefined
+  const primary: Rect | undefined = workAreas[0]
+  const size = fitTo(saved ?? DEFAULT_SIZE, screen ?? primary)
+  return saved && screen ? { ...size, x: saved.x, y: saved.y } : size
+}
+
+/** The screen enough of the window's top edge is on to grab it there, if any. */
+function screenUnderTopEdge(saved: WindowState, workAreas: Rect[]): Rect | undefined {
+  const topEdge = { x: saved.x, y: saved.y, width: saved.width, height: GRAB.height }
+  return workAreas.find((area) => {
+    const shared = overlap(topEdge, area)
+    return shared.width >= GRAB.width && shared.height >= GRAB.height
+  })
+}
+
+/** *size*, at least the minimum and at most *area*; unchanged when no screen is known. */
+function fitTo(size: { width: number; height: number }, area: Rect | undefined) {
+  if (!area) return { width: size.width, height: size.height }
+  return {
+    width: clamp(size.width, MIN_SIZE.width, area.width),
+    height: clamp(size.height, MIN_SIZE.height, area.height),
   }
-  if (saved && screen) {
-    bounds.x = saved.x
-    bounds.y = saved.y
-  }
-  return bounds
 }

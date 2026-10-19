@@ -20,14 +20,13 @@ try {
 }
 
 // Zoom (frontend/src/lib/zoom.ts): a percentage display choice, applied here so the page
-// paints at it from the start. A sandboxed preload can't import displayPrefs.ts, hence the
-// key and range here.
-const ZOOM_PREF_KEY = 'scene-atlas-zoom'
+// paints at it from the start. A sandboxed preload can't import shared modules, hence the
+// key (ZOOM_STORAGE_KEY there) and range here.
 function zoomFactor(percent: unknown): number | null {
   const value = Number(percent)
   return Number.isFinite(value) && value >= 50 && value <= 300 ? value / 100 : null
 }
-const savedZoom = zoomFactor(displayPrefs[ZOOM_PREF_KEY])
+const savedZoom = zoomFactor(displayPrefs['scene-atlas-zoom'])
 if (savedZoom !== null) webFrame.setZoomFactor(savedZoom)
 
 contextBridge.exposeInMainWorld('electronAPI', {
