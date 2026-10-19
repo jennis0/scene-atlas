@@ -46,7 +46,8 @@ frontend/src/
 │   ├── import/        Shared file-card, toolbar, tag/grid pickers and dnd pieces, used by the
 │   │                  edit-group dialog, viewer and filter UI (name predates the import rewrite)
 │   ├── settings/      Settings tab content and setting controls
-│   ├── setup/         First-run wizard: appearance, stored format, tag packs, search model
+│   ├── setup/         First-run wizard: appearance, your library (desktop), stored format, tag packs,
+│   │                  search model
 │   └── *.tsx          Gallery-level components (header, grids, cards, viewer, dialogs, dock)
 ├── contexts/          ThemeContext (light/dark, palette, text size, compact header, contrast; per device in localStorage), TagColorContext (DB-driven colours)
 ├── hooks/             Search, dialog state, edit-group, settings and job-polling hooks
@@ -181,6 +182,16 @@ A **clean finish** (`isCleanFinish`: completed, no failures, no files already in
 
 The review editor (`EditGroupDialog` with `groupIds`) first fetches every group's summary (`POST /groups/summaries`: name, count, image ids) so the whole import is listed at once, then fetches files with `POST /groups/details` in a first batch of 8 and then batches of 40, one request at a time (the backend serialises reads), appending each as it lands (each append re-renders every file card, which is what limits large imports). Groups still loading show as placeholder rows; clicking one fetches it next and opens it. Placeholders are not editor state, so nothing can save a group whose files are not loaded (saves send the full list of images to keep). While groups are loading, All says that its changes apply only to the groups already loaded. A start group is fetched first and listed first. Imports above 500 images open on the first group rather than All. The editor resets on close. Mass edit fetches its groups through `POST /groups/details` too. From 60 files, the file grid renders only the rows on screen (subgroup headings and pairs of cards), so a large All view keeps a small DOM. Plan for the rest: [editor-metadata-first.md](editor-metadata-first.md). See [ingestion.md](ingestion.md) for the protocol.
 
+## Library folders and the linked folder
+
+See [library-setup.md](library-setup.md). Frontend pieces:
+
+- **Folders.** `hooks/useStorageDirs` reads `electronAPI.getStorageDirs()`; `hooks/useLibraryInspect` checks proposed folders with `POST /library/inspect`, debounced, keeping only the latest answer. Both the wizard's `setup/LibraryStep` and Settings' `settings/StorageSection` (three rows: Search data, Imported maps, Maps folder) use them and apply with `electronAPI.applyLibrary`.
+- **Status.** `hooks/useLibraryStatus` polls `GET /library/status` (5 s while scanning, else 60 s). The gallery shows `LinkedFolderBanner` while the folder is offline, and `EmptyLibraryWelcome` says "Adding your maps…" while a linked scan runs. `hooks/useLinkedFocusRescan` sends `POST /library/scan {reason: 'focus'}` on window focus, desktop only, while the folder is online, at most once a minute.
+- **Library tab.** `settings/LinkedFolderSection`: state, Check for changes, how often to check (`linked_rescan_minutes`, saved at once), Remove missing maps, and Stop using this folder (`settings/StopUsingFolder`: `DELETE /library/linked`, then `applyLibrary` without the folder). The path shows only in the desktop app.
+- **Files.** `Image.file_state` (`ok | missing | offline`): `SceneTile` and `GroupCard` mark a missing file ("File missing"); the viewer shows the thumbnail with a message and disables Download.
+- **Imports.** Jobs with `linked: true` have no Undo (dock row and report); their report never opens by itself.
+
 ## Build
 
 The CSP in `index.html` allows fonts from `'self'` only, so `vite.config.ts` never inlines fonts as `data:` URLs (`build.assetsInlineLimit`), and `npm run build` ends with `scripts/check-built-fonts.mjs`, which fails the build if any built CSS contains one. Before this, Vite inlined a small Fontsource subset that the browser silently blocked.
@@ -192,7 +203,7 @@ The CSP in `index.html` allows fonts from `'self'` only, so `vite.config.ts` nev
 ## API Client (`lib/api/`)
 
 - `_client.ts` — axios instance with base URL `/api/v1`. Every mode is same-origin: server mode, the Vite dev proxy, and Electron (the sidecar serves the UI).
-- One module per backend area: `searchApi`, `imageApi`, `groupApi`, `tagApi`, `jobApi`, `systemApi`, `settingsApi`, `modelsApi`. Imports use `lib/import/importClient.ts` instead.
+- One module per backend area: `searchApi`, `imageApi`, `groupApi`, `tagApi`, `jobApi`, `systemApi`, `settingsApi`, `modelsApi`, `libraryApi` (inspect, status, scan and the linked-folder removals). Imports use `lib/import/importClient.ts` instead.
 - `urls.ts` — file, thumbnail, group-download and library-export URLs.
 
 Query keys and the helpers that invalidate related caches after mutations live in `lib/queryKeys.ts`.

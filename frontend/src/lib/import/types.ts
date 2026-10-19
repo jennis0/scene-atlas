@@ -49,6 +49,8 @@ export interface ImportJobSummary {
   upload_interrupted: boolean
   /** Read from folders on this computer (desktop app); nothing to upload or resume. */
   local: boolean
+  /** A scan of the linked folder: no Undo, and its report never opens by itself. */
+  linked: boolean
   /** A local import's folders that are missing right now; the import waits for them. */
   waiting_for: string[]
   counts: ImportCounts

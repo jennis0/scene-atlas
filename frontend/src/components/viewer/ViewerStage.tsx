@@ -2,10 +2,16 @@ import { useRef } from 'react'
 import { ChevronLeft, ChevronRight, Grid3x3 } from 'lucide-react'
 import { GridOverlay } from '@/components/viewer/GridOverlay'
 import { canShowGrid } from '@/lib/gridOverlay'
-import { getImageUrl } from '@/lib/api'
+import { getImageUrl, getThumbnailUrl } from '@/lib/api'
 import type { Image } from '@/types'
 
 const CANVAS_STYLE: React.CSSProperties = { background: 'hsl(var(--surface-canvas))' }
+
+/** Why the original can't be shown; the thumbnail stands in (design/library-setup.md §4.7) */
+const UNAVAILABLE: Record<Exclude<Image['file_state'], 'ok'>, string> = {
+  missing: 'The original file is missing.',
+  offline: "The folder this map is in isn't available.",
+}
 
 const NAV_BUTTON =
   'absolute top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 hover:bg-black/75 text-white/80 hc:text-white hover:text-white hc:bg-black/85 hc:text-white hc:ring-1 hc:ring-white/70 flex items-center justify-center transition-all'
@@ -28,12 +34,20 @@ export function ViewerStage({
 }: ViewerStageProps) {
   const imageRef = useRef<HTMLImageElement>(null)
   const gridAvailable = canShowGrid(image)
+  const unavailable = image.file_state === 'ok' ? null : UNAVAILABLE[image.file_state]
   return (
     <div
       className="h-[45vh] shrink-0 lg:h-auto lg:flex-1 relative flex items-center justify-center min-w-0"
       style={CANVAS_STYLE}
     >
-      {image.media_type === 'video' ? (
+      {unavailable ? (
+        <img
+          ref={imageRef}
+          src={getThumbnailUrl(image)}
+          alt={image.name}
+          className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
+        />
+      ) : image.media_type === 'video' ? (
         <video
           key={image.id}
           src={getImageUrl(image)}
@@ -49,6 +63,14 @@ export function ViewerStage({
           alt={image.name}
           className="max-h-full max-w-full object-contain shadow-2xl shadow-shade/60"
         />
+      )}
+      {unavailable && (
+        <p
+          role="status"
+          className="absolute top-3 left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)] rounded-md bg-black/75 px-3 py-1.5 text-xs text-white forced-colors:border"
+        >
+          {unavailable}
+        </p>
       )}
       {gridAvailable && showGrid && (
         <GridOverlay

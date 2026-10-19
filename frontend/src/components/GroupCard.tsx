@@ -5,6 +5,7 @@ import { downloadFile } from '@/lib/download'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
+import { FileMissingMark } from '@/components/FileMissingMark'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   const overflowCount = totalScenes - displayedCount
   const hasMosaic = visibleMosaic.length > 0
   const hasActions = groupId !== null
+  const heroMissing = heroImage.file_state === 'missing'
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -57,7 +59,12 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
           menu sits above it as a sibling, so neither button is nested in the other. */}
       <button
         type="button"
-        aria-label={[baseName, author && `by ${author}`, totalScenes > 1 && `${totalScenes} scenes`]
+        aria-label={[
+          baseName,
+          author && `by ${author}`,
+          totalScenes > 1 && `${totalScenes} scenes`,
+          heroMissing && 'file missing',
+        ]
           .filter(Boolean)
           .join(', ')}
         onClick={onClick}
@@ -123,6 +130,11 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
             loading="lazy"
           />
           {heroImage.media_type === 'video' && <VideoIndicator />}
+          {heroMissing && (
+            <FileMissingMark
+              className={heroImage.media_type === 'video' ? 'top-2 left-10' : 'top-2 left-2'}
+            />
+          )}
           {hasMosaic && <div className="absolute inset-y-0 right-0 w-px bg-black/30" />}
         </div>
 

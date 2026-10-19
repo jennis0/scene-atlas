@@ -74,8 +74,9 @@ export function ViewerToolbar({ image, onEditGroup, onDelete, onClose }: ViewerT
               'Download failed',
             )
           }
-          disabled={downloading}
-          title="Download image"
+          disabled={downloading || image.file_state !== 'ok'}
+          aria-label="Download image"
+          title={image.file_state === 'ok' ? 'Download image' : "The original file can't be read"}
           className={`${ICON_ACTION} hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40`}
         >
           <Download className="h-4 w-4" />

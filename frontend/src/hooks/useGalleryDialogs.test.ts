@@ -28,6 +28,7 @@ function makeImage(overrides: Partial<Image> = {}): Image {
   return {
     id: 1,
     storage_key: 'key-1',
+    file_state: 'ok',
     filename: 'forest.jpg',
     author: 'Author A',
     name: 'Forest Map',

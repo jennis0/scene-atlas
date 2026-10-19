@@ -7,8 +7,8 @@ import { SettingsSection } from '@/components/settings/SettingsSection'
 import { ToggleSwitch } from '@/components/settings/ToggleSwitch'
 import { NumberSetting } from '@/components/settings/NumberSetting'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
+import { StorageSection } from '@/components/settings/StorageSection'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
-import { useStorageDirs } from '@/hooks/useStorageDirs'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { modelsApi } from '@/lib/api/modelsApi'
@@ -35,46 +35,6 @@ const STORED_FORMAT_OPTIONS = [
   { value: 'jpeg', label: 'JPEG', title: 'Small files; images with transparency stay as uploaded' },
   { value: 'png', label: 'PNG', title: 'Lossless, but usually larger than the original' },
 ] as const
-
-interface StoragePathRowProps {
-  label: string
-  description: string
-  current: string | null
-  pending: string | null
-  onBrowse: () => void
-  requiresRestart?: boolean
-}
-
-function StoragePathRow({
-  label,
-  description,
-  current,
-  pending,
-  onBrowse,
-  requiresRestart,
-}: StoragePathRowProps) {
-  const display = pending ?? current ?? '—'
-  const changed = pending != null
-  return (
-    <SettingRow label={label} description={description} requiresRestart={requiresRestart}>
-      <div className="flex items-center gap-2">
-        <span
-          className={`max-w-[10.59rem] truncate text-xs font-mono ${changed ? 'text-primary' : 'text-muted-foreground'}`}
-          title={display}
-        >
-          {display}
-        </span>
-        <button
-          type="button"
-          onClick={onBrowse}
-          className="shrink-0 rounded border border-border/50 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Browse
-        </button>
-      </div>
-    </SettingRow>
-  )
-}
 
 function TagPacksSection({ dialogOpen }: { dialogOpen: boolean }) {
   const queryClient = useQueryClient()
@@ -206,6 +166,8 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       },
     })
 
+    const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+
     useImperativeHandle(
       ref,
       () => ({
@@ -216,31 +178,6 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
       }),
       [save, isDirty],
     )
-
-    const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-    const { appDataDir, imageLibraryDir } = useStorageDirs(dialogOpen)
-    const [pendingAppDataDir, setPendingAppDataDir] = useState<string | null>(null)
-    const [pendingImageLibraryDir, setPendingImageLibraryDir] = useState<string | null>(null)
-
-    const handleChooseAppDataDir = async () => {
-      const chosen = await window.electronAPI?.chooseAppDataDir()
-      if (chosen && chosen !== appDataDir) setPendingAppDataDir(chosen)
-    }
-
-    const handleChooseImageLibraryDir = async () => {
-      const chosen = await window.electronAPI?.chooseImageLibraryDir()
-      if (chosen && chosen !== imageLibraryDir) setPendingImageLibraryDir(chosen)
-    }
-
-    const handleApplyStorageChange = async () => {
-      if (!appDataDir || !imageLibraryDir) return // IPC hasn't loaded yet; wait
-      // On success the app relaunches and this never resolves.
-      const result = await window.electronAPI?.changeStorageDirs(
-        pendingAppDataDir ?? appDataDir,
-        pendingImageLibraryDir ?? imageLibraryDir,
-      )
-      if (result?.error) toast.error(result.error)
-    }
 
     // Draft takes precedence over server settings
     const val = useCallback(
@@ -295,43 +232,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
 
         {!isLoading && !isError && (
           <div className="space-y-4">
-            {isElectron && (
-              <SettingsSection title="Storage Locations">
-                <StoragePathRow
-                  label="App data location"
-                  description="Database, thumbnails & search index. SSD recommended."
-                  current={appDataDir}
-                  pending={pendingAppDataDir}
-                  onBrowse={handleChooseAppDataDir}
-                  requiresRestart
-                />
-
-                <StoragePathRow
-                  label="Image library location"
-                  description="Scene Atlas's own copies of your imported images, plus backups. Any drive, including external storage."
-                  current={imageLibraryDir}
-                  pending={pendingImageLibraryDir}
-                  onBrowse={handleChooseImageLibraryDir}
-                  requiresRestart
-                />
-
-                {(pendingAppDataDir || pendingImageLibraryDir) && (
-                  <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
-                    <p className="text-xs text-muted-foreground">
-                      Changing a path does not move your files. Move them manually before
-                      restarting.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleApplyStorageChange}
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      Restart Now to Apply
-                    </button>
-                  </div>
-                )}
-              </SettingsSection>
-            )}
+            {isElectron && <StorageSection open={dialogOpen} />}
             <SettingsSection title="Search Model">
               <p className="text-xs text-muted-foreground">
                 Active model:{' '}

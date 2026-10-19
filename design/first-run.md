@@ -8,14 +8,14 @@ What a new user sees, in both deployment modes, and why. Decisions recorded 2026
 |---|---|---|
 | First launch (Electron, no window of its own) | Writes a provisional config on the default folders and starts the backend on them | — |
 | Loading page (`electron/loading.html`) | "Starting up…", or the startup error. Follows the system setting | — |
-| Setup wizard (React, `components/setup/SetupWizard.tsx`) | Appearance → Stored format → Tag packs → Search model | same |
+| Setup wizard (React, `components/setup/SetupWizard.tsx`) | Appearance → Your library → Stored format → Tag packs → Search model | the same without Your library |
 | Gallery | Empty-library screen; the model downloads in the background | same |
 
 The wizard runs once per library, until `POST /models/setup-complete` records `setup_completed_at`. The server isn't a shared multi-user service yet, so the appearance step isn't repeated for each new browser. When it becomes one, appearance needs its own per-device "first visit" flag, because display choices are stored per device.
 
 ### Why each step is where it is
 
-- **Storage folders are a wizard step, on a provisional library.** The backend can't start without folders, so a first launch starts it on the defaults and the desktop-only library step can replace them; Electron then restarts the backend in the same window ([library-setup.md](library-setup.md#2-first-run-flow-desktop)). On a server they're env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR`) and the UI never shows server paths.
+- **Your library is a desktop-only wizard step** (`LibraryStep`), right after Appearance ([library-setup.md §2.2](library-setup.md#22-steps)). Start a new library or link a folder of maps, and move the two storage folders. Every set of folders is checked with `POST /library/inspect` before Continue; Continue calls `electronAPI.applyLibrary`, which restarts the backend in the window when anything changed. The page then reloads and, because `electronAPI.libraryChosen` is set, the wizard resumes at Stored format (`setupSteps` skips Appearance and Your library). It comes before every step that saves to the backend, since new folders mean a different database. On a server the folders are env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR`) and the UI never shows server paths.
 - **Appearance comes first**, so the rest of setup is already in the user's theme and text size. Every change applies at once and is saved per device (`ThemeContext`).
 - **Stored format is in the wizard, not the Electron window.** It's a library setting (`stored_format`), so both modes set it the same way via `PATCH /settings/`. On a server, `CONVERT_TO_WEBP=1` only changes the default the wizard starts with. This removed the Electron `pendingStoredFormat` handoff.
 - **Every tag pack is optional, Common included.** Common is installed when the library is created; the tag-pack step then installs exactly what the user picks (`PUT /tags/packs`, refused once setup is finished; see [tag-packs.md](tag-packs.md)).
@@ -24,7 +24,7 @@ The wizard runs once per library, until `POST /models/setup-complete` records `s
 
 ### Copy
 
-Keep setup text short and plain. Say what each step is for and, where there is one, the trade-off ("Larger models give better results but make importing slower"). Leave out reassurance and mechanics the user doesn't act on ("Changes apply straight away", "saved on this device", what happens to files behind the scenes). Keep warnings that prevent data loss, such as not choosing an existing maps folder as the image library. Use "Couldn't" in errors, and sentence case.
+Keep setup text short and plain. Say what each step is for and, where there is one, the trade-off ("Larger models give better results but make importing slower"). Leave out reassurance and mechanics the user doesn't act on ("Changes apply straight away", "saved on this device", what happens to files behind the scenes). Keep warnings that prevent data loss, such as not choosing an existing maps folder as the image library. The one exception is the paragraph under "Use a folder of maps you already have", which says what linking does because it differs from importing (library-setup.md §2.2). Use "Couldn't" in errors, and sentence case.
 
 ### Gate (`App.tsx`)
 
@@ -33,6 +33,8 @@ Keep setup text short and plain. Say what each step is for and, where there is o
 - Setup not completed → the full wizard (the model step only if `needs_model`).
 - Setup completed, no model, and no activation running → the wizard with only the model step (e.g. the model folder was deleted).
 - Otherwise → the gallery. While a model downloads, the gallery shows it as loading.
+
+In the desktop app the gate runs again after the library step restarts the backend: a reopened library that was already set up goes straight to the gallery.
 
 ## Theme
 

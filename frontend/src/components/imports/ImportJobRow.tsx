@@ -1,7 +1,7 @@
 /**
  * One import in the activity dock: status icon, label, a 3px progress track,
  * and a one-line status. Hover reveals pause/resume, or undo and dismiss once
- * finished. Dismiss only hides the row, so it needs no confirm; undo deletes
+ * finished (no undo for a scan of the linked folder). Dismiss only hides the row, so it needs no confirm; undo deletes
  * images, so the dock confirms it first.
  */
 
@@ -90,7 +90,8 @@ export function ImportJobRow({
         {job.status === 'paused' && (
           <RowAction label="Resume" onClick={onResume} icon={<Play className="h-3 w-3" />} />
         )}
-        {finished && job.counts.done > 0 && (
+        {/* A linked folder's maps leave with "Stop using this folder", not Undo */}
+        {finished && job.counts.done > 0 && !job.linked && (
           <RowAction label="Undo import" onClick={onUndo} icon={<Undo2 className="h-3 w-3" />} />
         )}
         {finished && (

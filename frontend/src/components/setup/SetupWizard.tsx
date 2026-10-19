@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { modelsApi, type SetupStatus } from '@/lib/api/modelsApi'
 import { AppearanceStep } from './AppearanceStep'
+import { LibraryStep } from './LibraryStep'
 import { ModelStep } from './ModelStep'
 import { StoredFormatStep } from './StoredFormatStep'
 import { TagPackStep } from './TagPackStep'
@@ -11,9 +12,10 @@ interface SetupWizardProps {
   onComplete: () => void
 }
 
-/** First-run setup, the same in the desktop app and on a server. */
+/** First-run setup, the same in the desktop app and on a server, except that the desktop
+ * app also chooses the library's folders. */
 export function SetupWizard({ status, onComplete }: SetupWizardProps) {
-  const steps = useMemo(() => setupSteps(status), [status])
+  const steps = useMemo(() => setupSteps(status, window.electronAPI), [status])
   const [index, setIndex] = useState(0)
   // Kept here so Back to the tag-pack step shows what was chosen, even nothing
   const [chosenPacks, setChosenPacks] = useState<string[] | null>(null)
@@ -37,6 +39,8 @@ export function SetupWizard({ status, onComplete }: SetupWizardProps) {
   switch (steps[index]) {
     case 'appearance':
       return <AppearanceStep nav={nav} />
+    case 'library':
+      return <LibraryStep nav={nav} />
     case 'format':
       return <StoredFormatStep nav={nav} />
     case 'tag-packs':

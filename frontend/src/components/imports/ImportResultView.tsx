@@ -144,14 +144,17 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       status={job ? statusLine(job, groups, sharedAuthor) : 'Loading'}
       footer={
         <>
-          <TextButton
-            tone="outline-danger"
-            onClick={() => setConfirmingUndo(true)}
-            disabled={busy || !job}
-          >
-            <Undo2 className="h-3.5 w-3.5" aria-hidden />
-            Undo import
-          </TextButton>
+          {/* A linked folder's maps leave with "Stop using this folder", not Undo */}
+          {!job?.linked && (
+            <TextButton
+              tone="outline-danger"
+              onClick={() => setConfirmingUndo(true)}
+              disabled={busy || !job}
+            >
+              <Undo2 className="h-3.5 w-3.5" aria-hidden />
+              Undo import
+            </TextButton>
+          )}
           <div className="ml-auto flex gap-2">
             <TextButton
               tone="outline"
