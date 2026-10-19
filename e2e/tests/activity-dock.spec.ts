@@ -10,7 +10,8 @@ import { writeUniquePng } from "../helpers/images";
 test.describe("Activity Dock", () => {
   test("shows an import and opens its report", async ({ page }) => {
     test.setTimeout(180_000);
-    const file = writeUniquePng("e2e-dock-map.png");
+    // Named per attempt: a retry's dock still lists the failed attempt's import.
+    const file = writeUniquePng(`e2e-dock-map-${test.info().retry}.png`);
     const label = path.basename(file);
 
     await page.goto("/");

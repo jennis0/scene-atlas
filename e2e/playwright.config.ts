@@ -25,9 +25,15 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 1 : 0,
   workers: 1,
+  // Named, so they land beside this file (where the Release workflow uploads them
+  // from) rather than in the repo root.
+  outputDir: "test-results",
   reporter: isCI
-    ? [["html", { open: "never" }], ["github"]]
-    : [["html", { open: "on-failure" }]],
+    ? [
+        ["html", { open: "never", outputFolder: "playwright-report" }],
+        ["github"],
+      ]
+    : [["html", { open: "on-failure", outputFolder: "playwright-report" }]],
 
   use: {
     baseURL: `http://localhost:${FRONTEND_PORT}`,
