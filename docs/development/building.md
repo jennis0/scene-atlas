@@ -132,7 +132,8 @@ npm run electron:build                        # tsc + electron-builder
 |------|----------|
 | App config | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| App data / image library dirs | Chosen during first launch (default `Documents/Scene Atlas/data` and `.../images`); passed to the sidecar as `--app-data-dir` / `--image-library-dir` |
+| App data / image library dirs | A first launch writes the defaults (`%LOCALAPPDATA%\Scene Atlas\data` and `...\images` on Windows, `Documents/Scene Atlas/...` elsewhere) as a provisional library; the setup wizard's library step can replace them. Passed to the sidecar as `--app-data-dir` / `--image-library-dir` |
+| Linked maps folder | Optional, chosen in the setup wizard or Settings; passed as `--linked-library-dir`. In `npm run electron:dev` the folders are only saved to the config: the dev backend ignores them (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` for it) |
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS, `~/.config/Scene Atlas` on Linux).
 

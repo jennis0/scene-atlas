@@ -6,7 +6,7 @@ What a new user sees, in both deployment modes, and why. Decisions recorded 2026
 
 | | Desktop app | Server |
 |---|---|---|
-| Storage window (`electron/setup.html`, before the backend exists) | App data folder and image library folder. Follows the system light/dark setting | — |
+| First launch (Electron, no window of its own) | Writes a provisional config on the default folders and starts the backend on them | — |
 | Loading page (`electron/loading.html`) | "Starting up…", or the startup error. Follows the system setting | — |
 | Setup wizard (React, `components/setup/SetupWizard.tsx`) | Appearance → Stored format → Tag packs → Search model | same |
 | Gallery | Empty-library screen; the model downloads in the background | same |
@@ -15,7 +15,7 @@ The wizard runs once per library, until `POST /models/setup-complete` records `s
 
 ### Why each step is where it is
 
-- **Storage folders stay in the Electron window.** The backend can't start without them, so they're chosen before React exists. On a server they're env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`) and the UI never shows server paths.
+- **Storage folders are a wizard step, on a provisional library.** The backend can't start without folders, so a first launch starts it on the defaults and the desktop-only library step can replace them; Electron then restarts the backend in the same window ([library-setup.md](library-setup.md#2-first-run-flow-desktop)). On a server they're env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR`) and the UI never shows server paths.
 - **Appearance comes first**, so the rest of setup is already in the user's theme and text size. Every change applies at once and is saved per device (`ThemeContext`).
 - **Stored format is in the wizard, not the Electron window.** It's a library setting (`stored_format`), so both modes set it the same way via `PATCH /settings/`. On a server, `CONVERT_TO_WEBP=1` only changes the default the wizard starts with. This removed the Electron `pendingStoredFormat` handoff.
 - **Every tag pack is optional, Common included.** Common is installed when the library is created; the tag-pack step then installs exactly what the user picks (`PUT /tags/packs`, refused once setup is finished; see [tag-packs.md](tag-packs.md)).
@@ -44,7 +44,7 @@ Display choices (theme, palette, text size, contrast, compact header) are kept t
 
 - The preload reads `displayPrefs` from the config with one synchronous IPC call (`prefs:get-sync`) before the page runs, and exposes it as `electronAPI.displayPrefs`. At startup `syncPrefsWithDesktop()` (in `main.tsx`, before the first paint) copies those values into localStorage, which may be another port's or stale. Values only localStorage has, saved before the config kept them, are copied into the config, so an update resets nobody's choices.
 - Every change is written to both (`electronAPI.setDisplayPref` → `prefs:set`). The main process accepts only `scene-atlas-*` keys with short lower-case values, at most 32 (`electron/src/displayPrefs.ts`).
-- The main process sets `nativeTheme.themeSource` from the saved theme (System, Light or Dark) at startup and on every change. Chromium's `prefers-color-scheme` therefore follows the user's choice in every window, so the storage window, loading page, native dialogs and scrollbars match the app. With System, they follow the OS.
+- The main process sets `nativeTheme.themeSource` from the saved theme (System, Light or Dark) at startup and on every change. Chromium's `prefers-color-scheme` therefore follows the user's choice in every window, so the loading page, native dialogs and scrollbars match the app. With System, they follow the OS.
 - Whenever the theme, palette or effective contrast changes, `ThemeProvider` reports the body's computed background and text colours (`reportWindowColors`, `window:set-colors`). The main process sets the window background and, on Windows and Linux, the title-bar overlay (`setTitleBarOverlay`), and saves them as `windowColors`, so the next launch opens in them. Before the UI has reported any colours, windows use the navy palette for the current light/dark.
 
 Other per-device conveniences (tile size, sort, view mode, grid overlay, custom filter colours) still use localStorage directly and don't survive a port change. They can move to `prefsStorage` if that matters.
