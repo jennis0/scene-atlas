@@ -27,6 +27,9 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 | `frontend/public/favicon.svg`, `docs/public/favicon.svg` | Web UI and docs site favicons; the docs nav bar also uses it as its logo |
 | `frontend/src/components/brand/markPaths.ts` | The mark's paths for `BrandMark` (generated) |
 | `electron/setup.html`, `electron/loading.html` | Inline SVG between `<!-- brand-mark -->` comments (generated) |
+| `assets/brand/lockup-dark.png`, `lockup-light.png` | Mark and Cinzel wordmark for the README header, swapped by GitHub's light/dark theme |
+| `assets/brand/social-preview.png` | 1280×640 social preview: lockup, tagline, platforms. GitHub has no API for it: upload by hand in **Settings → General → Social preview** |
+| `docs/public/social-preview.png` | The same image, as the website's `og:image` for link previews |
 
 `electron-builder.yml` already points at `assets/icon.{ico,icns,png}`.
 
@@ -34,8 +37,9 @@ Why the curves matter: an earlier draft drew the pages as flat panels meeting in
 
 The icons and favicons are fixed in the Navy palette: the OS shows app icons before the app runs, and a stable favicon is easier to find among tabs. Inside the app, the mark follows the theme:
 
-- **Web UI:** `BrandMark` (`frontend/src/components/brand/`) sits beside the wordmark in the gallery header and the setup wizard. The pages use `fill-foreground` and the band `fill-primary`, so the mark follows palette, light/dark and contrast level: parchment pages on dark themes, ink pages on light ones. It is sized in `em` so it scales with the wordmark and the text size setting, and is `aria-hidden` because the wordmark next to it carries the name.
-- **Electron storage and loading windows:** these are plain HTML before React loads. The script injects the same paths as inline SVG, coloured by each page's `--fg` and `--primary` (classes `mark-page` and `mark-band`), so they follow the OS light/dark setting like the rest of those pages.
+- **Web UI:** `BrandMark` (`frontend/src/components/brand/`) sits beside the wordmark in the gallery header and the setup wizard. The pages use `fill-mark-page` and the band `fill-primary`, so the mark follows palette, light/dark and contrast level: on dark themes the pages are the text colour (parchment for navy), on light themes they are the palette's dark background (navy for the default palette). It is sized in `em` so it scales with the wordmark and the text size setting, and is `aria-hidden` because the wordmark next to it carries the name.
+- **Electron storage and loading windows:** these are plain HTML before React loads. The script injects the same paths as inline SVG, coloured by each page's `--mark-page` (navy on light, `--fg` on dark) and `--primary` (classes `mark-page` and `mark-band`), so they follow the OS light/dark setting like the rest of those pages.
+- **Website:** the landing page (`docs/.vitepress/theme/components/Landing.vue`, at <https://jennis0.github.io/scene-atlas/>) imports `markPaths.ts` and colours it with the VitePress tokens: `--sa-mark-page` (navy on light, parchment on dark, in `custom.css`) and `--vp-c-brand-1`. The docs workflow also redeploys when `markPaths.ts` changes.
 
 ## Rebuilding
 
@@ -45,7 +49,39 @@ Change the geometry or colours in `scripts/build/build_icons.py`, then run:
 uv run python scripts/build/build_icons.py
 ```
 
-It rewrites every file above. Commit the outputs; nothing generates them at build time.
+It rewrites every file above except the PNG lockups and social preview, which need the Cinzel and Figtree fonts and are built by a second script:
+
+```bash
+uv run python -m scripts.build.build_brand_images
+```
+
+Commit the outputs; nothing generates them at build time.
+
+## Screenshots
+
+The README screenshot (`docs/public/screenshots/search.webp`, dark and light themes split along a diagonal) is a search for "woodland path at night" in the grouped Maps view: maps from all three creators come up led by their night-time variants, which shows search by content and variant groups in one image. "snowy mountain pass" (all Moonlight) is the most striking alternative.
+
+**Rules for the art in screenshots:**
+
+- Only openly licensed art, credited under the screenshot for whatever is visible in it: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use), Fantasy Atlas's free maps (CC BY-NC 4.0) and 2-Minute Tabletop's free maps (CC BY-NC 4.0, credit "Map by 2-Minute Tabletop"). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
+- Thumbnails only: no screenshot shows an individual map at full size, so no screenshot works as a copy of a map. Captures are at 1x.
+- Never commit the maps themselves.
+
+Other creators' terms, checked 2026-10-19, are in the project's research notes. In short: Elven Tower's Creative Commons Collection is CC BY 4.0 and Manea Roliste's packs are CC BY-NC 4.0, both usable. Czepeku, Neutral Party, Domille, Venatus and Seafoot need permission. Forgotten Adventures is personal use only. Tom Cartos's open licence has an AI clause that needs his confirmation first.
+
+**Regenerating:** put the maps in `demo_maps/`, with any zips unzipped into one folder each (gitignored locally; layout in `scripts/demo/import_library.py`), then:
+
+```bash
+uv run python -m scripts.demo.download_paintings /tmp/paintings     # CC0 scenes, optional
+APP_DATA_DIR=/tmp/demo/data IMAGE_LIBRARY_DIR=/tmp/demo/images \
+  uv run uvicorn backend.app.main:app --port 8123                   # a clean instance
+# set it up: POST /api/v1/models/medium/download, PUT /api/v1/tags/packs {"packs": ["common", "fantasy"]},
+# POST /api/v1/models/setup-complete, then restart so the model loads
+uv run python -m scripts.demo.import_library http://127.0.0.1:8123 demo_maps /tmp/paintings
+node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots
+uv run python -m scripts.demo.split_screenshot /tmp/shots/search-dark.png /tmp/shots/search-light.png \
+  docs/public/screenshots/search.webp
+```
 
 ## Directions tried and rejected
 

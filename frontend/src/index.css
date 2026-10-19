@@ -18,6 +18,7 @@
   [data-palette='navy'] {
     --background: 36 28% 91%; /* warm parchment — slightly darker for depth */
     --foreground: 30 12% 15%; /* warm dark brown-charcoal, bolder */
+    --mark-page: 222 22% 8%; /* the logo's pages: this palette's dark background */
     --card: 36 26% 94%; /* lifted surface, clear hierarchy vs bg */
     --card-foreground: 30 12% 15%;
     --popover: 36 24% 96%; /* lightest surface */
@@ -56,6 +57,7 @@
   .dark [data-palette='navy'] {
     --background: 222 22% 8%; /* #0e1118 deep navy-black */
     --foreground: 37 27% 89%; /* #ede8dc warm parchment */
+    --mark-page: var(--foreground); /* the logo's pages: the text colour */
     --card: 222 22% 12%; /* #161c28 lifted surface */
     --card-foreground: 37 27% 89%;
     --popover: 220 25% 10%; /* #12171f popover bg */
@@ -86,6 +88,7 @@
   [data-palette='verdigris'] {
     --background: 45 20% 93%;
     --foreground: 30 12% 15%;
+    --mark-page: 200 18% 7%; /* the logo's pages: this palette's dark background */
     --card: 45 25% 96%;
     --card-foreground: 30 12% 15%;
     --popover: 45 25% 97%;
@@ -109,6 +112,7 @@
   .dark [data-palette='verdigris'] {
     --background: 200 18% 7%;
     --foreground: 45 18% 90%;
+    --mark-page: var(--foreground); /* the logo's pages: the text colour */
     --card: 200 16% 10%;
     --card-foreground: 45 18% 90%;
     --popover: 200 18% 9%;
@@ -132,6 +136,7 @@
   [data-palette='lapis'] {
     --background: 214 14% 91%;
     --foreground: 220 24% 14%;
+    --mark-page: 215 10% 8%; /* the logo's pages: this palette's dark background */
     --card: 214 18% 95%;
     --card-foreground: 220 24% 14%;
     --popover: 214 20% 97%;
@@ -155,6 +160,7 @@
   .dark [data-palette='lapis'] {
     --background: 215 10% 8%;
     --foreground: 214 16% 90%;
+    --mark-page: var(--foreground); /* the logo's pages: the text colour */
     --card: 215 10% 11.5%;
     --card-foreground: 214 16% 90%;
     --popover: 215 10% 10%;
@@ -179,6 +185,7 @@
   [data-palette='sienna'] {
     --background: 32 26% 89%;
     --foreground: 20 22% 13%;
+    --mark-page: 22 14% 7.5%; /* the logo's pages: this palette's dark background */
     --card: 32 30% 93%;
     --card-foreground: 20 22% 13%;
     --popover: 32 30% 95.5%;
@@ -205,6 +212,7 @@
   .dark [data-palette='sienna'] {
     --background: 22 14% 7.5%;
     --foreground: 34 26% 88%;
+    --mark-page: var(--foreground); /* the logo's pages: the text colour */
     --card: 22 13% 11%;
     --card-foreground: 34 26% 88%;
     --popover: 22 14% 9.5%;
@@ -231,6 +239,7 @@
   [data-palette='nightshade'] {
     --background: 270 12% 92%;
     --foreground: 266 22% 14%;
+    --mark-page: 266 16% 8%; /* the logo's pages: this palette's dark background */
     --card: 270 16% 95.5%;
     --card-foreground: 266 22% 14%;
     --popover: 270 18% 97.5%;
@@ -254,6 +263,7 @@
   .dark [data-palette='nightshade'] {
     --background: 266 16% 8%;
     --foreground: 270 14% 90%;
+    --mark-page: var(--foreground); /* the logo's pages: the text colour */
     --card: 266 15% 11.5%;
     --card-foreground: 270 14% 90%;
     --popover: 266 16% 10%;

@@ -110,3 +110,9 @@ INFERENCE_DEVICE=cuda uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 
 ```
 
 The automatic provider chain is: CUDA, DirectML, CoreML, CPU.
+
+## Starting Over With an Empty Library
+
+This deletes your library. Stop the server, then delete both `APP_DATA_DIR` (default `data/`: database, search index, thumbnails) and `IMAGE_LIBRARY_DIR` (default `images/`: stored files and backups). Both are recreated on the next start.
+
+Delete them together: stored files are named by their content and can't be used without the database. Check first that neither setting points at a folder holding anything else, such as your own map collection.

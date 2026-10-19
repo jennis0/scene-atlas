@@ -3,7 +3,9 @@ name: Deploy Docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**']
+    # the landing page draws the logo from the app's generated mark paths
+    paths: ['docs/**', 'frontend/src/components/brand/markPaths.ts']
+  workflow_dispatch:
 
 permissions:
   actions: read  # deploy-pages (v4+) looks the artifact up by id

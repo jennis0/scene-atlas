@@ -39,6 +39,15 @@ cd frontend && npm ci && npm run dev
 
 ## Architecture
 
+| Layer | Technology |
+|---|---|
+| Backend API | FastAPI + SQLAlchemy (SQLite), Alembic migrations |
+| Semantic search | CLIP / SigLIP2 (ONNX Runtime) → LanceDB |
+| Full-text search | SQLite FTS5 with Porter stemmer |
+| Background jobs | In-process thread pool and async scheduler |
+| Frontend | React + TypeScript + Vite + Tailwind + Radix UI |
+| Desktop | Electron, with the backend as a PyInstaller sidecar |
+
 See [design/README.md](design/README.md) for an overview of the system architecture, including:
 - API endpoints and services
 - Database schema and search system
