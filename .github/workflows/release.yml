@@ -8,7 +8,8 @@ name: Release
 #   2. Trigger this workflow manually against main
 #   3. Wait for full tests + E2E + builds to pass
 #   4. Download and verify artifacts
-#   5. Re-run with publish=true and a version tag to create a GitHub Release
+#   5. Re-run with publish=true and a version (e.g. 0.5.0); the publish job creates
+#      the GitHub Release v<version> once all three builds have passed
 
 on:
   workflow_dispatch:
@@ -21,6 +22,10 @@ on:
         description: 'Version to release (e.g. 0.5.0) — only used when publish is true'
         type: string
         required: false
+
+# Read-only by default; the publish job asks for what it needs.
+permissions:
+  contents: read
 
 jobs:
   # ── Stage 1: Full test suite ──────────────────────────────────────────────
@@ -229,6 +234,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Require a version to publish
+        if: inputs.publish && inputs.version == ''
+        shell: bash
+        run: |
+          echo "::error::Set the version input to publish a release"
+          exit 1
+
       # ── Set version from input ──────────────────────────────────────────
       - name: Set version
         if: inputs.publish && inputs.version != ''
@@ -259,11 +271,8 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Install Python dependencies
-        run: uv sync --extra dev --extra ${{ matrix.ort_extra }}
-
-      - name: Install PyInstaller
-        run: uv pip install pyinstaller
+      # The build scripts are stdlib-only (--no-project); build_sidecar.py syncs its
+      # own runtime-only venv (.venv-sidecar) for PyInstaller.
 
       # ── Linux system dependencies ────────────────────────────────────────
       - name: Install Linux system deps
@@ -303,31 +312,48 @@ jobs:
 
       # ── Build Python sidecar (bundles frontend/dist) ─────────────────────
       - name: Build sidecar
-        run: uv run python scripts/build/build_sidecar.py
+        run: uv run --no-project python scripts/build/build_sidecar.py --ort-extra ${{ matrix.ort_extra }}
 
       - name: Smoke-test sidecar
-        run: uv run python scripts/build/smoke_sidecar.py
+        run: uv run --no-project python scripts/build/smoke_sidecar.py
 
       # ── Build Electron app ───────────────────────────────────────────────
-      - name: Build Electron app (publish)
-        if: inputs.publish
+      # Signed (macOS) whether or not this run publishes, so the artifacts verified
+      # in a dry run are the ones that get released. Unsigned while the signing secrets
+      # aren't set: an unset secret arrives as an empty string, which electron-builder
+      # reads as a path (CSC_LINK="" fails with "<repo> not a file"), so empty ones are
+      # unset first.
+      - name: Build Electron app
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
-        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM" --publish
+        run: |
+          for var in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!var}" ] || unset "$var"
+          done
+          if [ "$TARGET_PLATFORM" = macos ] && [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning::macOS signing secrets not set; the app will be unsigned and not notarized"
+          fi
+          uv run --no-project python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
-      - name: Build Electron app (no publish)
-        if: ${{ !inputs.publish }}
-        env:
-          TARGET_PLATFORM: ${{ matrix.platform }}
-        shell: bash
-        run: uv run python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
+      # The packaged app's windows and sidecar lifecycle (e2e/packaged). Windows only
+      # for now: the specs are cross-platform but have only been run there.
+      - name: Test packaged app
+        if: matrix.platform == 'windows'
+        run: npm run test:packaged
+
+      - name: Upload packaged-app test report
+        if: failure() && matrix.platform == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-test-report-${{ matrix.platform }}
+          path: e2e/playwright-report-packaged/
+          retention-days: 7
 
       # ── Upload artifacts ─────────────────────────────────────────────────
       - name: Upload build artifacts
@@ -336,9 +362,37 @@ jobs:
           name: scene-atlas-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             dist-electron/*.exe
-            dist-electron/*.msi
             dist-electron/*.dmg
             dist-electron/*.AppImage
             dist-electron/*.deb
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
+
+  # ── Stage 4: Publish ──────────────────────────────────────────────────────
+  # One release from all three builds, created only once every build has passed
+  # (the build matrix doesn't fail fast, so publishing from it could release a
+  # partial set). Installers only: there is no auto-updater, so no update metadata.
+  publish:
+    name: Publish GitHub Release
+    needs: [build]
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'scene-atlas-*' --dir release
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$VERSION" release/*/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Scene Atlas $VERSION" \
+            --generate-notes

@@ -17,7 +17,7 @@ Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = 
 | Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
 | Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, Electron unit tests, jscpd duplication threshold |
 | Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
-| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform, optional publish |
+| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform with a sidecar smoke test, [packaged-app tests](#packaged-app-tests) on Windows, optional publish (one release, after every build passes) |
 
 CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on for those (skippable with `git push --no-verify`).
 
@@ -95,6 +95,21 @@ monkeypatch.setattr("backend.app.api.models.get_job_runner", lambda: mock_runner
 UPDATE_SEARCH_GOLDEN=1 uv run python -m pytest backend/tests/integration/test_search_characterisation.py
 ```
 
+### Packaged-app tests
+
+`e2e/packaged/` drives the built desktop app, not the dev servers: the windows, the backend sidecar's lifecycle, the single-instance lock and the storage-change relaunch ([electron.md](electron.md#sidecar-lifecycle)). Build first, then run:
+
+```bash
+uv run python scripts/build/build_electron.py --dev   # unpacked app only; a full build works too
+npm run test:packaged
+```
+
+Each test launches the app on a throwaway profile (its own `--user-data-dir`, so its own config and single-instance lock, and its own storage folders) and never touches a real install. It connects over CDP (`--remote-debugging-port`): the fuses turn off `--inspect`, which Playwright's `_electron.launch` needs. Processes are found by the profile path in their command lines, so the tests can watch the sidecar exit after the app does. The Release workflow runs them on the Windows build; the specs are written for every platform but have only been run on Windows.
+
+### Paths on Windows
+
+Backend unit tests run on Windows only in the Release workflow, so Windows-only path bugs reach `main`. Two to remember: `str(engine.url)` percent-encodes a Windows path under SQLAlchemy 2.1 (use `engine.url.database`, never parse the string), and a `Path` rejoins with `\` on Windows, so archive names are built with `PurePosixPath`.
+
 ## What to test when adding new features
 
 | Change | Tests to add/update |
@@ -108,6 +123,7 @@ UPDATE_SEARCH_GOLDEN=1 uv run python -m pytest backend/tests/integration/test_se
 | New list/search query | `integration/test_query_counts.py` to pin the query count |
 | New user-facing flow | `e2e/tests/` -- Playwright spec exercising the UI flow |
 | New surface or dialog | Add it to `e2e/tests/accessibility.spec.ts` (axe scan in both themes) |
+| Electron main process, sidecar lifecycle, packaging | `electron/test/` for pure helpers; `e2e/packaged/` for behaviour of the built app |
 
 ## Known quirks
 

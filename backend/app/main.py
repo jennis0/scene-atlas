@@ -72,8 +72,8 @@ async def lifespan(app: FastAPI):
         raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
-    # unrecognised file) dlopens while holding the GIL, which deadlocks against
-    # prepare-pool threads inside threadpoolctl's dl_iterate_phdr (KMeans).
+    # unrecognised file) dlopens while holding the GIL, which can deadlock against
+    # prepare-pool threads inside the loader (seen with scikit-learn's threadpoolctl).
     from PIL import Image as PILImage
 
     PILImage.init()
@@ -280,6 +280,8 @@ async def lifespan(app: FastAPI):
     finally:
         for lock in storage_locks:
             lock.release()
+    # The desktop app's packaged tests look for this to tell a graceful stop from a kill.
+    logger.info("Shutdown complete")
 
 
 # Create FastAPI app

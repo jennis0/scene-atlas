@@ -63,7 +63,8 @@ dist-ssr/
 electron/dist/
 dist-electron/
 
-# PyInstaller outputs
+# PyInstaller outputs, and the runtime-only venv it builds from
+.venv-sidecar/
 backend/pyinstaller/dist/
 backend/pyinstaller/build/
 backend/pyinstaller/__pycache__/
@@ -96,6 +97,8 @@ e2e/.tmp-images/
 e2e/.tmp-e2e-images.zip
 e2e/test-results/
 e2e/playwright-report/
+e2e/test-results-packaged/
+e2e/playwright-report-packaged/
 e2e/blob-report/
 
 # Stress test generated files

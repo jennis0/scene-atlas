@@ -203,7 +203,7 @@ function Chip({
       }`}
     >
       {label}
-      <span className="tabular-nums opacity-80">{n(count)}</span>
+      <span className="tabular-nums">{n(count)}</span>
     </button>
   )
 }

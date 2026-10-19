@@ -4,19 +4,26 @@
 #
 # Build with:
 #   uv run python scripts/build/build_sidecar.py
-# or directly:
-#   uv run pyinstaller backend/pyinstaller/scene_atlas_backend.spec
+# which runs PyInstaller from .venv-sidecar, a venv holding only the runtime
+# dependencies. Don't run it from the dev venv: PyInstaller bundles whatever optional
+# imports it can resolve, so the dev tools (IPython, transformers, onnx...) come too.
 #
-# Output: backend/pyinstaller/dist/scene-atlas-backend/
-# The build_sidecar.py script copies this to the Electron extraResources path.
+# Output: backend/pyinstaller/dist/scene-atlas-backend/, which electron-builder's
+# extraResources bundles as resources/sidecar/.
 #
 # ONNX models are NOT bundled — they are downloaded from HuggingFace at
 # runtime by model_download_service.  The sidecar only needs huggingface_hub
 # for downloading and onnxruntime for inference.
 
 import sys
+from importlib.metadata import distributions, packages_distributions
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    copy_metadata,
+)
 
 # Project root (2 levels up from this spec file: backend/pyinstaller -> backend -> root)
 project_root = Path(SPECPATH).parent.parent
@@ -32,6 +39,32 @@ lancedb_datas, lancedb_binaries, lancedb_hiddenimports = collect_all('lancedb')
 ort_datas    = collect_data_files('onnxruntime')
 ort_binaries = collect_dynamic_libs('onnxruntime')
 
+# ── Every distribution's metadata (.dist-info). Packages read it at import time, e.g.
+# httpcore2 and httpx2 call importlib.metadata.version() on themselves, and PyInstaller
+# bundles metadata only when a hook asks for it; without it model downloads failed.
+# The build venv holds just the runtime deps, so this is all of them (a few MB), minus
+# PyInstaller's own. entry.py --self-check imports every bundled package to catch more.
+_BUILD_TOOLS = {'pyinstaller', 'pyinstaller-hooks-contrib', 'altgraph', 'pefile',
+                'pywin32-ctypes', 'macholib'}
+metadata_datas = []
+for _dist in distributions():
+    _dist_name = _dist.metadata['Name']
+    if _dist_name and _dist_name.lower() not in _BUILD_TOOLS:
+        metadata_datas += copy_metadata(_dist_name)
+
+# ── The runtime deps' top-level modules, for entry.py --self-check. Listed here, where
+# every package's metadata exists: at runtime a package with missing metadata (the
+# failure above) would be missing from packages_distributions() too, and go unchecked.
+import json as _json
+_self_check_modules = sorted(
+    module
+    for module, dists in packages_distributions().items()
+    if not all(d.lower() in _BUILD_TOOLS for d in dists)
+)
+_self_check_file = Path(workpath) / 'self_check_modules.json'
+_self_check_file.parent.mkdir(parents=True, exist_ok=True)
+_self_check_file.write_text(_json.dumps(_self_check_modules))
+
 import os as _os
 import platform as _platform
 import re as _re
@@ -40,7 +73,8 @@ a = Analysis(
     [str(project_root / 'backend' / 'pyinstaller' / 'entry.py')],
     pathex=[str(project_root)],
     binaries=tokenizers_binaries + ort_binaries + lancedb_binaries,
-    datas=tokenizers_datas + ort_datas + lancedb_datas + [
+    datas=tokenizers_datas + ort_datas + lancedb_datas + metadata_datas + [
+        (str(_self_check_file), '.'),
         # Alembic migrations: alembic.ini + backend/alembic/ bundled into _MEIPASS root
         # database.py detects sys.frozen and reads from sys._MEIPASS instead of __file__
         (str(project_root / 'alembic.ini'),          '.'),
@@ -93,12 +127,7 @@ a = Analysis(
         'pyarrow',
         # OpenCV (headless)
         'cv2',
-        # scikit-learn
-        'sklearn',
-        'sklearn.utils._cython_blas',
-        'sklearn.neighbors._partition_nodes',
-        'sklearn.tree._utils',
-        # scipy (full package collected — sklearn has transitive deps throughout)
+        # scipy (grid detection: ndimage, signal)
         'scipy',
         'scipy.special._ufuncs_cxx',
         'scipy.linalg.cython_blas',
@@ -119,36 +148,27 @@ a = Analysis(
         'PIL.Image',
         'yaml',
     ] + tokenizers_hiddenimports + lancedb_hiddenimports,
+    # Dev tools need no excludes: the build venv doesn't have them (see the header).
+    # These are optional parts of runtime packages that their importers already treat
+    # as missing-is-fine (try/except ImportError), checked against the import tables.
     excludes=[
-        # GUI toolkits — not needed server-side
         'tkinter',
         '_tkinter',
-        'wx',
-        'PyQt5',
-        'PyQt6',
-        # Dev/test tools
-        'pytest',
-        'pytest_asyncio',
-        'ruff',
-        'ipywidgets',
-        'matplotlib',
-        'notebook',
-        'jupyter',
-        'ipython',
-        'jedi',           # IDE code completion — not needed at runtime
-        # torch/transformers — replaced by onnxruntime (exclude in case of transitive deps)
-        'torch',
-        'transformers',
-        'triton',         # GPU JIT compiler
-        # Unused database drivers (project uses SQLite, not PostgreSQL)
-        'asyncpg',
-        # gRPC — no longer needed (was required by qdrant_client)
-        'grpc',
-        'grpcio',
-        # HuggingFace download accelerator — not needed in frozen sidecar
-        'hf_xet',
-        # Prefect (removed — exclude in case of transitive dependency)
-        'prefect',
+        # pyarrow: Arrow Flight RPC, Substrait plans and the cloud filesystems. LanceDB
+        # uses none of them; pyarrow.fs imports each filesystem inside try/except.
+        'pyarrow.flight',
+        'pyarrow._flight',
+        'pyarrow.substrait',
+        'pyarrow._substrait',
+        'pyarrow._s3fs',
+        'pyarrow._gcsfs',
+        'pyarrow._azurefs',
+        'pyarrow._hdfs',
+        # Pillow's AVIF codec (7 MB): AVIF isn't an import format, and the plugin
+        # sets SUPPORTED = False without it.
+        'PIL._avif',
+        # Not hf_xet: the model repos are on Hugging Face's Xet storage, and
+        # huggingface-hub 2.x can't download Xet files without it (no HTTP fallback).
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -165,30 +185,36 @@ a = Analysis(
 _strip_binaries = False
 
 # CUDA shared libraries — always stripped from electron builds.
-# onnxruntime-gpu may be co-installed in the dev venv; collect_dynamic_libs
-# will scoop up ~1.8 GB of CUDA .so/.dll files we don't want.
+# With --ort-extra gpu, collect_dynamic_libs would scoop up ~1.8 GB of CUDA
+# .so/.dll files we don't want.
 _CUDA_LIB_RE = _re.compile(
     r'(libcu(blas|fft|rand|dnn|solver|sparse|pti|dart)'
     r'|libnv(rtc|JitLink)'
     r'|libonnxruntime_providers_cuda)'
 )
 
-# .dist-info directories are package metadata — safe to strip at runtime
-# EXCEPT for packages that read their own metadata at import time:
-#  - onnxruntime: DirectML uses entry_points.txt for plugin registration
-#  - lancedb: reads its version via importlib.metadata at import
-_DIST_INFO_RE = _re.compile(r'\.dist-info/')
+# pyarrow files nothing loads at runtime: the C++ headers, Cython sources, import
+# libraries and tests the wheel ships for building extensions; and on Windows, the DLLs
+# of the modules excluded above, which only those modules import. Not on macOS or Linux:
+# there pyarrow's core lib links libarrow_substrait itself, so dropping it breaks import
+# (the self-check catches this).
+_PYARROW_UNUSED_LIBS = (
+    [r'arrow_(python_)?(flight|substrait|s3)[^/]*\.dll'] if sys.platform == 'win32' else []
+)
+_PYARROW_UNUSED_RE = _re.compile(
+    r'^pyarrow/('
+    + '|'.join(_PYARROW_UNUSED_LIBS + [
+        r'(include|includes|src|tests)/.*',
+        r'[^/]*\.(lib|pxd|pyx|pxi|h)',
+    ])
+    + r')$'
+)
 
+# .dist-info directories are all kept (see metadata_datas above): a whitelist of the
+# packages that read their metadata broke whenever a dependency started to.
 def _keep_entry(entry):
     name = entry[0].replace('\\', '/')
-    if _DIST_INFO_RE.search(name):
-        if 'onnxruntime' in name:
-            pass  # keep — DirectML needs entry_points.txt
-        elif 'lancedb' in name:
-            pass  # keep — lancedb reads its own version via importlib.metadata at import
-        else:
-            return False
-    if _CUDA_LIB_RE.search(name):
+    if _CUDA_LIB_RE.search(name) or _PYARROW_UNUSED_RE.search(name):
         return False
     return True
 

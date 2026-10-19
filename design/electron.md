@@ -82,7 +82,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`Documents/Scene Atlas/data` and `Documents/Scene Atlas/images`) |
+| `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`<base>/data` and `<base>/images`; see [Config Storage](#config-storage)) |
 | `setup:choose-directory` | renderer → main | `(kind, currentDir, otherRoot)`: opens the folder picker at `currentDir` with the non-empty-folder warning (`pickStorageDir`), returns the chosen path or null |
 | `setup:complete` | renderer → main | `(appDataDir, imageLibraryDir)`: validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
 
@@ -123,8 +123,8 @@ Imports name local files by path ([local-ingest.md](local-ingest.md)): the prelo
 3. **Ready signal** — `entry.py` runs uvicorn through a `uvicorn.Server` subclass that prints `SCENE_ATLAS_READY port=…` after startup has bound the socket (so after the lifespan, too). The main process scans stdout for it, polls `/health`, then loads the UI from the sidecar. Only the sidecar prints the marker; other launchers (E2E, the stress runner) poll `/health`
 4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
 5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path. `loading.html` headlines the last Python exception message in those lines (e.g. another backend already holding the data folder's lock, see [backend.md](backend.md#startup-sequence-mainpy-lifespan)), else the first line of the error
-6. **Shutdown** — `stopSidecar()` closes the sidecar's stdin and, except on Windows, sends `SIGTERM`, then waits up to 5 s; on Windows, where `kill()` is `TerminateProcess`, it kills the sidecar only if it is still running after that. Called on `window-all-closed`, `will-quit`, and before relaunching for a storage change
-7. **Parent watchdog** — `--parent-pid` turns on `backend/app/parent_watchdog.py` in the sidecar, so it never outlives Electron (crash, force-quit, `app.exit()` without `will-quit`). It fires when stdin reaches EOF (the OS closes Electron's end of the pipe however Electron exits, on every platform) or when a 2 s poll finds the parent PID gone (psutil, so a reused PID doesn't count; covers an unreadable stdin). Firing sets the uvicorn server's `should_exit`, which runs the normal graceful shutdown (ingest batch, storage locks); if the process is still alive 90 s later it calls `os._exit(1)`. Without the flag (dev, server mode) stdin is ignored
+6. **Shutdown** — `stopSidecar()` closes the sidecar's stdin and, except on Windows, sends `SIGTERM`, then waits (5 s by default); on Windows, where `kill()` is `TerminateProcess`, it kills the sidecar only if it is still running after that. `will-quit` holds the quit (`preventDefault`) until it resolves, for up to `QUIT_GRACE_MS` (15 s). That wait is what makes the stop graceful on Windows: libuv puts every spawned child in a job object with `KILL_ON_JOB_CLOSE`, so the sidecar is terminated the moment Electron exits; before the wait, every normal close killed the backend mid-shutdown (found by the packaged-app tests). Also called on macOS's `window-all-closed` (the app stays in the dock) and before relaunching for a storage change. The backend logs `Shutdown complete` when its lifespan has finished
+7. **Parent watchdog** — (macOS and Linux; on Windows the job object ends the sidecar with Electron, abruptly, before the watchdog can act) `--parent-pid` turns on `backend/app/parent_watchdog.py` in the sidecar, so it never outlives Electron (crash, force-quit, `app.exit()` without `will-quit`). It fires when stdin reaches EOF (the OS closes Electron's end of the pipe however Electron exits, on every platform) or when a 2 s poll finds the parent PID gone (psutil, so a reused PID doesn't count; covers an unreadable stdin). Firing sets the uvicorn server's `should_exit`, which runs the normal graceful shutdown (ingest batch, storage locks); if the process is still alive 90 s later it calls `os._exit(1)`. Without the flag (dev, server mode) stdin is ignored
 
 In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
 
@@ -151,11 +151,48 @@ macOS is built only on the arm64 runner; there is no Intel or universal build.
 
 **Sidecar bundling:** The PyInstaller `--onedir` output (`backend/pyinstaller/dist/scene-atlas-backend/`) is copied into `resources/sidecar/` via `extraResources`.
 
+**Sidecar build environment:** `build_sidecar.py` runs PyInstaller from `.venv-sidecar`, which `uv sync --frozen --managed-python --no-install-project --extra <ort_extra> --group sidecar` keeps at exactly the runtime dependencies plus PyInstaller (the `sidecar` dependency group). PyInstaller bundles every module it can import, optional imports included, so building from the dev venv used to bundle IPython, prompt_toolkit, pygments, transformers' safetensors and onnx's protobuf. A package that isn't installed can't be bundled, so the spec needs no dev-tool excludes. The Python is uv-managed (as in CI), never a system or Microsoft Store one.
+
+**Package metadata and the self-check:** the spec bundles every distribution's `.dist-info` (`copy_metadata` over the build venv, minus PyInstaller's own), since packages read their metadata at import: `httpcore2` and `httpx2` call `importlib.metadata.version()` on themselves, so before this the frozen app couldn't download a model ("No package metadata was found for httpcore2"). PyInstaller only bundles metadata when a hook asks, and a whitelist of packages known to read it broke as soon as a dependency started to. The spec also writes `self_check_modules.json` (the runtime deps' top-level modules, listed at build time while all the metadata exists); `scene-atlas-backend --self-check` imports each one that was bundled, and `smoke_sidecar.py` runs it before starting the server. That catches frozen-only import failures on paths startup never touches (model downloads, video).
+
+**What the spec leaves out:** each was checked against the PE import tables of the bundled binaries and the importing code's `try/except ImportError`:
+
+- pyarrow's Arrow Flight, Substrait and cloud filesystems (`_flight`, `_substrait`, `_s3fs`, `_gcsfs`, `_azurefs`, `_hdfs`; on Windows also the `arrow_flight`/`arrow_python_flight`/`arrow_substrait`/`arrow_s3` DLLs only they load. On macOS and Linux those libraries stay: pyarrow's core lib links `libarrow_substrait` directly), plus the headers, Cython sources, import libraries and tests the wheel ships. LanceDB uses none of them.
+- Pillow's AVIF codec (`PIL._avif`, 7 MB); AVIF isn't an import format.
+- Not `hf_xet`, which an earlier spec excluded: the model repos are on Hugging Face's Xet storage, and huggingface-hub 2.x can't download Xet files without it.
+
+**Size** (Windows, 2026-10-18; the installer is the download):
+
+| | Before | After |
+|---|---|---|
+| Installer (`Scene-Atlas-Setup-<version>.exe`) | 306 MB | 275 MB |
+| Installed | 1,044 MB | 929 MB |
+| of which the sidecar | 675 MB | 607 MB |
+| of which Electron | 369 MB | 321 MB |
+
+The rest is hard to cut: `_lancedb.pyd` alone is 225 MB (kept, see [status-and-roadmap.md](status-and-roadmap.md)), OpenCV 111 MB (grid detection; its 29 MB ffmpeg library decodes video thumbnails), onnxruntime + DirectML 63 MB, scipy 67 MB (grid detection imports `scipy.signal`, which pulls in optimize, sparse and the rest). Electron's own runtime files (`dxcompiler.dll`, `vk_swiftshader.dll`, ...) are left alone: Chromium loads them on demand, and which it needs changes between releases.
+
+**Locales:** `electronLanguages` keeps `en-US` and `en-GB` (46 MB of other locale packs dropped). Chromium sets the renderer's locale (`navigator.language`, the `Intl` default) from the packs present, falling back to `en-US`; `en-GB` keeps UK date and number formats on UK systems. The UI is English only, so other systems get `en-US` formats.
+
+### Fuses
+
+`electronFuses` in `electron-builder.yml` flips these in the packaged binary:
+
+| Fuse | Value | Why |
+|---|---|---|
+| `runAsNode` | off | `ELECTRON_RUN_AS_NODE` would turn the app into a plain Node runtime |
+| `enableNodeOptionsEnvironmentVariable` | off | `NODE_OPTIONS` could preload code into the main process |
+| `enableNodeCliInspectArguments` | off | `--inspect` would open a debugger on the main process |
+| `enableEmbeddedAsarIntegrityValidation` + `onlyLoadAppFromAsar` | on | only the shipped, hash-checked `app.asar` is loaded |
+| `grantFileProtocolExtraPrivileges` | **on** (default) | Off, `file://` can't read inside `app.asar`, so `setup.html` and `loading.html` fail with `ERR_FILE_NOT_FOUND` (found by the packaged-app tests). Turning it off needs those pages served from a custom protocol (`protocol.handle`), with `isAppUrl()` and the IPC sender checks moved to that scheme |
+
+With `--inspect` gone, Playwright's `_electron.launch` can't drive the packaged app; the packaged-app tests use `--remote-debugging-port` and CDP instead ([testing.md](testing.md#packaged-app-tests)).
+
 **Models:** ONNX models are not bundled. They are downloaded from Hugging Face at runtime by `model_download_service`; first launch therefore needs an internet connection (see [hf-model-management.md](hf-model-management.md)).
 
 ### GPU support in desktop builds
 
-There is one build per platform; GPU support comes from the onnxruntime package installed at build time, selected by the release matrix `ort_extra` value (`uv sync --extra dev --extra <ort_extra>`):
+There is one build per platform; GPU support comes from the onnxruntime package installed in the sidecar build venv, selected by `build_sidecar.py --ort-extra` (default: `gpu-directml` on Windows, `cpu` elsewhere; the release matrix passes its `ort_extra`):
 
 | Platform | `ort_extra` | ORT package | GPU provider |
 |----------|-------------|-------------|--------------|
@@ -163,9 +200,11 @@ There is one build per platform; GPU support comes from the onnxruntime package 
 | macOS | `cpu` | `onnxruntime` | CoreML (built into the macOS wheel) |
 | Linux | `cpu` | `onnxruntime` | none (CPU only) |
 
-The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration) (DirectML plugin registration). UPX is off: it corrupted bundled shared libraries (numpy's OpenBLAS), slows startup and trips Windows antivirus. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
+The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration). UPX is off: it corrupted bundled shared libraries (numpy's OpenBLAS), slows startup and trips Windows antivirus. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
 
-**Auto-updates:** electron-builder publishes to GitHub Releases (`publish.provider: github`) on the single `latest` channel for all platforms.
+**Releases and updates:** there is no auto-updater, so electron-builder publishes nothing (`publish: null`) and writes no update metadata (`latest.yml`, `.blockmap`). The Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers, and only once all three have passed. An updater would need code signing first: an unsigned Windows installer warns in SmartScreen on every update. macOS builds are signed and notarized only when the Apple signing secrets are set (none are yet); the build step unsets empty ones, because electron-builder reads an empty `CSC_LINK` as a path and fails.
+
+**Windows specifics:** installers are named without spaces (`Scene-Atlas-Setup-<version>.exe`; GitHub rewrites spaces in asset names). electron-builder picks up `assets/icon.ico`, `icon.icns` and `icon.png` by name from `buildResources` ([brand.md](brand.md) covers how they're drawn). `main.ts` sets the AppUserModelID to the `appId`, matching the installer's shortcuts, or a pinned shortcut and the running app show as two taskbar icons. The sidecar is spawned with `windowsHide`: it is a console program, and Windows would otherwise open a console window beside the app.
 
 ## Config Storage
 
@@ -173,8 +212,10 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 |------|----------|
 | App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors? }`. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
-| Default app data dir | `{Documents}/Scene Atlas/data` |
-| Default image library dir | `{Documents}/Scene Atlas/images` |
+| Default app data dir | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
+| Default image library dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
+
+On Windows, Documents is often redirected into OneDrive (the Windows 11 default for many accounts), which would sync the SQLite database, the LanceDB index and the thumbnails while they're open (lock conflicts, Files On-Demand evicting them) as well as every library image. Local AppData is never synced or roamed. `defaultStorageBase()` in `storageDirs.ts` chooses (unit tested); existing configs keep their folders.
 
 **Legacy config migration:** A config containing only `dataDir` (single-root format) is migrated on load to `appDataDir ← dataDir`, `imageLibraryDir ← dataDir/store/images`, and saved immediately. A `convertToWebp` field from older configs is ignored: the sidecar of that version already seeded the setting from it.
 
@@ -193,6 +234,10 @@ The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin reg
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
 | `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |
-| `electron-builder.yml` | Build targets, sidecar bundling, auto-update config |
+| `electron-builder.yml` | Build targets, sidecar bundling, locales, fuses |
+| `scripts/build/build_sidecar.py` | Syncs `.venv-sidecar` and runs PyInstaller |
+| `scripts/build/build_electron.py` | Frontend → sidecar → TypeScript → electron-builder (`--dev` for an unpacked app only) |
+| `scripts/build/smoke_sidecar.py` | Runs the built sidecar's `--self-check`, then starts it and checks it serves the API and UI |
+| `e2e/packaged/` | Packaged-app tests (windows, sidecar lifecycle), `npm run test:packaged` |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
 | `backend/pyinstaller/entry.py` | Sidecar entry point |

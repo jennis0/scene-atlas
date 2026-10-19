@@ -173,9 +173,7 @@ export function TagPicker({ vocab, existingTags, onAdd }: TagPickerProps) {
                     >
                       <CatIcon className={`h-3.5 w-3.5 shrink-0 ${color.text} opacity-60`} />
                       <span className="capitalize flex-1 truncate">{v.category}</span>
-                      <span className="text-3xs tabular-nums shrink-0 opacity-80">
-                        {v.values.length}
-                      </span>
+                      <span className="text-3xs tabular-nums shrink-0">{v.values.length}</span>
                     </button>
                   )
                 })}

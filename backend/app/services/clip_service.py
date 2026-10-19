@@ -328,6 +328,11 @@ class CLIPService:
 
         self._vision_model_path = str(models_dir / vision_file)
         self._text_model_path = str(models_dir / text_file)
+        # ONNX Runtime reports a missing file as its own NoSuchFile error; raise the
+        # FileNotFoundError _load_clip() treats as "no model downloaded yet".
+        for model_path in (self._vision_model_path, self._text_model_path):
+            if not Path(model_path).is_file():
+                raise FileNotFoundError(f"Model file not downloaded: {model_path}")
         self._inference_count = 0
 
         # INT8 quantised encoders have no CUDA kernels — all quantised ops fall

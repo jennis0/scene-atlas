@@ -42,8 +42,10 @@ async def test_runs_task_and_records_last_run(tmp_path):
     scheduler = Scheduler(tmp_path, startup_grace=0.01)
     scheduler.register(lambda: calls.append(1), hours=1, name="tick")
     await scheduler.start()
+    # Wait for the record, not the call: the run is recorded after the task returns,
+    # and stopping in between (likely with Windows' coarse timers) cancels the record.
     for _ in range(100):
-        if calls:
+        if scheduler.last_run("tick") is not None:
             break
         await asyncio.sleep(0.02)
     await scheduler.stop()

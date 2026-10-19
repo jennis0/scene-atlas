@@ -67,13 +67,3 @@ def setup_logging(data_dir: Path, *, debug: bool = False) -> None:
         warnings.filterwarnings("error", category=Image.DecompressionBombWarning)
     except ImportError:
         pass  # PIL not installed yet (e.g. during fresh env setup)
-
-    # sklearn ConvergenceWarning: expected when an image has fewer distinct
-    # colours than the requested k-means clusters.  Demote to DEBUG so it
-    # doesn't clutter INFO logs on normal uploads.
-    warnings.filterwarnings(
-        "ignore",
-        message="Number of distinct clusters.*found smaller than n_clusters",
-        category=UserWarning,
-        module="sklearn",
-    )

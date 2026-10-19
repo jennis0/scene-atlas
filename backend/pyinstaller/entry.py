@@ -23,8 +23,45 @@ WINDOW_SECS = 300
 MAX_BACKOFF = 30
 STARTUP_FAILURE = 3  # uvicorn's exit code when startup fails
 
+# Bundled modules the app never imports, which may fail outside their intended use.
+SELF_CHECK_SKIP: set[str] = set()
+
+
+def self_check() -> int:
+    """Import every bundled top-level module of the runtime dependencies.
+
+    Run by scripts/build/smoke_sidecar.py. Startup only imports what startup needs; this
+    catches what fails in the frozen build on other paths (model downloads, video, ...),
+    such as a package reading its own metadata at import when the metadata wasn't bundled.
+    The spec lists the modules at build time (self_check_modules.json). Third-party only:
+    stdlib modules can have side effects on import.
+    """
+    import importlib
+    import json
+    import pkgutil
+    from pathlib import Path
+
+    listed = Path(sys._MEIPASS, "self_check_modules.json")  # pyright: ignore[reportAttributeAccessIssue]
+    expected = set(json.loads(listed.read_text(encoding="utf-8")))
+    bundled = {m.name for m in pkgutil.iter_modules()}
+    names = sorted((expected & bundled) - SELF_CHECK_SKIP)
+    failures = []
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:
+            failures.append(f"  {name}: {type(exc).__name__}: {exc}")
+    if failures:
+        print(f"SELF-CHECK FAILED: {len(failures)} of {len(names)} modules", *failures, sep="\n")
+        return 1
+    print(f"SELF-CHECK OK: {len(names)} modules")
+    return 0
+
 
 def main():
+    if sys.argv[1:] == ["--self-check"]:
+        sys.exit(self_check())
+
     parser = argparse.ArgumentParser(description="Scene Atlas backend (packaged)")
     parser.add_argument("--port", type=int, required=True, help="Port to bind to")
     parser.add_argument(

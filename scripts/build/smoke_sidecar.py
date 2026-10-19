@@ -46,6 +46,21 @@ def main() -> int:
         print(f"Sidecar not found: {args.exe}", file=sys.stderr)
         return 1
 
+    # Every bundled third-party module imports (entry.py's self_check).
+    check = subprocess.run(
+        [str(args.exe), "--self-check"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=args.timeout,
+        check=False,
+    )
+    print(check.stdout.strip())
+    if check.returncode != 0:
+        print(check.stderr[-4000:], file=sys.stderr)
+        return 1
+
     port = _free_port()
     with tempfile.TemporaryDirectory(prefix="sidecar-smoke-") as tmp:
         data, library = Path(tmp, "data"), Path(tmp, "library")

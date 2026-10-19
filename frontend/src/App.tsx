@@ -5,6 +5,7 @@ import { Toaster } from 'sonner'
 import { Gallery } from './pages/Gallery'
 import ErrorBoundary from './components/ErrorBoundary'
 import { SetupWizard } from './components/setup/SetupWizard'
+import { WindowDragBar } from './components/WindowDragBar'
 import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import { useTheme } from './contexts/ThemeContext'
 
@@ -41,6 +42,7 @@ function App() {
   if (gate.kind === 'checking') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
+        <WindowDragBar />
         <p role="status" className="text-muted-foreground text-sm">
           Loading…
         </p>
@@ -49,11 +51,21 @@ function App() {
   }
 
   if (gate.kind === 'error') {
-    return <ConnectionError onRetry={checkSetupStatus} />
+    return (
+      <>
+        <WindowDragBar />
+        <ConnectionError onRetry={checkSetupStatus} />
+      </>
+    )
   }
 
   if (gate.kind === 'setup') {
-    return <SetupWizard status={gate.status} onComplete={handleSetupComplete} />
+    return (
+      <>
+        <WindowDragBar />
+        <SetupWizard status={gate.status} onComplete={handleSetupComplete} />
+      </>
+    )
   }
 
   return (

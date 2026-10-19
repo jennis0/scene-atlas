@@ -176,7 +176,7 @@ export function Gallery() {
       <GalleryHeader
         search={{ ...search, editAllLoading: dialogs.editAllLoading }}
         embeddingStatus={embedding.status}
-        embeddingError={embedding.error}
+        embeddingMessage={embedding.message}
         onOpenImport={() => dialogs.openImport()}
         onOpenTagManagement={() => dialogs.setShowTagManagement(true)}
         onOpenSystemInfo={() => dialogs.setShowSystemInfo(true)}

@@ -217,7 +217,7 @@ All endpoints are under `/api/v1/models/`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | List all models with download status and active flag |
-| `GET` | `/embedding-status` | CLIP service state: `loading` / `ready` / `error` |
+| `GET` | `/embedding-status` | `{status, message}`. `loading` (also while an activation job downloads), `ready`, `missing` (no model files; `CLIPService` raises `FileNotFoundError` before ONNX Runtime would raise its own `NoSuchFile`), `error` (a downloaded model failed to load). `message` is a sentence for the UI's search-model pill; exception text stays in the log. The frontend keeps polling while `loading` or `missing` |
 | `GET` | `/setup-status` | GPU detection, `needs_model`, `setup_completed`, `model_activating`, recommended model |
 | `POST` | `/setup-complete` | Store `setup_completed_at` in `app_settings` so the setup wizard is not shown again |
 | `POST` | `/active` | Set the active model; triggers download + re-embed job |

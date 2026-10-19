@@ -129,6 +129,45 @@ class TestExtractDominantColors:
         assert len(result) == 1
         assert result[0]["percentage"] == pytest.approx(100.0, abs=0.1)
 
+    def test_finds_the_actual_colours_and_shares(self, tmp_path):
+        from backend.pipeline.tasks.color_extraction import extract_dominant_colors
+
+        # 60x60 = 3,600 pixels: under the clustering sample size, so every pixel counts
+        img = PILImage.new("RGB", (60, 60), (30, 60, 200))
+        img.paste((220, 40, 40), (0, 0, 60, 30))  # top half red
+        img.paste((40, 180, 60), (0, 30, 60, 45))  # a quarter green
+        img_path = tmp_path / "bands.png"
+        img.save(img_path)
+
+        result = extract_dominant_colors(str(img_path), num_colors=3)
+        shares = [(c["color_hex"], round(c["percentage"])) for c in result]
+        assert shares[0] == ("#dc2828", 50)
+        # Green and blue tie, so either may come second.
+        assert sorted(shares[1:]) == [("#1e3cc8", 25), ("#28b43c", 25)]
+
+    def test_fewer_pixels_than_clusters(self, tmp_path):
+        from backend.pipeline.tasks.color_extraction import extract_dominant_colors
+
+        img = PILImage.new("RGB", (2, 1), (255, 0, 0))
+        img.putpixel((1, 0), (0, 0, 255))
+        img_path = tmp_path / "tiny.png"
+        img.save(img_path)
+
+        result = extract_dominant_colors(str(img_path), num_colors=5)
+        assert sorted(c["color_hex"] for c in result) == ["#0000ff", "#ff0000"]
+        assert sum(c["percentage"] for c in result) == pytest.approx(100.0)
+
+    def test_more_clusters_than_distinct_colours(self, tmp_path):
+        from backend.pipeline.tasks.color_extraction import extract_dominant_colors
+
+        img_path = tmp_path / "flat.png"
+        PILImage.new("RGB", (40, 40), (10, 20, 30)).save(img_path)
+
+        result = extract_dominant_colors(str(img_path), num_colors=5)
+        assert result[0]["color_hex"] == "#0a141e"
+        assert result[0]["percentage"] > 99
+        assert sum(c["percentage"] for c in result) == pytest.approx(100.0)
+
 
 # ---------------------------------------------------------------------------
 # image_processing

@@ -11,7 +11,9 @@ Options:
     --dev             Quick dev build: unpack only, no installer (skips slow NSIS compression)
     --platform        Target platform: windows, macos, linux, or current (default: current)
                       Note: macOS builds require a macOS host for code signing/notarisation.
-    --publish         Pass --publish always to electron-builder (for CI releases)
+
+Nothing is published from here: the Release workflow's publish job creates the GitHub
+Release from the build artifacts.
 """
 
 import argparse
@@ -122,11 +124,6 @@ def main() -> None:
         default="current",
         help="Target platform (default: current OS). macOS builds require a macOS host.",
     )
-    parser.add_argument(
-        "--publish",
-        action="store_true",
-        help="Publish to GitHub Releases (passes --publish always to electron-builder)",
-    )
     args = parser.parse_args()
 
     platform_label = args.platform if args.platform != "current" else f"current ({sys.platform})"
@@ -217,9 +214,8 @@ def main() -> None:
             for d in unpacked:
                 print(f"   {d.relative_to(ROOT)}")
     else:
-        publish_value = "always" if args.publish else "never"
-        step(f"Packaging with electron-builder (--publish {publish_value})")
-        cmd = ["electron-builder", "--publish", publish_value]
+        step("Packaging with electron-builder")
+        cmd = ["electron-builder", "--publish", "never"]
         if platform_flag:
             cmd.append(platform_flag)
         npx(*cmd)
@@ -227,9 +223,7 @@ def main() -> None:
         out = ROOT / "dist-electron"
         if out.exists():
             installers = [
-                f
-                for f in out.iterdir()
-                if f.suffix in (".exe", ".msi", ".dmg", ".AppImage", ".deb")
+                f for f in out.iterdir() if f.suffix in (".exe", ".dmg", ".AppImage", ".deb")
             ]
             if installers:
                 print()

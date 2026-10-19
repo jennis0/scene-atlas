@@ -475,46 +475,42 @@ def init_db(engine):
 
     if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
         # Frozen PyInstaller binary: alembic.ini and backend/alembic/ are bundled
-        # into sys._MEIPASS (_internal/).  Alembic resolves script_location via
-        # os.path.abspath() (relative to CWD, not the config file), so we must
-        # override it with the absolute _MEIPASS path after loading the config.
-        bundle_dir = _Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
-        alembic_ini = bundle_dir / "alembic.ini"
-        alembic_cfg = AlembicConfig(str(alembic_ini))
-        alembic_cfg.set_main_option(
-            "script_location",
-            str(bundle_dir / "backend" / "alembic"),
-        )
+        # into sys._MEIPASS (_internal/).
+        root = _Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
     else:
         # Normal dev runtime: 4 levels up from backend/app/models/database.py
-        alembic_ini = _Path(__file__).parent.parent.parent.parent / "alembic.ini"
-        alembic_cfg = AlembicConfig(str(alembic_ini))
-    # Always override the URL to use this engine's actual database path
-    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+        root = _Path(__file__).parent.parent.parent.parent
+    alembic_cfg = AlembicConfig(str(root / "alembic.ini"))
+    # Absolute, because Alembic resolves a relative script_location against the CWD,
+    # not the config file. Setting it also parses alembic.ini, which has to happen
+    # before config_file_name is cleared below.
+    alembic_cfg.set_main_option("script_location", str(root / "backend" / "alembic"))
     # Prevent Alembic from calling logging.config.fileConfig(), which would
     # replace the root logger's handlers and remove our rotating file handler.
     # Logging is managed entirely by setup_logging() in logging_config.py.
     alembic_cfg.config_file_name = None
 
-    with engine.connect() as conn:
-        context = MigrationContext.configure(conn)
-        current_rev = context.get_current_revision()
+    with engine.begin() as conn:
+        # env.py migrates on this connection, not on a URL: Alembic's Config is a
+        # ConfigParser, which reads the '%' escapes SQLAlchemy 2.1 writes into a
+        # rendered Windows path ('C%3A%5C...') as interpolation syntax.
+        alembic_cfg.attributes["connection"] = conn
+        current_rev = MigrationContext.configure(conn).get_current_revision()
 
-    if current_rev is None:
-        inspector = inspect(engine)
-        if "images" in inspector.get_table_names():
-            # Pre-Alembic database: schema is already up to date.
-            # Stamp at head to bring it under Alembic management.
-            logger.info("Stamping pre-Alembic database at head revision")
-            command.stamp(alembic_cfg, "head")
+        if current_rev is None:
+            if "images" in inspect(conn).get_table_names():
+                # Pre-Alembic database: schema is already up to date.
+                # Stamp at head to bring it under Alembic management.
+                logger.info("Stamping pre-Alembic database at head revision")
+                command.stamp(alembic_cfg, "head")
+            else:
+                # Fresh database: create everything via migrations.
+                logger.info("Running Alembic migrations on fresh database")
+                command.upgrade(alembic_cfg, "head")
         else:
-            # Fresh database: create everything via migrations.
-            logger.info("Running Alembic migrations on fresh database")
+            # Already Alembic-managed: apply any pending migrations.
+            logger.info("Running Alembic upgrade (current: %s)", current_rev)
             command.upgrade(alembic_cfg, "head")
-    else:
-        # Already Alembic-managed: apply any pending migrations.
-        logger.info("Running Alembic upgrade (current: %s)", current_rev)
-        command.upgrade(alembic_cfg, "head")
 
 
 SETUP_COMPLETED_KEY = "setup_completed_at"

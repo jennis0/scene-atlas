@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { hasForeignEntries, prepareStorageDirs } from '../src/storageDirs.ts'
+import { defaultStorageBase, hasForeignEntries, prepareStorageDirs } from '../src/storageDirs.ts'
 
 let root: string
 
@@ -78,6 +78,33 @@ describe('hasForeignEntries', () => {
     fs.mkdirSync(appData, { recursive: true })
     assert.equal(hasForeignEntries(root, appData), false)
     assert.equal(hasForeignEntries(root, path.join(root, 'elsewhere')), true)
+  })
+})
+
+describe('defaultStorageBase', () => {
+  const dirs = { home: 'C:\\Users\\sam', documents: 'C:\\Users\\sam\\OneDrive\\Documents' }
+
+  test('Windows uses Local AppData, never the (possibly OneDrive) Documents folder', () => {
+    const env = { LOCALAPPDATA: 'C:\\Users\\sam\\AppData\\Local' }
+    assert.equal(
+      defaultStorageBase('win32', env, dirs),
+      'C:\\Users\\sam\\AppData\\Local\\Scene Atlas',
+    )
+  })
+
+  test('Windows falls back to the standard Local AppData path', () => {
+    for (const LOCALAPPDATA of [undefined, '', 'relative\\dir']) {
+      assert.equal(
+        defaultStorageBase('win32', { LOCALAPPDATA }, dirs),
+        'C:\\Users\\sam\\AppData\\Local\\Scene Atlas',
+      )
+    }
+  })
+
+  test('macOS and Linux use Documents', () => {
+    const unix = { home: '/home/sam', documents: '/home/sam/Documents' }
+    assert.equal(defaultStorageBase('linux', {}, unix), path.join('/home/sam/Documents', 'Scene Atlas'))
+    assert.equal(defaultStorageBase('darwin', {}, unix), path.join('/home/sam/Documents', 'Scene Atlas'))
   })
 })
 

@@ -15,17 +15,20 @@ test.describe("Gallery", () => {
       timeout: 30_000,
     });
 
+    // The tabs, not the tiles: a tile's name starts with its folder, which may be "Scenes"
+    const tabs = page.getByRole("group", { name: "Image type" });
+
     // Click "Maps" tab
-    await page.getByRole("button", { name: /Maps/ }).click();
+    await tabs.getByRole("button", { name: /Maps/ }).click();
     // URL should update with image_type filter
     await expect(page).toHaveURL(/image_type=battlemap/);
 
     // Click "Scenes" tab
-    await page.getByRole("button", { name: /Scenes/ }).click();
+    await tabs.getByRole("button", { name: /Scenes/ }).click();
     await expect(page).toHaveURL(/image_type=scene/);
 
     // Click "All" tab to reset — URL should no longer contain image_type
-    await page.getByRole("button", { name: /All/ }).click();
+    await tabs.getByRole("button", { name: /All/ }).click();
     await expect(page).not.toHaveURL(/image_type=/);
     await expect(page.getByText(/[1-9]\d* scenes/)).toBeVisible({
       timeout: 5_000,

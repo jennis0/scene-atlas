@@ -775,9 +775,7 @@ function OptionPill({
       className={`inline-flex items-center gap-1 h-6 px-2.5 rounded-full border ${colors.border} ${colors.bg} ${colors.text} text-xs hover:brightness-110 transition-colors`}
     >
       <span className="capitalize max-w-[9.41rem] truncate">{label}</span>
-      {count !== undefined && (
-        <span className="ml-0.5 text-3xs opacity-80 tabular-nums">{count}</span>
-      )}
+      {count !== undefined && <span className="ml-0.5 text-3xs tabular-nums">{count}</span>}
     </button>
   )
 }
