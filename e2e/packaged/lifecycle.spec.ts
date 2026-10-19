@@ -96,6 +96,31 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   expect(backendAppLog(profile.appData)).toContain("Shutdown complete");
 });
 
+test("the updater reports its version and checks the feed it is given", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  const version = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8"),
+  ).version;
+
+  const state = await page.evaluate(() => (window as any).electronAPI.getUpdateState());
+  expect(state).toMatchObject({ currentVersion: version, checksEnabled: true });
+  // The unpacked build isn't an AppImage, so only Windows installs.
+  expect(state.mode).toBe(process.platform === "win32" ? "install" : "notify");
+
+  // launch() points the updater at a closed port: the check fails, and says so.
+  await page.evaluate(() => (window as any).electronAPI.checkForUpdates());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).electronAPI.getUpdateState()), {
+      timeout: 30_000,
+    })
+    .toMatchObject({ status: "error", error: "Couldn't check for updates." });
+  expect(fs.readFileSync(path.join(profile.userData, "updater.log"), "utf8")).toContain(
+    "Using the update feed http://127.0.0.1:9/",
+  );
+});
+
 test("the backend doesn't outlive a killed app", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);
