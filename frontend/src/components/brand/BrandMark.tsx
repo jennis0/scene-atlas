@@ -12,7 +12,7 @@ export function BrandMark({ className }: { className?: string }) {
         <path key={d} d={d} className="fill-primary" />
       ))}
       {MARK_PAGES.map((d) => (
-        <path key={d} d={d} className="fill-foreground" />
+        <path key={d} d={d} className="fill-mark-page" />
       ))}
     </svg>
   )
