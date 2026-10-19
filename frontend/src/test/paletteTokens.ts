@@ -11,6 +11,9 @@ export type Mode = 'light' | 'dark'
 export type ContrastLevel = 'standard' | 'high'
 export type Hsl = [number, number, number]
 type Tokens = Record<string, Hsl>
+/** A token's value in a block: an HSL triplet, or a reference to another token
+ * (`--x: var(--y)`), which the browser resolves against the final cascade. */
+type Value = Hsl | { ref: string }
 
 const css = readFileSync(path.resolve(__dirname, '../index.css'), 'utf8').replace(
   /\/\*[\s\S]*?\*\//g,
@@ -44,13 +47,16 @@ function target(selector: string): string | null {
   return null
 }
 
-export const blocks = new Map<string, Tokens>()
+export const blocks = new Map<string, Record<string, Value>>()
 for (const [, selectorList, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-  const tokens: Tokens = {}
+  const tokens: Record<string, Value> = {}
   for (const [, name, h, s, l] of body.matchAll(
     /--([a-z-]+):\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/g,
   )) {
     tokens[name] = [Number(h), Number(s), Number(l)]
+  }
+  for (const [, name, ref] of body.matchAll(/--([a-z-]+):\s*var\(--([a-z-]+)\)/g)) {
+    tokens[name] = { ref }
   }
   if (Object.keys(tokens).length === 0) continue
   for (const selector of selectorList.split(',')) {
@@ -70,7 +76,16 @@ export function resolve(palette: Palette, mode: Mode, level: ContrastLevel): Tok
     layers.push(`${palette}/light/hc`)
     if (mode === 'dark') layers.push(`${palette}/dark/hc`)
   }
-  return Object.assign({}, ...layers.filter(Boolean).map((k) => blocks.get(k as string)))
+  const merged: Record<string, Value> = Object.assign(
+    {},
+    ...layers.filter(Boolean).map((k) => blocks.get(k as string)),
+  )
+  // References resolve against the final values, as var() does on the element
+  const tokens: Tokens = {}
+  for (const [name, value] of Object.entries(merged)) {
+    tokens[name] = 'ref' in value ? (merged[value.ref] as Hsl) : value
+  }
+  return tokens
 }
 
 /** sRGB channels in 0..1, rounded to 8 bits as the browser renders them (axe measures

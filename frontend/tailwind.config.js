@@ -69,6 +69,8 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
         'surface-canvas': 'hsl(var(--surface-canvas))',
+        // The logo's pages (BrandMark): dark on light themes, the text colour on dark ones
+        'mark-page': 'hsl(var(--mark-page))',
         // Shadow colour: black, its opacity scaled per mode by --shadow-strength (index.css)
         shade: 'hsl(0 0% 0% / calc(<alpha-value> * var(--shadow-strength)))',
       },

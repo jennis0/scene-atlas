@@ -34,6 +34,7 @@
       --primary-fg: hsl(30 30% 12%);
       --ring: hsl(34 85% 27.5%);
       --fg: hsl(30 12% 15%);
+      --mark-page: hsl(222 22% 8%);
       --fg-muted: hsl(30 9% 34%);
       --danger: hsl(0 65% 35%);
       --radius: 8px;
@@ -49,6 +50,7 @@
         --primary-fg: hsl(222 30% 8%);
         --ring: hsl(39 68% 59%);
         --fg: hsl(37 27% 89%);
+        --mark-page: var(--fg);
         --fg-muted: hsl(37 9% 58%);
         --danger: hsl(0 75% 73.5%);
       }
@@ -89,7 +91,7 @@
     }
     .mark { height: 0.85em; width: auto; flex-shrink: 0; }
     .mark-band { fill: var(--primary); }
-    .mark-page { fill: var(--fg); }
+    .mark-page { fill: var(--mark-page); }
 
     .intro { color: var(--fg-muted); margin-top: 0.25rem; }
 

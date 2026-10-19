@@ -20,5 +20,5 @@ def test_mark_uses_the_requested_page_colour():
     dark = render_mark(64, DARK)
     # a point well inside the left page
     x, y = light.width // 4, light.height // 3
-    assert light.getpixel((x, y))[:3] == (0x2B, 0x26, 0x22)  # type: ignore[index]
+    assert light.getpixel((x, y))[:3] == (0x0E, 0x11, 0x18)  # type: ignore[index]
     assert dark.getpixel((x, y))[:3] == (0xED, 0xE8, 0xDC)  # type: ignore[index]

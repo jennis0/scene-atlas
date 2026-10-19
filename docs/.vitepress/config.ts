@@ -1,13 +1,28 @@
 import { defineConfig } from "vitepress";
 
+const SITE = "https://jennis0.github.io/scene-atlas";
+
 export default defineConfig({
   title: "Scene Atlas",
   description:
-    "Self-hosted scene manager for tabletop RPG art — search and organise your battlemap collection",
+    "Art and map management for game masters. Search battlemaps and scene art by what's in them, keep variants together, and run it on your desktop or your own server.",
+
+  // Served from https://jennis0.github.io/scene-atlas/
+  base: "/scene-atlas/",
 
   head: [
     ["meta", { name: "theme-color", content: "#0e1118" }],
-    ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    // head entries aren't prefixed with base, so these carry it themselves
+    [
+      "link",
+      { rel: "icon", type: "image/svg+xml", href: "/scene-atlas/favicon.svg" },
+    ],
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:site_name", content: "Scene Atlas" }],
+    ["meta", { property: "og:image", content: `${SITE}/social-preview.png` }],
+    ["meta", { property: "og:image:width", content: "1280" }],
+    ["meta", { property: "og:image:height", content: "640" }],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
     ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
     [
       "link",
@@ -21,7 +36,7 @@ export default defineConfig({
       "link",
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Figtree:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Figtree:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap",
       },
     ],
   ],

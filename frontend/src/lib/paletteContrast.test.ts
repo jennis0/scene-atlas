@@ -83,6 +83,10 @@ describe.each(VARIANTS)('%s palette, %s mode, %s contrast', (palette, mode, leve
     })
   }
 
+  it("the logo's pages stand out from the page background (>= 3:1, non-text)", () => {
+    expect(contrast(c('mark-page'), c('background'))).toBeGreaterThanOrEqual(3)
+  })
+
   it('focus ring is >= 3:1 on every surface', () => {
     for (const surface of SURFACES) {
       expect(contrast(c('ring'), c(surface))).toBeGreaterThanOrEqual(3)

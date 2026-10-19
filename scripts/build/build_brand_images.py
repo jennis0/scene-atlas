@@ -10,6 +10,7 @@ Writes:
     assets/brand/lockup-light.png    mark and wordmark for light backgrounds, transparent
     assets/brand/social-preview.png  1280x640, for the repository's social preview
                                      (upload it by hand: Settings > General > Social preview)
+    docs/public/social-preview.png   the same image, for the website's link previews
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from scripts.build.build_icons import GOLD, NAVY, PARCHMENT, ROOT, _bounds, mark
 FONTS = ROOT / "electron" / "fonts"
 WORDMARK = "Scene Atlas"
 TAGLINE = "Art and map management for game masters."
-SUBLINE = "Free and open source  ·  Windows, macOS, Linux and self-hosted"
+SUBLINE = "Free and open source  ·  Windows, macOS, Linux, and self-hosted"
 
 # Light theme colours from the Navy palette's light mode (frontend/src/index.css)
 INK = "#2b2622"  # --foreground: 30 12% 15%
@@ -43,7 +44,7 @@ class Colours:
 
 
 DARK = Colours(pages=PARCHMENT, band=GOLD, text=PARCHMENT)
-LIGHT = Colours(pages=INK, band=GOLD_ON_LIGHT, text=INK)
+LIGHT = Colours(pages=NAVY, band=GOLD_ON_LIGHT, text=INK)
 
 
 def _font(name: str, px: int, weight: int) -> ImageFont.FreeTypeFont:
@@ -126,8 +127,10 @@ def main() -> None:
     # 2x the size the README shows them at, for high-density screens
     lockup(96, DARK).save(brand / "lockup-dark.png")
     lockup(96, LIGHT).save(brand / "lockup-light.png")
-    social_preview().convert("RGB").save(brand / "social-preview.png")
-    print(f"Wrote lockups and social preview to {brand.relative_to(ROOT)}")
+    preview = social_preview().convert("RGB")
+    preview.save(brand / "social-preview.png")
+    preview.save(ROOT / "docs" / "public" / "social-preview.png")
+    print(f"Wrote lockups and social preview to {brand.relative_to(ROOT)} and docs/public")
 
 
 if __name__ == "__main__":
