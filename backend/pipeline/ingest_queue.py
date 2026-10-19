@@ -341,9 +341,13 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
         by_type.setdefault(parse_as, []).append(item.relative_path)
 
     parser = _build_parser(db)
+    # A folder named after a creator in the library is theirs, never one map's group
+    known_authors = db.scalars(select(ImageGroup.author).distinct()).all()
     planned: list[tuple[str | None, str, list[dict]]] = []
     for image_type, paths in sorted(by_type.items()):
-        for group in parser.group_files(paths, image_type=image_type):
+        for group in parser.group_files(
+            paths, image_type=image_type, known_authors=[a for a in known_authors if a]
+        ):
             author = group.get("author") or "Unknown"
             planned.append((author, group["group_name"], group["files"]))
 

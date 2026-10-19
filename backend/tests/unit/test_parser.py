@@ -455,6 +455,65 @@ class TestGroupFilesPrefix:
         assert len(groups) == 2
 
 
+class TestGroupFilesFolderNamesGroup:
+    """Pass 0: a folder holding files directly is one map's group, or a creator's folder."""
+
+    def test_folder_named_on_its_files_is_the_group(self):
+        p = make_parser()
+        groups = p.group_files(
+            ["Golden Forest/GoldenForest_Night.jpg", "Golden Forest/GoldenForest_Day_30x30.jpg"]
+        )
+        assert [(g["author"], g["group_name"], len(g["files"])) for g in groups] == [
+            (None, "Golden Forest", 2)
+        ]
+
+    def test_files_named_only_by_variant_words_belong_to_the_folder(self):
+        p = make_parser()
+        groups = p.group_files(
+            ["Golden Forest/Night.jpg", "Golden Forest/Snow_Gridded.jpg", "Golden Forest/2.jpg"]
+        )
+        assert [(g["author"], g["group_name"]) for g in groups] == [(None, "Golden Forest")]
+        names = sorted(f["parsed"]["name"] for f in groups[0]["files"])
+        assert names == ["2", "Night", "Snow"]
+
+    def test_creator_folder_of_loose_maps_keeps_its_creator(self):
+        p = make_parser()
+        groups = p.group_files(["czepeku/IslandFort_Night.jpg", "czepeku/DarkCave_Day.jpg"])
+        assert {g["author"] for g in groups} == {"czepeku"}
+        assert {g["group_name"] for g in groups} == {"Island Fort", "Dark Cave"}
+
+    def test_known_creator_is_never_a_group(self):
+        """Creators who put their own name on every file look like a map folder."""
+        p = make_parser()
+        paths = ["leasealair/leasealair_Tavern.jpg", "leasealair/leasealair_Crypt.jpg"]
+        assert {g["author"] for g in p.group_files(paths)} == {None}
+        known = p.group_files(paths, known_authors=["Leasealair"])
+        assert {g["author"] for g in known} == {"leasealair"}
+
+    def test_folder_named_by_the_files_by_author_is_a_creator(self):
+        p = make_parser()
+        groups = p.group_files(
+            ["mutenn/DillingerGateByMutenn_Grid.jpg", "mutenn/DillingerGateByMutenn_GL.jpg"]
+        )
+        assert all(g["group_name"] != "Mutenn" for g in groups)
+        assert all(g["author"] for g in groups)
+
+    def test_by_author_of_someone_else_is_kept(self):
+        p = make_parser()
+        (group,) = p.group_files(
+            [
+                "Golden Forest/GoldenForest_Night_byUpsetti.jpg",
+                "Golden Forest/GoldenForest_Day_byUpsetti.jpg",
+            ]
+        )
+        assert (group["author"], group["group_name"]) == ("Upsetti", "Golden Forest")
+
+    def test_deeper_paths_are_unchanged(self):
+        p = make_parser()
+        (group,) = p.group_files(["Golden Forest/Gridded/Night.jpg"])
+        assert (group["author"], group["group_name"]) == (None, "Golden Forest")
+
+
 class TestGroupFilesMergeSubgroups:
     """Subgroup folder merging (Pass 1.5)."""
 

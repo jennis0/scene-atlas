@@ -291,7 +291,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 |---|---|
 | `POST /imports` | `{label, default_image_type}` → job summary (201) |
 | `POST /imports/{id}/manifest` | Chunk of ≤2,000 `{client_ref, relative_path, size, last_modified, image_type?}`. OS junk (`._*`, `__MACOSX`, `.DS_Store`, `Thumbs.db`, `desktop.ini`) is ignored; unsupported files become `skipped`, oversized ones `failed`. Paths already in the job are ignored. 413 above `max_import_items` per import; 409 after seal. |
-| `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
+| `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `name` is the zip's relative path, so its folder is known ([Archive member paths](#archive-member-paths)). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
 | `POST /imports/{id}/local-sources` | Desktop app only (404 in server mode). `{paths}` (≤1,000 absolute roots): the server lists them and adds `ready` items with `source_path`; zips are expanded in place and kept. 422 for a bad path, 413 above `max_local_import_items` (250k). Listing runs before the write lock. See [local-ingest.md §4](local-ingest.md#4-backend). |
 | `POST /imports/{id}/seal` | Parse and group paths, resolve groups against the gallery (`IN` queries chunked at 500), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Idempotent. Gated by the heavy-op semaphore. |
 | `POST /imports/{id}/hashes` | Chunk of ≤2,000 `{item_id, sha256}`. Items whose hash matches the library become `duplicate` without uploading. The client hash is only used to skip. |
@@ -312,6 +312,15 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `GET /imports/sorted-out?image_group_id=` | Items Auto sorted out of one gallery group, across imports (`limit` ≤ 1000, `truncated`) |
 | `POST /imports/include` | `{item_ids}` (≤10,000, across imports): include items Auto sorted out; others are ignored. `{affected, job_ids}` |
 | `GET /imports/{id}/items/{item_id}/preview` | The preview kept for a sorted-out item (404 if none) |
+
+### Archive member paths
+
+`ingest_archive.place_members` decides the relative path each member gets. The model is "a zip is the folder you'd get by extracting it in place":
+
+- **One pack**: the media sit at the zip's root, or only in folders that add nothing to its name (generic ones such as `Gridded`/`VTT`, or a copy of the zip's name such as `Golden Forest [30x30]/` in `Golden Forest.zip`). Members go under `<zip's folder>/<zip stem>/`, with leading copies of the name dropped and generic folders kept as subgroups. Only image and video members decide; a `License/` folder doesn't make a pack a collection.
+- **Otherwise** the zip's own folders name things, and members keep their paths inside the zip.
+
+The zip's folder comes from the web UI's `relativePath` and the local import's relative path. With it, `Creator/Golden Forest.zip` parses as creator / group. Without it (a lone dropped zip), `Golden Forest/Day.png` is a `folder/file` path, and the parser decides whether the folder is the group or a creator ([parser.md](parser.md#pass-0-folderfile-paths-group-or-creator)). Collections such as "BBEB Free Maps 1.zip" (31 unrelated maps) stay collections that way. Collisions with paths already in the job are still prefixed with the zip's stem.
 
 Security properties ([security.md](security.md)): `item_id` is always scoped to `job_id`; staged filenames are server-generated; `relative_path` never reaches the filesystem.
 

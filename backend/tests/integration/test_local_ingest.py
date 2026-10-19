@@ -141,6 +141,16 @@ def test_file_roots_and_zips_are_kept(local, tmp_path):
     assert pack.exists() and loose.exists()
 
 
+def test_zip_in_a_folder_is_named_by_it(local, tmp_path):
+    creator = tmp_path / "Creator"
+    creator.mkdir()
+    with zipfile.ZipFile(creator / "Golden Forest.zip", "w") as zf:
+        zf.writestr("Golden Forest/Day.png", image_bytes(4))
+    job_id = local.create()
+    add_sources(local, job_id, [creator])
+    assert set(items(local, job_id)) == {"Creator/Golden Forest/Day.png"}
+
+
 def test_colliding_folder_names_are_prefixed(local, tmp_path):
     write_tree(tmp_path / "A", {"Maps/Map.png": image_bytes(1)})
     write_tree(tmp_path / "B", {"Maps/Map.png": image_bytes(2)})

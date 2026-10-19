@@ -12,12 +12,29 @@ Extracts structured metadata from image paths:
 import json
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
 _CAMEL_RE = re.compile(r"([a-z])([A-Z])|([a-zA-Z])([0-9])|([0-9])([a-zA-Z])")
+
+# Tag categories whose words describe a variant of a map rather than name one: a file
+# called only "Night_Snow_Gridded" is a variant of whatever its folder is called.
+_VARIANT_TAG_CATEGORIES = frozenset(
+    {"lighting", "season", "weather", "state", "theme", "population", "style", "perspective"}
+)
+# Numbering, sizes and versions, which name no map either: "2", "30x30", "v1", "140pps".
+_VARIANT_TOKEN_RE = re.compile(r"v?\d+[a-z]?|\d+x\d+|\d+(?:px|pps|ppi|dpi|mb)")
+# Share of a folder's files that must carry its name for the folder to name their group
+# (see ImageParser._folder_names_group).
+_FOLDER_GROUP_SHARE = 0.7
+
+
+def _name_key(text: str) -> str:
+    """Letters and digits only, case-folded: "Golden Forest" and "GoldenForest" match."""
+    return "".join(ch for ch in text.casefold() if ch.isalnum())
 
 
 def parse_tag_vocab_entries(values: list) -> dict[str, str]:
@@ -306,6 +323,12 @@ class ImageParser:
         self._vocabulary: dict[str, tuple[str, str]] = {}
         if tag_categories:
             self._build_vocabulary(tag_categories)
+        self._variant_words = (
+            self._grid_stop_words
+            | self._junk_words
+            | {"gl", "gd", "hex", "alt"}
+            | {w for w, (cat, _) in self._vocabulary.items() if cat in _VARIANT_TAG_CATEGORIES}
+        )
 
     def _build_vocabulary(self, tag_categories: list[dict]) -> None:
         """Build word→(category, value) lookup from TagCategory rows."""
@@ -324,7 +347,7 @@ class ImageParser:
             for alias, canonical in parse_tag_vocab_entries(values).items():
                 self._vocabulary[alias] = (category_name, canonical)
 
-    def _is_generic_folder(self, name: str) -> bool:
+    def is_generic_folder(self, name: str) -> bool:
         """Check if a folder name is generic/utility (not a real group name).
 
         Normalizes the name (replace separators, lowercase) before checking
@@ -332,6 +355,12 @@ class ImageParser:
         """
         normalized = name.lower().replace("_", " ").replace("-", " ").strip()
         return normalized in self._generic_folders
+
+    def same_name(self, a: str, b: str) -> bool:
+        """Whether two folder or file names name the same thing once cleaned:
+        "Golden Forest [30x30]" and "GoldenForest" do."""
+        key = _name_key(self._clean_group_name(a))
+        return bool(key) and key == _name_key(self._clean_group_name(b))
 
     def _split_camel(self, text: str) -> str:
         """Split CamelCase while protecting ordinals like 1st, 2nd, 3rd.
@@ -649,7 +678,9 @@ class ImageParser:
             result = self._title_case_preserve(result)
         return result
 
-    def parse(self, relative_path: str, image_type: str = "battlemap") -> dict:
+    def parse(
+        self, relative_path: str, image_type: str = "battlemap", *, folder_is_group: bool = False
+    ) -> dict:
         """Parse an image path into structured metadata.
 
         Args:
@@ -657,6 +688,9 @@ class ImageParser:
                 "czepeku/Island Fort/IslandFort_Night_Gridded.jpg"
             image_type: "battlemap" or "scene". Scenes skip grid detection
                 and use a reduced junk word list.
+            folder_is_group: for a ``folder/file`` path, the folder names the
+                group rather than the creator. ``group_files`` decides this from
+                the folder's files (``_folder_names_group``).
 
         Returns:
             Dict with: author, group_name, subgroups, subgroup,
@@ -724,10 +758,14 @@ class ImageParser:
         subgroups_raw: list[str] = []
         group_raw = "Unknown"
         group_from_folder = False
-        if len(parts) >= 3:
+        if len(parts) == 2 and folder_is_group:
+            group_raw = parts[0]
+            group_from_folder = True
+            author = self._author_from_stem(stem)
+        elif len(parts) >= 3:
             # Skip consecutive generic folders after the author to find the group
             group_idx = 1
-            while group_idx < len(parts) - 1 and self._is_generic_folder(parts[group_idx]):
+            while group_idx < len(parts) - 1 and self.is_generic_folder(parts[group_idx]):
                 group_idx += 1
 
             if group_idx < len(parts) - 1:
@@ -751,7 +789,7 @@ class ImageParser:
                 author = None  # Can't determine author from this structure
 
         # Fallback: infer group from filename stem
-        if self._is_generic_folder(group_raw) or group_raw == "Unknown":
+        if self.is_generic_folder(group_raw) or group_raw == "Unknown":
             # Take first underscore segment (or first dash segment, or whole stem)
             if "_" in stem:
                 group_raw = stem.split("_")[0]
@@ -836,6 +874,50 @@ class ImageParser:
         rights = [right] + ([right[:2]] if len(right) == 3 else [])
         return [[int(w), int(h)] for w in lefts for h in rights if (w, h) != (left, right)]
 
+    def _folder_names_group(self, folder: str, stems: list[str], known_authors: set[str]) -> bool:
+        """Whether a folder holding files directly names their map rather than their creator.
+
+        It does when most of its files carry the folder's name
+        ("Golden Forest/GoldenForest_Night") or only variant words such as lighting,
+        weather, grid and numbering ("Golden Forest/Night_Gridded"). A folder named after
+        a creator already in the library, or after a file's "by<Name>", is a creator's.
+        Creators who put their own name on every file ("leasealair/leasealairMaps_...")
+        still pass on a first import. Calibrated on a real library: design/parser.md.
+        """
+        if self.is_generic_folder(folder):
+            return False
+        cleaned = self._clean_group_name(folder)
+        folder_keys = {_name_key(folder), _name_key(cleaned)} - {""}
+        if folder_keys & known_authors:
+            return False
+        # The folder's name without its own variant words: "dww-hydra-island-print" holds
+        # "dww-hydra-island-blood-print"
+        name_key = _name_key(
+            "".join(w for w in self._words(cleaned) if not self._is_variant_word(w))
+        )
+        if len(name_key) < 3:
+            return False
+        folder_words = set(self._words(folder))
+        hits = 0
+        for stem in stems:
+            by_author = self._author_from_stem(stem)
+            if by_author and _name_key(by_author) in folder_keys:
+                return False
+            if name_key in _name_key(stem) or self._only_variant_words(stem, folder_words):
+                hits += 1
+        return hits >= _FOLDER_GROUP_SHARE * len(stems)
+
+    def _words(self, text: str) -> list[str]:
+        """Lower-case words of ``text``, split at CamelCase and any punctuation."""
+        return [w for w in re.split(r"[^\w']+|_", self._split_camel(text).casefold()) if w]
+
+    def _only_variant_words(self, stem: str, extra: set[str]) -> bool:
+        """True if every word of ``stem`` is a variant word, a number or size, or in ``extra``."""
+        return all(w in extra or self._is_variant_word(w) for w in self._words(stem))
+
+    def _is_variant_word(self, word: str) -> bool:
+        return word in self._variant_words or bool(_VARIANT_TOKEN_RE.fullmatch(word))
+
     def _common_prefix_words(self, a: str, b: str) -> str:
         """Find the common prefix of two strings, trimmed to a word boundary.
 
@@ -919,17 +1001,26 @@ class ImageParser:
 
         return merged
 
-    def group_files(self, relative_paths: list[str], image_type: str = "battlemap") -> list[dict]:
+    def group_files(
+        self,
+        relative_paths: list[str],
+        image_type: str = "battlemap",
+        known_authors: Iterable[str] = (),
+    ) -> list[dict]:
         """Group a list of relative paths into groups.
 
-        Pass 1: Run parse() on each file. If group_from_folder=True, group by
-                 (author, group_name).
+        Pass 0: Run parse() on each file. A folder holding files directly
+                 (``folder/file``) is re-parsed as their group when its files
+                 say it names one map (``_folder_names_group``).
+        Pass 1: If group_from_folder=True, group by (author, group_name).
         Pass 2: For files where group_from_folder=False, group by filename prefix
                  within the same parent folder.
 
         Args:
             relative_paths: List of relative file paths.
             image_type: "battlemap" or "scene" — passed to parse().
+            known_authors: creators already in the library; a folder named
+                after one is never taken for a group.
 
         Returns:
             List of dicts: {
@@ -943,6 +1034,21 @@ class ImageParser:
         for rp in relative_paths:
             parsed = self.parse(rp, image_type=image_type)
             parsed_files.append({"relative_path": rp, "parsed": parsed})
+
+        # Pass 0: folder/file paths whose folder is a map, not a creator
+        by_top_folder: dict[str, list[dict]] = {}
+        for pf in parsed_files:
+            parts = Path(pf["relative_path"]).parts
+            if len(parts) == 2:
+                by_top_folder.setdefault(parts[0], []).append(pf)
+        known = {_name_key(a) for a in known_authors if a}
+        for folder, files in by_top_folder.items():
+            stems = [Path(pf["relative_path"]).stem for pf in files]
+            if self._folder_names_group(folder, stems, known):
+                for pf in files:
+                    pf["parsed"] = self.parse(
+                        pf["relative_path"], image_type=image_type, folder_is_group=True
+                    )
 
         # Split into folder-based and filename-based groups
         folder_based: dict[tuple[str, str], list[dict]] = {}

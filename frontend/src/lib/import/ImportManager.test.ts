@@ -81,9 +81,9 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
         ignored: 0,
       }
     }),
-    uploadArchive: vi.fn(async (_jobId: string, file: File) => {
-      calls.push(`archive:${file.name}`)
-      return { name: file.name, created: 1, skipped: 0, failed: 0 }
+    uploadArchive: vi.fn(async (_jobId: string, archive: PickedFile) => {
+      calls.push(`archive:${archive.relativePath}`)
+      return { name: archive.relativePath, created: 1, skipped: 0, failed: 0 }
     }),
     seal: vi.fn(async () => {
       calls.push('seal')
@@ -310,9 +310,10 @@ describe('startImport', () => {
   it('uploads zips to the archive endpoint before sealing', async () => {
     const calls: Calls = []
     const { manager } = track(makeManager(fakeClient(calls)))
-    const jobId = await manager.startImport([picked('Pack.zip'), picked('Loose/a.png')])
+    const jobId = await manager.startImport([picked('Creator/Pack.zip'), picked('Loose/a.png')])
     await manager.whenSettled(jobId)
-    expect(calls.indexOf('archive:Pack.zip')).toBeLessThan(calls.indexOf('seal'))
+    // Sent with its folder, which names the zip's contents
+    expect(calls.indexOf('archive:Creator/Pack.zip')).toBeLessThan(calls.indexOf('seal'))
     expect(calls).toContain('manifest:1') // the zip isn't in the manifest
   })
 

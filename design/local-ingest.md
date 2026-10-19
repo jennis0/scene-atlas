@@ -97,7 +97,8 @@ For each root:
 - **Zip** (as a root or inside a folder): expanded with `expand_archive` reading the zip in
   place. `expand_archive` currently deletes `zip_path` afterwards; it gets a `keep_source` flag.
   Members are extracted to staging (they have no path of their own), so they're ordinary
-  staged items.
+  staged items. The zip's own relative path is passed as its name, so a pack zip's members
+  land under its folder ([ingestion.md](ingestion.md#archive-member-paths)).
 
 Filtering is the manifest's (ingestion §7): OS junk ignored, unsupported files `skipped`,
 oversized `failed`. Items are inserted with `size`, `last_modified` from `stat`, `source_path`,
