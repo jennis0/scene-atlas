@@ -393,6 +393,12 @@ jobs:
           cp dist-upgrade-old/Scene-Atlas-Setup-0.0.0.exe.blockmap dist-upgrade-feed/
           echo "UPGRADE_NEW_VERSION=$version" >> "$GITHUB_ENV"
 
+      # The encrypted test images are in Git LFS, which the checkout above leaves as a
+      # pointer file (the other builds don't need them).
+      - name: Fetch the test images for the upgrade test
+        if: matrix.platform == 'windows'
+        run: git lfs pull --include "e2e/fixtures/e2e-images.zip.enc"
+
       - name: Cache the search model for the upgrade test
         if: matrix.platform == 'windows'
         uses: actions/cache@v6
