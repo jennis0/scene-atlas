@@ -7,13 +7,11 @@
 
 <p align="center"><strong>Art and map management for game masters.</strong></p>
 
-<p align="center">
-  <a href="https://jennis0.github.io/scene-atlas/">Website</a> ·
-  <a href="#download">Download</a> ·
-  <a href="https://jennis0.github.io/scene-atlas/guide/what-is-scene-atlas">Guide</a> ·
-  <a href="#self-hosting">Self-hosting</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
-</p>
+<div align="center">
+
+[Website](https://jennis0.github.io/scene-atlas/) · [Download](#download) · [Guide](https://jennis0.github.io/scene-atlas/guide/what-is-scene-atlas) · [Self-hosting](#self-hosting) · [Contributing](CONTRIBUTING.md)
+
+</div>
 
 Scene Atlas keeps your battlemaps and scene art in one place and helps you find the right one fast. Describe the map you need, like "flooded crypt" or "market square at dusk", and it finds it by what's in the image, not what the file is called. Drop in the folders and zips from your map downloads and it groups the variants and detects the grid.
 
@@ -57,7 +55,7 @@ cd scene-atlas
 docker compose --profile cpu up -d     # --profile gpu for an NVIDIA GPU
 ```
 
-Then open http://localhost:8000. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](https://jennis0.github.io/scene-atlas/deploy/server).
+Then open <http://localhost:8000>. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](https://jennis0.github.io/scene-atlas/deploy/server).
 
 ## Documentation
 
