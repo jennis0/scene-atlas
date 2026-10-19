@@ -149,6 +149,10 @@ async def lifespan(app: FastAPI):
             logger.critical("STARTUP ERROR: Could not write to the library folders: %s", exc)
             raise
         logger.info("Library %s", library_id)
+
+        from ..pipeline.linked_scan import reconcile_linked_source
+
+        reconcile_linked_source(session)
     finally:
         session.close()
 
@@ -234,6 +238,15 @@ async def lifespan(app: FastAPI):
         ingest_worker.start()
         logger.info("Ingest worker started")
 
+    # The linked folder (design/library-setup.md §4.3): scanned now, then on a timer.
+    # Background scans feed the worker, so they run with it (tests drive both by hand).
+    from ..pipeline.linked_scan import get_linked_scanner, rescan_timer
+
+    rescan_task: asyncio.Task | None = None
+    if settings.ingest_worker_enabled and settings.linked_library_dir is not None:
+        get_linked_scanner().start("startup")
+        rescan_task = asyncio.create_task(rescan_timer())
+
     # Start scheduler for periodic maintenance. Overdue tasks run shortly after
     # startup, so short desktop sessions still get maintenance.
     from .services.scheduler import Scheduler
@@ -303,6 +316,8 @@ async def lifespan(app: FastAPI):
     yield
 
     heartbeat_task.cancel()
+    if rescan_task is not None:
+        rescan_task.cancel()
 
     # Shutdown
     logger.info("Shutting down application")

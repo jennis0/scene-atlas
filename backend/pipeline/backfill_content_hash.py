@@ -10,8 +10,10 @@ Usage:
 import hashlib
 import logging
 
+from sqlalchemy.orm import selectinload
+
 from backend.app.models.database import Image
-from backend.app.services import get_image_store
+from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
@@ -34,19 +36,23 @@ def _compute_file_hash(file_path) -> str:
 
 def backfill_batch(image_ids: list[int]) -> dict:
     """Compute and store content_hash for a batch of images."""
-    image_store = get_image_store()
-
     updated = 0
     skipped = 0
     errors = 0
 
     with pipeline_db() as db:
-        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        images = (
+            db.query(Image)
+            .options(selectinload(Image.source_file))
+            .filter(Image.id.in_(image_ids))
+            .all()
+        )
         for image in images:
             try:
-                file_path = image_store.get_path(image.storage_key)
-                if not file_path.exists():
-                    logger.warning("Image %s: file not found at %s", image.id, file_path)
+                try:
+                    file_path = original_path(image)
+                except OriginalUnavailable as exc:
+                    logger.warning("Image %s: %s", image.id, exc.reason)
                     skipped += 1
                     continue
 

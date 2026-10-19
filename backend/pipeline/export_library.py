@@ -28,10 +28,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from backend.app.models.database import Image
-from backend.app.services import get_image_store
+from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 from backend.pipeline.naming import export_metadata, unique_export_path
@@ -56,7 +56,6 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
     dest = Path(output_dir)
     dest.mkdir(parents=True, exist_ok=True)
 
-    image_store = get_image_store()
     seen_paths: set[str] = set()
     metadata: dict[str, dict] = {}
     exported = 0
@@ -71,14 +70,19 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
         with pipeline_db() as db:
             batch = (
                 db.query(Image)
-                .options(joinedload(Image.tags), joinedload(Image.group))
+                .options(
+                    joinedload(Image.tags),
+                    joinedload(Image.group),
+                    selectinload(Image.source_file),
+                )
                 .filter(Image.id.in_(batch_ids))
                 .all()
             )
             for img in batch:
-                source = image_store.get_path(img.storage_key)
-                if not source or not source.exists():
-                    logger.warning("Export: missing file for image %d", img.id)
+                try:
+                    source = original_path(img)
+                except OriginalUnavailable as exc:
+                    logger.warning("Export: skipped image %d: %s", img.id, exc.reason)
                     skipped += 1
                     continue
 

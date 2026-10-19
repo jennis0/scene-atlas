@@ -18,6 +18,8 @@ from ..models import (
     ImportGroup,
     ImportItem,
     ImportJob,
+    LibrarySource,
+    SourceFile,
     Tag,
     TagCategory,
     seed_tag_categories,
@@ -117,7 +119,8 @@ def _purge_library(
     """Delete all images, metadata, thumbnails, and vectors.
 
     Runs as a background job via JobRunner so the API stays responsive
-    while potentially gigabytes of files are removed.
+    while potentially gigabytes of files are removed. The linked folder is never
+    touched: only its rows go, and its next scan adds its maps again.
     """
     from ..models import get_session_local
     from ..services.lancedb_service import get_lancedb_service
@@ -144,6 +147,8 @@ def _purge_library(
         db.query(ImportItem).delete()
         db.query(ImportGroup).delete()
         db.query(ImportJob).delete()
+        db.query(SourceFile).delete()
+        db.query(LibrarySource).delete()
         db.commit()
 
         _step("Deleting images and groups")
@@ -178,11 +183,16 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     Submits a background job and returns immediately with a job ID.
     Refuses to run if any import jobs are currently active.
     """
-    from ..services.job_runner import get_job_runner
+    from ...pipeline.linked_scan import get_linked_scanner
+    from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 
     runner = get_job_runner()
-    if runner.has_active_job("Purge library"):
+    if runner.has_active_job(PURGE_JOB_NAME):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
+    if get_linked_scanner().running:
+        raise HTTPException(
+            status_code=409, detail="Your maps folder is being checked; try again in a moment"
+        )
 
     active_imports = (
         db.query(ImportItem.job_id)
@@ -200,7 +210,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     job_id = runner.submit(
         _purge_library,
         request.app.state.db_engine,
-        name="Purge library",
+        name=PURGE_JOB_NAME,
     )
     return {"job_id": job_id, "message": "Library purge started"}
 

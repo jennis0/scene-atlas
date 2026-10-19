@@ -274,7 +274,7 @@ class TestGetImageFile:
         dest.parent.mkdir(parents=True, exist_ok=True)
         real_file.rename(dest)
 
-        monkeypatch.setattr("backend.app.api.images.get_image_store", lambda: store)
+        monkeypatch.setattr("backend.app.services.get_image_store", lambda: store)
 
         resp = client.get(f"/api/v1/images/{ids['img1']}/file")
         assert resp.status_code == 200
@@ -284,7 +284,7 @@ class TestGetImageFile:
         from backend.app.services.image_store import ImageStore
 
         store = ImageStore(tmp_path / "empty_store")
-        monkeypatch.setattr("backend.app.api.images.get_image_store", lambda: store)
+        monkeypatch.setattr("backend.app.services.get_image_store", lambda: store)
 
         resp = client.get(f"/api/v1/images/{ids['img1']}/file")
         assert resp.status_code == 404

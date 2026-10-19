@@ -32,9 +32,9 @@ from ..models.schemas import (
     MoveImagesRequest,
     MoveImagesResponse,
 )
-from ..services import get_image_store
 from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
+from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 
 router = APIRouter()
@@ -247,14 +247,20 @@ def download_group(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
-    images = db.query(Image).filter(Image.group_id == group_id).all()
-    image_store = get_image_store()
+    images = (
+        db.query(Image)
+        .options(selectinload(Image.source_file))
+        .filter(Image.group_id == group_id)
+        .all()
+    )
 
     zs = zipstream.ZipStream(compress_type=zipstream.ZIP_STORED, sized=True)
     for img in images:
-        file_path = image_store.get_path(img.storage_key)
-        if file_path and file_path.exists():
-            zs.add_path(file_path, arcname=_zip_path(img, group.base_name))
+        try:
+            file_path = original_path(img)
+        except OriginalUnavailable:
+            continue  # missing, or its folder is offline: left out of the download
+        zs.add_path(file_path, arcname=_zip_path(img, group.base_name))
 
     zip_name = sanitize_segment(group.base_name) + ".zip"
     return StreamingResponse(

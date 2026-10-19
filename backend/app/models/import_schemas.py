@@ -57,6 +57,9 @@ class ImportJobSummary(BaseModel):
     dismissed: bool
     upload_interrupted: bool  # derived: waiting on bytes that stopped arriving
     local: bool = False  # read from folders on this computer (design/local-ingest.md)
+    # A scan of the linked folder (design/library-setup.md §4.3): no Undo, and its report
+    # never opens by itself
+    linked: bool = False
     waiting_for: list[str] = []  # derived: a local import's folders that are missing
     counts: ImportCounts
     group_count: int
