@@ -130,7 +130,7 @@ In dev mode the sidecar is not spawned — the developer runs the backend on por
 
 ## Window Frame
 
-`frameOptions()` in `main.ts`; the frontend's counterpart is `windowChrome` in `frontend/src/lib/appMode.ts`.
+`frameOptions()` in `windowFrame.ts`; the frontend's counterpart is `windowChrome` in `frontend/src/lib/appMode.ts`.
 
 | Platform | Frame | Title bar drawn by |
 |---|---|---|
@@ -156,7 +156,7 @@ Settings → Appearance → Zoom (80–200%, desktop only: a browser has its own
 
 ### Menus
 
-`removeMenu()` and `setMacMenu()` in `main.ts`. Electron's default menu had zoom shortcuts that changed the zoom without saving it, plus Reload and Toggle Developer Tools, which a release shouldn't offer. Windows and Linux windows have no menu (Chromium handles copy, paste and undo itself; on Linux the frame would show the menu as a bar). macOS keeps the app, Edit and Window menus, and View with full screen only. In dev, F12 still opens DevTools.
+`removeMenu()` and `setMacMenu()` in `windowFrame.ts`. Electron's default menu had zoom shortcuts that changed the zoom without saving it, plus Reload and Toggle Developer Tools, which a release shouldn't offer. Windows and Linux windows have no menu (Chromium handles copy, paste and undo itself; on Linux the frame would show the menu as a bar). macOS keeps the app, Edit and Window menus, and View with full screen only. In dev, F12 still opens DevTools.
 
 **HiDPI.** Electron follows the desktop's scale on Linux (Wayland, or `Xft.dpi`/`GDK_SCALE` on X11). WSLg reports none: a 4K screen arrives as 3840×2160 at scale 1, so Linux apps there are tiny. That's the WSL setup, not the app: set `GDK_SCALE=2` in WSL ([building.md](../docs/development/building.md)), or use Zoom.
 
@@ -254,6 +254,7 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
 | `electron/src/config.ts` | Config load/save/migration, default directories |
+| `electron/src/windowFrame.ts` | Frame per platform, menus, starting colours, and where the main window opens and how its state is saved |
 | `electron/src/windowState.ts` | The main window's saved bounds: validation and where it reopens (tests in `electron/test/`) |
 | `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |

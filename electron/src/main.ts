@@ -4,9 +4,7 @@ import {
   dialog,
   ipcMain,
   IpcMainInvokeEvent,
-  Menu,
   nativeTheme,
-  screen,
   shell,
 } from 'electron'
 import * as fs from 'fs'
@@ -22,12 +20,18 @@ import {
   withDisplayPref,
 } from './displayPrefs'
 import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
-import { MIN_SIZE, restoredBounds } from './windowState'
+import {
+  frameOptions,
+  mainWindowPlacement,
+  rememberWindowState,
+  removeMenu,
+  setMacMenu,
+  setTitleBarColors,
+} from './windowFrame'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
 const isWindows = process.platform === 'win32'
-const isLinux = process.platform === 'linux'
 const DEV_SERVER_URL = 'http://localhost:5173'
 // A stable port keeps the UI's origin, and so its localStorage, the same across launches.
 const PREFERRED_PORT = 47816
@@ -56,63 +60,6 @@ if (isWindows) app.setAppUserModelId('com.sceneatlas.app')
 const hasInstanceLock = app.requestSingleInstanceLock()
 if (!hasInstanceLock) {
   app.quit()
-}
-
-// Window helpers
-
-/** The colours a new window starts in: the UI's last reported ones, else the navy palette's
- * page background and text (frontend/src/index.css) for the current light/dark. */
-function windowColors(): { background: string; foreground: string } {
-  const saved = loadConfig()?.windowColors
-  if (saved) return saved
-  return nativeTheme.shouldUseDarkColors
-    ? { background: '#0e1118', foreground: '#ede8dc' }
-    : { background: '#eee9e2', foreground: '#2b2622' }
-}
-
-/**
- * The window frame (design/electron.md#window-frame): borderless with the traffic lights
- * inset on macOS, borderless with Electron's caption buttons on Windows. Linux keeps the
- * window manager's title bar, which matches the desktop and its scaling; Electron draws
- * GNOME-style buttons there that look wrong on any other desktop.
- */
-function frameOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
-  const { background, foreground } = windowColors()
-  if (isLinux) return { backgroundColor: background }
-  return {
-    backgroundColor: background,
-    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(isWindows && {
-      titleBarOverlay: {
-        color: background,
-        symbolColor: foreground,
-        height: 32,
-      },
-    }),
-  }
-}
-
-/**
- * Menus (design/electron.md#menus). Electron's default menu has zoom shortcuts of its own,
- * which change the zoom without saving it (the UI keeps zoom: lib/zoom.ts), and Reload and
- * Toggle Developer Tools, which a release shouldn't have. Windows and Linux need no menu:
- * Chromium handles copy and paste itself, and on Linux the frame would show it as a bar.
- * macOS needs one for the app, Edit and Window commands, so it gets those only.
- */
-function removeMenu(win: BrowserWindow): void {
-  if (!isMac) win.removeMenu()
-}
-
-function setMacMenu(): void {
-  if (!isMac) return
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      { role: 'appMenu' },
-      { role: 'editMenu' },
-      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
-      { role: 'windowMenu' },
-    ]),
-  )
 }
 
 const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
@@ -293,9 +240,7 @@ handleTrusted('window:set-colors', (event, raw) => {
   const colors = sanitizeWindowColors(raw)
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!colors || !win) return
-  win.setBackgroundColor(colors.background)
-  if (isWindows)
-    win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
+  setTitleBarColors(win, colors.background, colors.foreground)
   const saved = loadConfig()?.windowColors
   if (saved?.background !== colors.background || saved?.foreground !== colors.foreground) {
     updateConfig({ windowColors: colors })
@@ -406,39 +351,10 @@ function showSetupWindow(): void {
   })
 }
 
-/** The screens' work areas, the primary first (windowState.ts). */
-function workAreas(): Electron.Rectangle[] {
-  const primary = screen.getPrimaryDisplay()
-  const others = screen.getAllDisplays().filter((d) => d.id !== primary.id)
-  return [primary, ...others].map((d) => d.workArea)
-}
-
-/** Save the window's size, position and maximised state as the user changes them. */
-function rememberWindowState(win: BrowserWindow): void {
-  let timer: NodeJS.Timeout | undefined
-  const save = () => {
-    clearTimeout(timer)
-    if (win.isDestroyed()) return
-    // The bounds it un-maximises to, so a maximised window still remembers its size.
-    updateConfig({ windowState: { ...win.getNormalBounds(), maximized: win.isMaximized() } })
-  }
-  const saveSoon = () => {
-    clearTimeout(timer)
-    timer = setTimeout(save, 1000)
-  }
-  win.on('resize', saveSoon)
-  win.on('move', saveSoon)
-  win.on('maximize', save)
-  win.on('unmaximize', save)
-  win.on('close', save)
-}
-
 function createMainWindow(): BrowserWindow {
-  const saved = loadConfig()?.windowState ?? null
+  const placement = mainWindowPlacement()
   const win = new BrowserWindow({
-    ...restoredBounds(saved, workAreas()),
-    minWidth: MIN_SIZE.width,
-    minHeight: MIN_SIZE.height,
+    ...placement.bounds,
     ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -447,7 +363,7 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
     },
   })
-  if (saved?.maximized) win.maximize()
+  if (placement.maximized) win.maximize()
 
   hardenWindow(win)
   removeMenu(win)
