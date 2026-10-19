@@ -258,3 +258,30 @@ All five steps landed on one branch (combined PR):
 
 The query-scaling items (#6–10, N+1 queries) were resolved or made obsolete on
 `perf/search-and-queries`; query counts are pinned by `integration/test_query_counts.py`.
+
+## Codacy configuration
+
+Tuned 2026-10-19 with the Codacy Analysis CLI, then imported to Cloud (Cloud open issues 1079 → 315).
+Tool and pattern selection lives in Codacy; `.codacy.yml` only scopes paths. The principle: Codacy adds
+what the local gates (ruff, ESLint, Prettier, pyright) don't already enforce, and never contradicts them.
+
+- **Enabled:** ESLint9 (Codacy-managed patterns), Opengrep/Semgrep, Trivy, Bandit (B615 only), Lizard,
+  Stylelint, markdownlint, Hadolint, Checkov, Agentlinter, Jackson, Ruff (uses `pyproject.toml`).
+- **ESLint9, not ESLint8:** ESLint8 is EOL. In the managed set, formatting rules are off (Prettier owns
+  them), as are React rules that are wrong for TS / the automatic JSX runtime (`react-in-jsx-scope`,
+  `prop-types`) and the react-hooks rules disabled in `frontend/eslint.config.js`. Also off:
+  `no-confusing-void-expression`, `no-non-null-assertion`, base `no-unused-vars` (flags TS
+  signature params), and `no-redundant-type-constituents` (Codacy can't resolve `@/`, so types become
+  `any`). Kept: security, security-node, jsx-a11y, React correctness, type-aware promise rules.
+- **Security dedup:** prototype pollution, non-literal fs paths and XSS are covered by Semgrep rules,
+  so ESLint's `detect-object-injection` (every typed index access), `detect-non-literal-fs-filename`
+  and `xss/no-mixed-html` are off. Bandit is limited to B615 because Ruff's `S` rules cover the rest.
+- **Semgrep:** the old Cloud set was mostly Apex/C/C#/Java rules; now stack-targeted plus gitleaks
+  secrets. `package-dependencies-check` is off: lockfiles pin versions and Trivy scans them.
+- **Lizard:** `nloc-medium` 100 (React components are long), `parameter-count-medium` 12 (Lizard
+  counts destructured props); `ccn-minor` off, `ccn-medium` 15 stays.
+- **Rejected:** PyLint (Python runtime older than 3.11; duplicates Ruff + pyright), Prospector
+  (crashes), PMD7 (can't parse ES modules), spectral (no OpenAPI files).
+
+Local analysis: the Codacy IDE extension resyncs `.codacy/codacy.config.json` from Cloud. Trivy's
+filesystem walk enters gitignored `.claude/worktrees/` and times out locally, which doesn't happen on Cloud.
