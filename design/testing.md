@@ -97,7 +97,7 @@ UPDATE_SEARCH_GOLDEN=1 uv run python -m pytest backend/tests/integration/test_se
 
 ### Packaged-app tests
 
-`e2e/packaged/` drives the built desktop app, not the dev servers: the windows, the backend sidecar's lifecycle, the single-instance lock and the storage-change relaunch ([electron.md](electron.md#sidecar-lifecycle)). Build first, then run:
+`e2e/packaged/` drives the built desktop app, not the dev servers: the windows, the backend sidecar's lifecycle, the single-instance lock, first launch, and the in-window restart when the library's folders change ([electron.md](electron.md#sidecar-lifecycle)). Build first, then run:
 
 ```bash
 uv run python scripts/build/build_electron.py --dev   # unpacked app only; a full build works too

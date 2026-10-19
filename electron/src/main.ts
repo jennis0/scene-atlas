@@ -23,6 +23,7 @@ import {
   libraryDirsOf,
   withChosenLibrary,
   withDefaultLibrary,
+  type AppConfig,
 } from './appConfig'
 import {
   isDisplayPref,
@@ -37,11 +38,12 @@ import {
   isMissingOrEmpty,
   parseLibraryDirs,
   provisionalDirsToDelete,
+  removeProvisionalDirs,
   unavailableLinkedError,
   type FolderKind,
   type LibraryDirs,
 } from './libraryDirs'
-import { hasForeignEntries, prepareStorageDirs } from './storageDirs'
+import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -53,13 +55,15 @@ const MAX_LOG_BYTES = 5 * 1024 * 1024
 // How long quitting waits for the backend's graceful shutdown. An idle backend takes
 // about a second; an import batch is cut short after this and recovered next start.
 const QUIT_GRACE_MS = 15_000
+// The backend's exit code when its library check refused the folders (pyinstaller/entry.py)
+const LIBRARY_REFUSED = 4
 
 let mainWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
 // The folders the backend runs on (in dev, the config's: the developer runs the backend).
 let currentDirs: LibraryDirs | null = null
-// Set while restartBackend() swaps the backend for one on other folders.
-let restarting = false
+// The running restartBackend(): nothing else may start a backend until it settles.
+let restarting: Promise<void> | null = null
 
 // The packaged UI is served by the sidecar, so its origin is the backend's.
 let backendOrigin: string | null = null
@@ -68,9 +72,6 @@ let backendError: string | null = null
 // The failure is about the folders (refused by the library check, or unusable), so the
 // loading page also offers to choose them again (design/library-setup.md §3.3).
 let backendErrorIsFolders = false
-
-// The backend's exit code when its library check refused the folders (pyinstaller/entry.py)
-const LIBRARY_REFUSED = 4
 
 // The installer's shortcuts carry electron-builder's appId as their AppUserModelID; the
 // process must match, or Windows shows a pinned shortcut and the running app as two
@@ -216,10 +217,6 @@ function handleTrusted(
   })
 }
 
-function isAbsolutePath(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '' && path.isAbsolute(value)
-}
-
 // What the UI needs before its first paint, so synchronous on purpose (once per page load):
 // - display choices (design/first-run.md): the UI keeps them in the config as well as its
 //   localStorage, which is tied to the backend's port;
@@ -304,7 +301,8 @@ handleTrusted('library:apply', (_event, raw) => {
 
   const current = currentDirs ?? libraryDirsOf(config)
   const changed = dirsChanged(current, next)
-  const replaced = config.provisional && changed ? provisionalDirsToDelete(current, next) : []
+  const replaced =
+    config.provisional && changed ? provisionalDirsToDelete(current, next, getDefaultDirs()) : []
   saveConfig(withChosenLibrary(config, next))
   if (!changed) return { error: null, restarted: false }
 
@@ -318,7 +316,7 @@ handleTrusted('library:apply', (_event, raw) => {
     return { error: null, restarted: false }
   }
 
-  void restartBackend(next, replaced)
+  restartBackend(next, replaced)
   return new Promise(() => {})
 })
 
@@ -372,9 +370,12 @@ async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boole
   return false
 }
 
-async function showBackendUi(port: number): Promise<void> {
+async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
   const origin = `http://127.0.0.1:${port}`
-  if (!(await waitForHealth(origin))) {
+  const healthy = await waitForHealth(origin)
+  // It exited or was replaced meanwhile, and whatever did that has reported it.
+  if (child !== sidecarProcess) return
+  if (!healthy) {
     signalBackendError(`The backend did not respond on ${origin}.`)
     return
   }
@@ -393,11 +394,20 @@ function signalBackendError(message: string, aboutFolders = false): void {
   else void win.loadFile(LOADING_PAGE)
 }
 
-function sendBackendError(win: BrowserWindow): void {
+/** The loading page offers Choose folders… (design/library-setup.md §3.3). */
+function canChooseFoldersAgain(): boolean {
   // Choosing folders again means the defaults, so it can't help when those were refused.
   const defaults = { ...getDefaultDirs(), linked: null }
-  const chooseFolders =
-    backendErrorIsFolders && currentDirs !== null && dirsChanged(currentDirs, defaults)
+  return (
+    backendError !== null &&
+    backendErrorIsFolders &&
+    currentDirs !== null &&
+    dirsChanged(currentDirs, defaults)
+  )
+}
+
+function sendBackendError(win: BrowserWindow): void {
+  const chooseFolders = canChooseFoldersAgain()
   win.webContents.send('backend-error', backendError, { chooseFolders, retry: !isDev })
 }
 
@@ -414,9 +424,6 @@ function rotateLog(logPath: string): void {
 }
 
 function launchApp(dirs: LibraryDirs): void {
-  backendOrigin = null
-  backendError = null
-  backendErrorIsFolders = false
   mainWindow = createMainWindow()
   void startBackend(dirs)
 }
@@ -447,6 +454,8 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     signalBackendError('Could not find a free port')
     return
   }
+  // Closed meanwhile (macOS keeps running): nothing would stop this backend.
+  if (!mainWindow) return
 
   // Sidecar output goes to a log file to help diagnose startup crashes.
   const logPath = path.join(app.getPath('userData'), 'backend.log')
@@ -482,7 +491,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     onReady: (readyPort) => {
       ready = true
       console.log(`[electron] Backend ready on port ${readyPort}`)
-      void showBackendUi(readyPort)
+      void showBackendUi(readyPort, child)
     },
     onLog: logLine,
     onError: (message) => {
@@ -544,23 +553,22 @@ function stopSidecar(timeoutMs = 5000, force = false): Promise<void> {
   })
 }
 
-// The loading page's actions after a startup failure (design/library-setup.md §3.3)
+// The loading page's actions after a startup failure (design/library-setup.md §3.3).
+// Each acts only while the page offers it.
 
 handleTrusted('startup:retry', () => {
-  if (restarting || !currentDirs || isDev) return
-  void restartBackend(currentDirs, [])
+  if (restarting || !currentDirs || isDev || backendError === null) return
+  restartBackend(currentDirs)
 })
 
 // Back to the default folders, with the setup wizard's library step to choose the real
 // ones. The refused folders are left exactly as they are.
 handleTrusted('startup:choose-folders', () => {
   const config = loadConfig()
-  if (restarting || !config || isDev) return
-  const defaults = getDefaultDirs()
-  const empty = isMissingOrEmpty(defaults.appData) && isMissingOrEmpty(defaults.store)
-  const next = withDefaultLibrary(config, defaults, empty)
+  if (restarting || !config || isDev || !canChooseFoldersAgain()) return
+  const next = onDefaultFolders(config)
   saveConfig(next)
-  void restartBackend(libraryDirsOf(next), [])
+  restartBackend(libraryDirsOf(next))
 })
 
 /**
@@ -568,61 +576,32 @@ handleTrusted('startup:choose-folders', () => {
  * §2.2): the loading page while the old backend stops and the new one starts, then the UI
  * it serves. *replacedProvisional* are first-launch folders the new ones replace.
  */
-async function restartBackend(dirs: LibraryDirs, replacedProvisional: string[]): Promise<void> {
-  restarting = true
-  try {
+function restartBackend(dirs: LibraryDirs, replacedProvisional: string[] = []): void {
+  restarting = (async () => {
     const win = mainWindow
     backendError = null
     await win?.loadFile(LOADING_PAGE).catch(() => {})
     backendOrigin = null
     // Forced past the grace period: the new backend may need the same folders' locks.
     await stopSidecar(QUIT_GRACE_MS, true)
-    await removeProvisionalDirs(replacedProvisional)
-    // Closed meanwhile (macOS keeps running): the next window starts its own backend.
-    if (!win || mainWindow !== win) return
-    await startBackend(dirs)
-  } finally {
-    restarting = false
-  }
-}
-
-/**
- * Delete first-launch folders the user replaced in setup. Nothing can have been imported
- * into them (the gallery is gated until setup is complete), and each is kept if it holds
- * anything Scene Atlas didn't create.
- */
-async function removeProvisionalDirs(dirs: string[]): Promise<void> {
-  const defaultBase = path.dirname(getDefaultDirs().appData)
-  for (const dir of dirs) {
-    if (hasForeignEntries(dir)) {
-      console.log(`[electron] Keeping ${dir}: it holds other files`)
-      continue
-    }
-    // Windows can hold the stopped backend's files open for a moment.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-        break
-      } catch (err) {
-        if (attempt === 5) {
-          console.warn(`[electron] Couldn't delete ${dir}:`, err)
-          break
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-    // The "Scene Atlas" folder the defaults sit in, once nothing is left in it.
-    if (path.dirname(dir) === defaultBase) {
-      try {
-        fs.rmdirSync(defaultBase) // only succeeds when empty
-      } catch {
-        // Something else is in it, or it's gone already.
-      }
-    }
-  }
+    await removeProvisionalDirs(replacedProvisional, getDefaultDirs())
+    // Closed meanwhile (macOS keeps running): activate starts the next window's backend.
+    if (win && mainWindow === win) await startBackend(dirs)
+  })()
+    .catch((err: unknown) => signalBackendError(`Could not restart the backend: ${String(err)}`))
+    .finally(() => {
+      restarting = null
+    })
 }
 
 // Lifecycle
+
+/** *config* (or, on a first launch, a new one) on the default folders, not yet chosen. */
+function onDefaultFolders(config: AppConfig | null): AppConfig {
+  const defaults = getDefaultDirs()
+  const empty = isMissingOrEmpty(defaults.appData) && isMissingOrEmpty(defaults.store)
+  return config ? withDefaultLibrary(config, defaults, empty) : firstLaunchConfig(defaults, empty)
+}
 
 function start(): void {
   let config = loadConfig()
@@ -631,9 +610,7 @@ function start(): void {
     // wizard it serves) can start. The wizard's library step can replace them.
     const aside = setAsideUnusableConfig()
     if (aside) console.warn(`[electron] Config couldn't be read; moved to ${aside}`)
-    const defaults = getDefaultDirs()
-    const empty = isMissingOrEmpty(defaults.appData) && isMissingOrEmpty(defaults.store)
-    config = firstLaunchConfig(defaults, empty)
+    config = onDefaultFolders(null)
     saveConfig(config)
   }
   // Every window, including the loading page, follows the UI's theme choice
@@ -659,7 +636,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (hasInstanceLock && BrowserWindow.getAllWindows().length === 0) start()
+  if (!hasInstanceLock) return
+  // After a restart whose window was closed: its old backend may still hold the folders.
+  void Promise.resolve(restarting).then(() => {
+    if (BrowserWindow.getAllWindows().length === 0) start()
+  })
 })
 
 // Hold the quit until the backend has shut down. On Windows this is what makes the stop

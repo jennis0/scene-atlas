@@ -131,8 +131,7 @@
         color: var(--fg-muted);
         user-select: text;
       }
-      .hint,
-      #error p.hint {
+      #error .hint {
         color: var(--fg-muted);
         font-size: 13px;
       }
@@ -160,9 +159,6 @@
       #actions button:focus-visible {
         outline: 2px solid var(--primary);
         outline-offset: 2px;
-      }
-      #actions button[hidden] {
-        display: none;
       }
       #actions button:disabled {
         opacity: 0.6;
@@ -235,12 +231,13 @@
         document.getElementById('detail').textContent = message
         // Folders that were refused or can't be used (design/library-setup.md §3.3): a
         // drive to reconnect, or folders that moved.
-        const hint = actions?.chooseFolders
-          ? 'Reconnect the drive and try again, or choose the folders again. The full log is at the path shown above.'
+        const next = actions?.chooseFolders
+          ? 'Reconnect the drive and try again, or choose the folders again. '
           : actions?.retry
-            ? 'The full log is at the path shown above.'
-            : 'Restart Scene Atlas to try again. The full log is at the path shown above.'
-        document.getElementById('hint').textContent = hint
+            ? ''
+            : 'Restart Scene Atlas to try again. '
+        document.getElementById('hint').textContent =
+          next + 'The full log is at the path shown above.'
         retry.hidden = !actions?.retry
         chooseFolders.hidden = !actions?.chooseFolders
         document.getElementById('actions').style.display =

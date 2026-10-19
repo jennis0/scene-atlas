@@ -9,6 +9,7 @@ import {
   isMissingOrEmpty,
   parseLibraryDirs,
   provisionalDirsToDelete,
+  removeProvisionalDirs,
   unavailableLinkedError,
   type LibraryDirs,
 } from '../src/libraryDirs.ts'
@@ -93,6 +94,13 @@ describe('dirsChanged', () => {
     assert.equal(dirsChanged(linked, { ...win, linked: 'D:\\Other' }, 'win32'), true)
     assert.equal(dirsChanged(linked, { ...win, linked: 'd:\\maps' }, 'win32'), false)
   })
+
+  test('case matters only where the file system ignores it', () => {
+    const mac = { appData: '/Users/sam/SA/data', store: '/Users/sam/SA/images', linked: null }
+    const renamed = { ...mac, store: '/Users/sam/sa/Images/' }
+    assert.equal(dirsChanged(mac, renamed, 'darwin'), false)
+    assert.equal(dirsChanged(mac, renamed, 'linux'), true)
+  })
 })
 
 describe('provisionalDirsToDelete', () => {
@@ -101,6 +109,7 @@ describe('provisionalDirsToDelete', () => {
     store: '/home/sam/Documents/Scene Atlas/images',
     linked: null,
   }
+  const defaults = { appData: provisional.appData, store: provisional.store }
 
   test('both defaults replaced: both deleted', () => {
     const next = {
@@ -108,7 +117,7 @@ describe('provisionalDirsToDelete', () => {
       store: '/media/maps/Scene Atlas',
       linked: '/media/maps',
     }
-    assert.deepEqual(provisionalDirsToDelete(provisional, next, 'linux'), [
+    assert.deepEqual(provisionalDirsToDelete(provisional, next, defaults, 'linux'), [
       provisional.appData,
       provisional.store,
     ])
@@ -116,7 +125,9 @@ describe('provisionalDirsToDelete', () => {
 
   test('a default that is kept is not deleted', () => {
     const next = { ...provisional, store: '/media/maps/Scene Atlas', linked: '/media/maps' }
-    assert.deepEqual(provisionalDirsToDelete(provisional, next, 'linux'), [provisional.store])
+    assert.deepEqual(provisionalDirsToDelete(provisional, next, defaults, 'linux'), [
+      provisional.store,
+    ])
   })
 
   test('a default that holds, or sits inside, a new folder is not deleted', () => {
@@ -125,23 +136,31 @@ describe('provisionalDirsToDelete', () => {
       store: '/home/sam/Documents',
       linked: null,
     }
-    assert.deepEqual(provisionalDirsToDelete(provisional, next, 'linux'), [])
+    assert.deepEqual(provisionalDirsToDelete(provisional, next, defaults, 'linux'), [])
   })
 
   test('nothing inside the linked folder is deleted', () => {
     const next = { appData: '/fast/data', store: '/fast/images', linked: '/home/sam/Documents' }
-    assert.deepEqual(provisionalDirsToDelete(provisional, next, 'linux'), [])
+    assert.deepEqual(provisionalDirsToDelete(provisional, next, defaults, 'linux'), [])
   })
 
   test('one folder for both is listed once', () => {
     const shared = { appData: '/sa', store: '/sa', linked: null }
     const next = { appData: '/new', store: '/new', linked: null }
-    assert.deepEqual(provisionalDirsToDelete(shared, next, 'linux'), ['/sa'])
+    const sharedDefaults = { appData: '/sa', store: '/sa' }
+    assert.deepEqual(provisionalDirsToDelete(shared, next, sharedDefaults, 'linux'), ['/sa'])
+  })
+
+  test('only the default folders are ever deleted', () => {
+    // A config edited by hand to say provisional, on the user's own folders.
+    const own = { appData: '/home/sam/Maps/data', store: '/home/sam/Maps', linked: null }
+    const next = { appData: '/fast/data', store: '/fast/images', linked: null }
+    assert.deepEqual(provisionalDirsToDelete(own, next, defaults, 'linux'), [])
   })
 
   test('paths differing only in case are the same folder on Windows', () => {
     const next = { ...win, appData: win.appData.toLowerCase(), store: 'E:\\Maps' }
-    assert.deepEqual(provisionalDirsToDelete(win, next, 'win32'), [win.store])
+    assert.deepEqual(provisionalDirsToDelete(win, next, win, 'win32'), [win.store])
   })
 })
 
@@ -182,6 +201,27 @@ describe('on disk', () => {
     assert.match(unavailableLinkedError(dirs) ?? '', /isn't available/)
     fs.mkdirSync(linked)
     assert.equal(unavailableLinkedError(dirs), null)
+  })
+
+  test('removeProvisionalDirs deletes our own folders, then their empty parent', async () => {
+    const base = path.join(root, 'Scene Atlas')
+    const defaults = { appData: path.join(base, 'data'), store: path.join(base, 'images') }
+    fs.mkdirSync(path.join(defaults.appData, 'lancedb'), { recursive: true })
+    fs.writeFileSync(path.join(defaults.appData, 'battlemap.db'), '')
+    fs.mkdirSync(path.join(defaults.store, 'ab', 'cd'), { recursive: true })
+    await removeProvisionalDirs([defaults.appData, defaults.store], defaults)
+    assert.equal(fs.existsSync(base), false)
+  })
+
+  test("removeProvisionalDirs keeps a folder holding anything that isn't ours", async () => {
+    const base = path.join(root, 'Scene Atlas')
+    const defaults = { appData: path.join(base, 'data'), store: path.join(base, 'images') }
+    fs.mkdirSync(defaults.appData, { recursive: true })
+    fs.mkdirSync(defaults.store, { recursive: true })
+    fs.writeFileSync(path.join(defaults.store, 'Forest Clearing.png'), 'mine')
+    await removeProvisionalDirs([defaults.appData, defaults.store], defaults)
+    assert.equal(fs.existsSync(defaults.appData), false)
+    assert.equal(fs.readFileSync(path.join(defaults.store, 'Forest Clearing.png'), 'utf8'), 'mine')
   })
 
   test('a missing linked folder elsewhere is fine: the backend shows it offline', () => {

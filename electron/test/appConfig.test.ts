@@ -22,16 +22,13 @@ describe('parseConfig', () => {
     })
   })
 
-  test('a provisional first-launch config is not chosen', () => {
-    const result = parseConfig({ ...base, provisional: true, libraryChosen: false }, 'linux')
-    assert.equal(result?.config.provisional, true)
-    assert.equal(result?.config.libraryChosen, false)
-  })
-
-  test('libraryChosen is kept as written', () => {
-    const result = parseConfig({ ...base, provisional: false, libraryChosen: true }, 'linux')
-    assert.equal(result?.config.libraryChosen, true)
-    assert.equal(parseConfig({ ...base, provisional: true }, 'linux')?.config.libraryChosen, false)
+  test('libraryChosen as written wins; without it, a provisional config is not chosen', () => {
+    // Choose folders… on defaults that aren't empty: not provisional, but not chosen either.
+    const back = parseConfig({ ...base, provisional: false, libraryChosen: false }, 'linux')
+    assert.equal(back?.config.libraryChosen, false)
+    const first = parseConfig({ ...base, provisional: true }, 'linux')
+    assert.equal(first?.config.provisional, true)
+    assert.equal(first?.config.libraryChosen, false)
   })
 
   test('only provisional: true is provisional', () => {

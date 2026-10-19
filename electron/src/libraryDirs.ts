@@ -5,7 +5,13 @@
 // checks only stop Electron from creating or deleting folders it shouldn't.
 import * as fs from 'fs'
 import * as path from 'path'
-import { isSameOrInside, isSamePath } from './storageDirs.ts'
+import {
+  hasForeignEntries,
+  isAbsolutePath,
+  isSameOrInside,
+  isSamePath,
+  pathFor,
+} from './storageDirs.ts'
 
 export type FolderKind = 'appData' | 'store' | 'linked'
 
@@ -18,18 +24,15 @@ export interface LibraryDirs {
   linked: string | null
 }
 
+/** The two storage folders a new library gets (config.ts getDefaultDirs). */
+export type DefaultDirs = Pick<LibraryDirs, 'appData' | 'store'>
+
 export function isFolderKind(value: unknown): value is FolderKind {
   return value === 'appData' || value === 'store' || value === 'linked'
 }
 
-function pathFor(platform: NodeJS.Platform): path.PlatformPath {
-  return platform === 'win32' ? path.win32 : path.posix
-}
-
 function absolute(value: unknown, platform: NodeJS.Platform): string | null {
-  if (typeof value !== 'string' || value.trim() === '') return null
-  const p = pathFor(platform)
-  return p.isAbsolute(value) ? p.resolve(value) : null
+  return isAbsolutePath(value, platform) ? pathFor(platform).resolve(value) : null
 }
 
 /**
@@ -61,7 +64,7 @@ export function parseLibraryDirs(
   return { dirs: { appData, store, linked } }
 }
 
-/** True when *next* names different folders from *current*. */
+/** True when *next* names different folders from *current*, compared as isSamePath does. */
 export function dirsChanged(
   current: LibraryDirs,
   next: LibraryDirs,
@@ -79,24 +82,49 @@ export function dirsChanged(
 }
 
 /**
- * The provisional folders (the defaults written on first launch) that *next* replaces, so
- * can be deleted once the backend has stopped. A folder that is, contains or sits inside
- * any of the new folders is kept: deleting it would delete part of the new library, or
- * write inside the linked folder.
+ * The provisional folders that *next* replaces, to delete once the backend has stopped.
+ * Only *defaults* are ever candidates, so a config edited by hand can't name others. A
+ * folder that is, contains or sits inside any of the new folders is kept: deleting it
+ * would delete part of the new library, or write inside the linked folder.
  */
 export function provisionalDirsToDelete(
   current: LibraryDirs,
   next: LibraryDirs,
+  defaults: DefaultDirs,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
   const keep = [next.appData, next.store, next.linked].filter((d): d is string => d !== null)
   const candidates = [current.appData, current.store].filter(
-    (dir, i, all) => all.findIndex((other) => isSamePath(other, dir, platform)) === i,
+    (dir, i, all) =>
+      all.findIndex((other) => isSamePath(other, dir, platform)) === i &&
+      (isSamePath(dir, defaults.appData, platform) || isSamePath(dir, defaults.store, platform)),
   )
   return candidates.filter(
     (dir) =>
       !keep.some((k) => isSameOrInside(k, dir, platform) || isSameOrInside(dir, k, platform)),
   )
+}
+
+/**
+ * Delete the replaced provisional folders (provisionalDirsToDelete), each only if it holds
+ * nothing Scene Atlas didn't create, then the "Scene Atlas" folder the defaults sit in if
+ * that's left empty. Nothing can have been imported into them: the gallery is gated until
+ * setup is complete.
+ */
+export async function removeProvisionalDirs(dirs: string[], defaults: DefaultDirs): Promise<void> {
+  if (dirs.length === 0) return
+  for (const dir of dirs) {
+    if (hasForeignEntries(dir)) {
+      console.log(`[electron] Keeping ${dir}: it holds other files`)
+      continue
+    }
+    // Windows can hold the stopped backend's files open for a moment (EBUSY, EPERM).
+    await fs.promises
+      .rm(dir, { recursive: true, force: true, maxRetries: 4, retryDelay: 200 })
+      .catch((err) => console.warn(`[electron] Couldn't delete ${dir}:`, err))
+  }
+  // rmdir fails unless the folder is empty.
+  await fs.promises.rmdir(path.dirname(defaults.appData)).catch(() => {})
 }
 
 /**
@@ -111,7 +139,7 @@ export function unavailableLinkedError(dirs: LibraryDirs): string | null {
   return inside ? `Your maps folder isn't available: ${linked}` : null
 }
 
-/** True when *dir* doesn't exist or has nothing in it. */
+/** True when *dir* doesn't exist or has nothing in it (a file isn't empty). */
 export function isMissingOrEmpty(dir: string): boolean {
   try {
     return fs.readdirSync(dir).length === 0

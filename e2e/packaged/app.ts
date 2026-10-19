@@ -81,20 +81,21 @@ export function makeProfile(seedConfig: boolean | SeedConfig): Profile {
   fs.mkdirSync(profile.userData);
   fs.mkdirSync(path.join(home, ".config"), { recursive: true });
   if (seedConfig) {
-    fs.writeFileSync(
-      configPath(profile),
-      JSON.stringify({
-        appDataDir: profile.appData,
-        imageLibraryDir: profile.images,
-        ...(seedConfig === true ? {} : seedConfig),
-      }),
-    );
+    writeConfig(profile, {
+      appDataDir: profile.appData,
+      imageLibraryDir: profile.images,
+      ...(seedConfig === true ? {} : seedConfig),
+    });
   }
   return profile;
 }
 
-export function configPath(profile: Profile): string {
+function configPath(profile: Profile): string {
   return path.join(profile.userData, "scene-atlas-config.json");
+}
+
+export function writeConfig(profile: Profile, config: SeedConfig): void {
+  fs.writeFileSync(configPath(profile), JSON.stringify(config));
 }
 
 export function readConfig(profile: Profile): Record<string, unknown> {
@@ -173,7 +174,7 @@ export async function connect(
 }
 
 /** The first open page whose URL matches. */
-export async function waitForPage(
+async function waitForPage(
   browser: Browser,
   matches: (url: string) => boolean,
   timeoutMs = 180_000,
@@ -190,9 +191,16 @@ export async function waitForPage(
   throw new Error(`No page matched within ${timeoutMs} ms; open pages: ${urls.join(", ")}`);
 }
 
+// The sidecar serves the UI on loopback; the loading page is a file: URL.
+const BACKEND_UI = /^http:\/\/127\.0\.0\.1:\d+\//;
+
+export function waitForLoadingPage(browser: Browser): Promise<Page> {
+  return waitForPage(browser, (url) => url.endsWith("/loading.html"));
+}
+
 /** The window once it has left the loading page for the UI the backend serves. */
 export function waitForBackendUi(browser: Browser): Promise<Page> {
-  return waitForPage(browser, (url) => /^http:\/\/127\.0\.0\.1:\d+\//.test(url));
+  return waitForPage(browser, (url) => BACKEND_UI.test(url));
 }
 
 export interface LibraryDirs {
@@ -209,12 +217,26 @@ export function applyLibrary(
   return page.evaluate((d) => (window as any).electronAPI.applyLibrary(d), dirs);
 }
 
+/**
+ * applyLibrary with folders that restart the backend, so the call never settles: wait for
+ * the backend that was running (*oldSidecarPid*) to exit and the UI to reload on the new one.
+ */
+export async function applyLibraryAndRestart(
+  page: Page,
+  dirs: LibraryDirs,
+  oldSidecarPid: number,
+): Promise<void> {
+  void applyLibrary(page, dirs).catch(() => {});
+  await waitUntil("old backend to exit", () => !isAlive(oldSidecarPid), 30_000);
+  await waitForChosenLibraryUi(page);
+}
+
 /** Wait until the window has reloaded the UI with libraryChosen set (after a restart). */
-export async function waitForChosenLibraryUi(page: Page, timeoutMs = 180_000): Promise<void> {
+async function waitForChosenLibraryUi(page: Page, timeoutMs = 180_000): Promise<void> {
   await waitUntil(
     "the UI to reload on the new backend",
     async () =>
-      /^http:\/\/127\.0\.0\.1:\d+\//.test(page.url()) &&
+      BACKEND_UI.test(page.url()) &&
       (await page
         .evaluate(() => (window as any).electronAPI.libraryChosen === true)
         .catch(() => false)),
