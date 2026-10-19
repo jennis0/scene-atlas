@@ -1,12 +1,12 @@
 # Local ingest
 
 Three ways to import files without the browser uploading them. Status: **plan**. Feature 1 is
-specified in detail and **built** (branch `feature/local-folder-ingest`); features 2 and 3 are outlined so the data model leaves room for them. Feature 2 is desktop-only too: in server mode only the drop folder will read server paths.
+specified in detail and **built** (branch `feature/local-folder-ingest`); features 2 and 3 are outlined so the data model leaves room for them. Feature 2 is planned in [library-setup.md](library-setup.md); it is available on servers too, because its folder comes from configuration, not from a client.
 
 | # | Feature | What it is | Status |
 |---|---|---|---|
 | 1 | **Local folder import** | In the desktop app, an import from files or folders on this computer reads them where they are and copies them into the library. No upload. Chosen automatically; the user sees the same import dialog. | Built |
-| 2 | **Linked library** (in-place) | Desktop app only. Folders configured at the app level stay where they are; the library references them instead of copying. Rescans pick up new, moved and missing files. | Outline ([§8](#8-feature-2-linked-library-outline)) |
+| 2 | **Linked library** (in-place) | One folder configured at the app level stays where it is; the library references it instead of copying. Rescans pick up new, moved and missing files. Desktop and server (via `LINKED_LIBRARY_DIR`). | Planned: [library-setup.md](library-setup.md) supersedes §8 |
 | 3 | **Drop folder** | A folder watched by the server; files dropped in are imported, then removed. The server-mode replacement for feature 1. | Outline ([§9](#9-feature-3-drop-folder-outline)) |
 
 Features 2 and 3 build on feature 1's server-side reading. Feature 1 also stands alone: a USB

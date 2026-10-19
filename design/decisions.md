@@ -551,3 +551,49 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - Videos are sorted from their first frame (user decision: the library has video scenes as well as animated maps).
 - Included images go through the queue; the open editor merges them into the group once their import finishes (`edit-group/useSortedOut.ts`).
 - Found while testing: the editor could load a group that was still filling, and `PUT /groups/{id}` deleted every image the client didn't list, so editing such a group deleted the late images. Fixed on this branch: deletion is now explicit (`delete_image_ids`), and import review holds a group back until its import has finished with it (`groups_reviewable`, `reviewableGroupIds`).
+
+---
+
+## ADR-021: Library setup in the wizard, and the linked library
+
+**Date:** 2026-10-19
+**Status:** Accepted (plan). Design: [library-setup.md](library-setup.md).
+
+**Context:** Most new desktop users already have a maps folder, often a large one (the target library is 56k images, 216 GB). Today they have two options, and both are wrong for them. The Electron storage window asks for two folders before the app exists and warns them off their maps folder. Local folder import then copies everything, which doubles the disk use. Storage is also chosen in a separate window from the rest of setup. The library has no identity, so a folder from an earlier install can't be recognised.
+
+**Decision:**
+
+1. **Storage is chosen in the setup wizard.** It's a desktop-only "Your library" step after Appearance. The storage window is removed.
+   - The app first starts on provisional default folders.
+   - Changing them restarts the backend in the same window, before any step that saves to the library.
+2. **A library has three places:**
+   - app data: database, index, thumbnails, models; always local;
+   - a store: originals of copied imports, backups, a marker;
+   - an optional, **read-only** linked folder.
+3. **One linked folder.** Files are referenced as `(source_id, rel_key)` and indexed in `source_files`, so rescans don't re-hash files they've seen.
+   - Scans run at startup and on demand, with no file watching.
+   - Moves are matched by content hash. Missing files keep their images.
+   - Removing an image never touches the file.
+   - On the desktop, the store defaults to `<linked folder>/Scene Atlas`.
+   - Store files keep their hash-shard names.
+4. **Library identity.** A `library_id` lives in the database, mirrored by `scene-atlas-library.json` markers in app data and the store, with hints to the other folders.
+   - The startup check refuses folders that belong to different libraries, or a store without its database.
+   - Pointing the wizard at a library reopens it.
+5. **Server mode gets the linked folder through `LINKED_LIBRARY_DIR`.** It comes from configuration, never from a client-named path. That's why it's acceptable on a server, where local folder import isn't.
+6. **All original-file access goes through one source interface** (list, stat, local path, plus put and delete for the store only). Linked reads are checked to stay inside the root. This also keeps S3-compatible stores open for later.
+
+**Alternatives considered:**
+
+- **Copy an existing folder in with local folder import.** Rejected: it doubles disk use, and the user's folder stops being the source.
+- **Readable `Author/Pack/file` paths in the store.** Rejected: renames, author changes and regrouping would each mean moving files and keeping disk and database in step.
+- **One import job per subfolder for the first scan.** Rejected: jobs are scheduled round-robin, so every folder would finish at about the same time, near the end. Fifty dock rows would also be noise. One job claimed in group order finishes packs in turn.
+- **Hand wizard choices through the relaunch.** Rejected: this is the `pendingStoredFormat` handoff removed in the first-run rework. Ordering the steps avoids it.
+- **Restore from backups when the database is missing.** Deferred: backups will be designed as their own feature.
+- **Several linked folders.** Deferred: the data model allows it, but setup and Settings offer one.
+
+**Consequences:**
+
+- Large existing libraries can be used without copying. The first scan takes hours, and the gallery fills as it goes.
+- `images.storage_key` becomes nullable. Two deletion paths that mishandled a NULL key are fixed.
+- A library is recognised wherever its folders are. Moving it by hand works if the app is pointed at the new location; a proper Move library is still due before launch.
+- Without backups, losing app data still loses a library's metadata. Linked files can be rescanned, but stored files have generated names.

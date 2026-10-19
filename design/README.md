@@ -27,7 +27,8 @@ How individual features and subsystems are designed.
 | [frontend.md](frontend.md) | Frontend SPA -- structure, gallery and search state, grouped view, imports client |
 | [editor-metadata-first.md](editor-metadata-first.md) | Plan: group editor loads summaries first and details on demand, bulk edits by id, virtualised All view (with measurements) |
 | [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
-| [local-ingest.md](local-ingest.md) | Plan: local folder import (desktop app), linked library in place, drop folder |
+| [local-ingest.md](local-ingest.md) | Local folder import (desktop app, built), linked library (see library-setup.md), drop folder |
+| [library-setup.md](library-setup.md) | Plan: storage in the setup wizard, the linked library, library identity and reopening |
 | [import-progress.md](import-progress.md) | Import progress view (overall bar, now importing, time left) and the editor's import-running strip |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |
@@ -40,7 +41,7 @@ Design decisions, visual standards, and security posture.
 
 | File | Description |
 |------|-------------|
-| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-019) |
+| [decisions.md](decisions.md) | **Architecture Decision Log** -- numbered record of all major design decisions (ADRs 001-021) |
 | [visual-language.md](visual-language.md) | Visual design system -- tokens, typography, components, patterns |
 | [brand.md](brand.md) | The Scene Atlas mark and app icons -- construction, files, how to rebuild, directions tried and rejected |
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
