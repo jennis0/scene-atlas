@@ -1,9 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FolderX } from 'lucide-react'
-import { toast } from 'sonner'
-import { libraryApi, type LibraryStatus } from '@/lib/api/libraryApi'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
-import { QUERY_KEYS } from '@/lib/queryKeys'
+import { useCheckLinkedFolder } from '@/hooks/useLibraryStatus'
+import type { LibraryStatus } from '@/lib/api/libraryApi'
 
 /**
  * Above the gallery while the linked folder is offline (a drive unplugged, a share down):
@@ -11,12 +8,7 @@ import { QUERY_KEYS } from '@/lib/queryKeys'
  * (design/library-setup.md §4.7).
  */
 export function LinkedFolderBanner({ status }: { status: LibraryStatus | undefined }) {
-  const queryClient = useQueryClient()
-  const check = useMutation({
-    mutationFn: () => libraryApi.scan('manual'),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.libraryStatus }),
-    onError: (err) => toast.error(getApiErrorMessage(err, "Couldn't check the folder.")),
-  })
+  const check = useCheckLinkedFolder("Couldn't check the folder.")
 
   const linked = status?.linked
   if (linked?.state !== 'offline') return null

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { libraryApi, type InspectRequest, type InspectResult } from '@/lib/api/libraryApi'
+import type { LibraryDirs } from '@/electron'
+import { libraryApi, type InspectResult } from '@/lib/api/libraryApi'
 import { useLibraryInspect } from './useLibraryInspect'
 
 vi.mock('@/lib/api/libraryApi', () => ({ libraryApi: { inspect: vi.fn() } }))
@@ -23,8 +24,8 @@ function deferred() {
   return { promise, resolve }
 }
 
-const A: InspectRequest = { app_data: '/a', store: '/a/images' }
-const B: InspectRequest = { app_data: '/b', store: '/b/images' }
+const A: LibraryDirs = { appData: '/a', store: '/a/images', linked: null }
+const B: LibraryDirs = { appData: '/b', store: '/b/images', linked: '/maps' }
 
 describe('useLibraryInspect', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -43,7 +44,7 @@ describe('useLibraryInspect', () => {
     rerender({ req: B })
     await waitFor(() => expect(hook.current.state).toEqual({ status: 'done', result: result('b') }))
     expect(inspect).toHaveBeenCalledTimes(1)
-    expect(inspect).toHaveBeenCalledWith(B)
+    expect(inspect).toHaveBeenCalledWith({ app_data: '/b', store: '/b/images', linked: '/maps' })
   })
 
   it('never lets a slow answer for older folders replace a newer one', async () => {
@@ -53,9 +54,9 @@ describe('useLibraryInspect', () => {
     const { result: hook, rerender } = renderHook(({ req }) => useLibraryInspect(req), {
       initialProps: { req: A },
     })
-    await waitFor(() => expect(inspect).toHaveBeenCalledWith(A))
+    await waitFor(() => expect(inspect).toHaveBeenCalledTimes(1))
     rerender({ req: B })
-    await waitFor(() => expect(inspect).toHaveBeenCalledWith(B))
+    await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2))
     expect(hook.current.state).toEqual({ status: 'checking' })
 
     await act(async () => fast.resolve(result('b')))

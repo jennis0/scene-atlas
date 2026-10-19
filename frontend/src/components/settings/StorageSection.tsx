@@ -8,14 +8,13 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { SettingsSection } from '@/components/settings/SettingsSection'
+import type { LibraryDirs, LibraryFolderKind } from '@/electron'
 import { useLibraryInspect } from '@/hooks/useLibraryInspect'
 import { useLibraryStatus } from '@/hooks/useLibraryStatus'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
-import type { InspectRequest } from '@/lib/api/libraryApi'
 import { StopUsingFolder } from './StopUsingFolder'
 
-type FolderKind = 'appData' | 'store' | 'linked'
-type Pending = Partial<Record<FolderKind, string>>
+type Pending = Partial<Record<LibraryFolderKind, string>>
 
 interface StoragePathRowProps {
   label: string
@@ -73,25 +72,18 @@ export function StorageSection({ open }: { open: boolean }) {
   const [applyError, setApplyError] = useState<string | null>(null)
 
   const changed = Object.keys(pending).length > 0
-  const proposed = dirs && {
-    appData: pending.appData ?? dirs.appData,
-    store: pending.store ?? dirs.store,
-    linked: pending.linked ?? dirs.linked,
-  }
-  // Checked only when something changed; the hook keys requests by content
-  const request: InspectRequest | null =
-    changed && proposed
+  const proposed: LibraryDirs | null =
+    dirs && changed
       ? {
-          app_data: proposed.appData,
-          store: proposed.store,
-          ...(proposed.linked && { linked: proposed.linked }),
+          appData: pending.appData ?? dirs.appData,
+          store: pending.store ?? dirs.store,
+          linked: pending.linked ?? dirs.linked,
         }
       : null
-  const { state: inspect } = useLibraryInspect(request)
-  const result = inspect.status === 'done' ? inspect.result : null
+  const { state: inspect, result, refusal: inspectRefusal } = useLibraryInspect(proposed)
 
-  const browse = async (kind: FolderKind) => {
-    const current = pending[kind] ?? (dirs ? (dirs[kind] ?? undefined) : undefined)
+  const browse = async (kind: LibraryFolderKind) => {
+    const current = pending[kind] ?? dirs?.[kind] ?? undefined
     const chosen = await window.electronAPI?.chooseFolder(kind, current)
     if (!chosen) return
     setApplyError(null)
@@ -110,10 +102,14 @@ export function StorageSection({ open }: { open: boolean }) {
     setApplyError(null)
     try {
       const outcome = await api.applyLibrary(proposed)
-      // Restarted: the page reloads. Otherwise nothing changed, or it couldn't be applied.
-      if (outcome.error) setApplyError(outcome.error)
-      else if (!outcome.restarted) setPending({})
-      if (outcome.error || !outcome.restarted) setApplying(false)
+      if (outcome.error) {
+        setApplyError(outcome.error)
+        setApplying(false)
+      } else if (!outcome.restarted) {
+        setPending({})
+        setApplying(false)
+      }
+      // Restarted: the page reloads, so stay busy until it does
     } catch {
       setApplyError("Couldn't change the folders.")
       setApplying(false)
@@ -123,7 +119,7 @@ export function StorageSection({ open }: { open: boolean }) {
   const movesFiles = pending.appData !== undefined || pending.store !== undefined
   const refusal =
     applyError ??
-    (result?.outcome === 'error' ? (result.message ?? "Couldn't use these folders.") : null) ??
+    inspectRefusal ??
     (inspect.status === 'failed' ? "Couldn't check these folders." : null)
   const note =
     inspect.status === 'checking'
@@ -181,7 +177,7 @@ export function StorageSection({ open }: { open: boolean }) {
               size="sm"
               className="h-7 text-xs"
               onClick={() => void apply()}
-              disabled={applying || !result || result.outcome === 'error'}
+              disabled={applying || !result || !!inspectRefusal}
             >
               {applying ? 'Restarting…' : 'Restart now to apply'}
             </Button>

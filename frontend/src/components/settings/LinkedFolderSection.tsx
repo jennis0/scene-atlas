@@ -12,16 +12,13 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { plural } from '@/components/imports/format'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
-import { useLibraryStatus } from '@/hooks/useLibraryStatus'
-import { libraryApi, type LibraryStatus } from '@/lib/api/libraryApi'
+import { useCheckLinkedFolder, useLibraryStatus } from '@/hooks/useLibraryStatus'
+import { libraryApi, type LinkedFolder } from '@/lib/api/libraryApi'
 import { settingsApi } from '@/lib/api/settingsApi'
 import { isApp } from '@/lib/appMode'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
-import { getImportManager } from '@/lib/import/ImportManager'
-import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
-import { RemoveDetachedMaps, StopUsingFolder } from './StopUsingFolder'
-
-type Linked = NonNullable<LibraryStatus['linked']>
+import { QUERY_KEYS, invalidateRemovedMapsQueries } from '@/lib/queryKeys'
+import { StopUsingFolder } from './StopUsingFolder'
 
 /** linked_rescan_minutes (design/library-setup.md §4.3) */
 const RESCAN_OPTIONS = [
@@ -66,7 +63,7 @@ export function LinkedFolderSection({ open }: { open: boolean }) {
   )
 }
 
-function stateText(linked: Linked): string {
+function stateText(linked: LinkedFolder): string {
   if (linked.scanning) return 'Checking for changes…'
   switch (linked.state) {
     case 'offline':
@@ -82,7 +79,7 @@ function stateText(linked: Linked): string {
   }
 }
 
-function FolderState({ linked }: { linked: Linked }) {
+function FolderState({ linked }: { linked: LinkedFolder }) {
   return (
     <div className="space-y-0.5">
       <p className="text-sm font-medium text-foreground">{linked.name}</p>
@@ -99,21 +96,14 @@ function FolderState({ linked }: { linked: Linked }) {
   )
 }
 
-function RescanControls({ linked }: { linked: Linked }) {
+function RescanControls({ linked }: { linked: LinkedFolder }) {
   const queryClient = useQueryClient()
   const { data: settings } = useQuery({
     queryKey: QUERY_KEYS.appSettings,
     queryFn: () => settingsApi.get(),
   })
 
-  const scan = useMutation({
-    mutationFn: () => libraryApi.scan('manual'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.libraryStatus })
-      void getImportManager().refresh()
-    },
-    onError: (err) => toast.error(getApiErrorMessage(err, "Couldn't check for changes.")),
-  })
+  const scan = useCheckLinkedFolder("Couldn't check for changes.")
 
   const interval = useMutation({
     mutationFn: (minutes: number) => settingsApi.patch({ linked_rescan_minutes: minutes }),
@@ -159,23 +149,22 @@ function RescanControls({ linked }: { linked: Linked }) {
   )
 }
 
-function RemoveMissing({ linked }: { linked: Linked }) {
+/** Removes maps from the library (their files stay), saying how many */
+function useRemoveMaps(remove: () => Promise<{ removed: number }>, failure: string) {
   const queryClient = useQueryClient()
-  const [confirming, setConfirming] = useState(false)
-  const remove = useMutation({
-    mutationFn: libraryApi.removeMissing,
+  return useMutation({
+    mutationFn: remove,
     onSuccess: ({ removed }) => {
-      setConfirming(false)
       toast.success(`${plural(removed, 'map')} removed.`)
-      invalidateGalleryQueries(queryClient)
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.libraryStatus })
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
+      invalidateRemovedMapsQueries(queryClient)
     },
-    onError: (err) => {
-      setConfirming(false)
-      toast.error(getApiErrorMessage(err, "Couldn't remove the missing maps."))
-    },
+    onError: (err) => toast.error(getApiErrorMessage(err, failure)),
   })
+}
+
+function RemoveMissing({ linked }: { linked: LinkedFolder }) {
+  const [confirming, setConfirming] = useState(false)
+  const remove = useRemoveMaps(libraryApi.removeMissing, "Couldn't remove the missing maps.")
 
   const count = plural(linked.missing_count, 'map')
   return (
@@ -198,10 +187,44 @@ function RemoveMissing({ linked }: { linked: Linked }) {
         description={`This removes the ${count} whose files are gone, with their names and tags. This can't be undone.`}
         confirmLabel="Remove missing maps"
         loadingLabel="Removing…"
-        onConfirm={() => remove.mutate()}
+        onConfirm={() => remove.mutate(undefined, { onSettled: () => setConfirming(false) })}
         isLoading={remove.isPending}
       />
     </ActionRow>
+  )
+}
+
+/** A detached folder (no longer configured): remove its maps, which can't be opened */
+function RemoveDetachedMaps({ linked }: { linked: LinkedFolder }) {
+  const [confirming, setConfirming] = useState(false)
+  const remove = useRemoveMaps(libraryApi.removeLinked, "Couldn't remove the maps.")
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="destructive"
+        className="h-7 text-xs shrink-0"
+        onClick={() => setConfirming(true)}
+      >
+        Remove its maps
+      </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Remove this folder's maps?"
+        description={
+          <>
+            This removes the {plural(linked.image_count, 'map')} from <strong>{linked.name}</strong>
+            , with their names and tags. This can&apos;t be undone.
+          </>
+        }
+        confirmLabel="Remove maps"
+        loadingLabel="Removing…"
+        onConfirm={() => remove.mutate(undefined, { onSuccess: () => setConfirming(false) })}
+        isLoading={remove.isPending}
+      />
+    </>
   )
 }
 

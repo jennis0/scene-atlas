@@ -34,6 +34,13 @@ export function invalidateGalleryQueries(queryClient: QueryClient) {
   queryClient.resetQueries({ queryKey: QUERY_KEYS.groups })
 }
 
+/** After maps leave the library: the gallery, the linked folder's counts and the library totals */
+export function invalidateRemovedMapsQueries(queryClient: QueryClient) {
+  invalidateGalleryQueries(queryClient)
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.libraryStatus })
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
+}
+
 /**
  * Brings the gallery results up to date without clearing what's on screen: they refetch in the
  * background and replace the old ones when they arrive. Grouped results keep only their first
