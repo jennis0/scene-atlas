@@ -146,8 +146,8 @@ def patch_https(monkeypatch, result, status: int = 200):
     seen = {}
 
     class FakeConnection:
-        def __init__(self, host, timeout):
-            seen["host"], seen["timeout"] = host, timeout
+        def __init__(self, host, timeout, context):
+            seen["host"], seen["timeout"], seen["context"] = host, timeout, context
 
         def request(self, method, path, headers):
             seen["method"], seen["path"], seen["headers"] = method, path, headers
@@ -179,6 +179,8 @@ class TestFetchLatestRelease:
         )
         assert seen["headers"]["User-Agent"] == "SceneAtlas/0.2.0"
         assert seen["timeout"] == update_check.REQUEST_TIMEOUT_SECONDS
+        assert seen["context"].verify_mode == ssl.CERT_REQUIRED
+        assert seen["context"].check_hostname
         assert seen["closed"]
 
     def test_no_releases_yet(self, monkeypatch):

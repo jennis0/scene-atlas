@@ -15,6 +15,7 @@ import http.client
 import json
 import logging
 import re
+import ssl
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -100,8 +101,12 @@ def fetch_latest_release(user_agent: str) -> ReleaseVersion | None:
     a response that isn't a release.
     """
     # http.client with a fixed host and path, not urllib: no URL, so no scheme, is ever
-    # taken from data. HTTPSConnection verifies the certificate by default.
-    connection = http.client.HTTPSConnection(GITHUB_API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
+    # taken from data. The certificate and host name are checked against the system's CAs
+    # (design/security.md#accepted-scanner-findings).
+    context = ssl.create_default_context()
+    connection = http.client.HTTPSConnection(  # nosemgrep: python.lang.security.audit.httpsconnection-detected.httpsconnection-detected
+        GITHUB_API_HOST, timeout=REQUEST_TIMEOUT_SECONDS, context=context
+    )
     try:
         connection.request(
             "GET",
