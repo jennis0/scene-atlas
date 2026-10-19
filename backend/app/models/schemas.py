@@ -54,7 +54,7 @@ class ImageBase(BaseModel):
     """Base image schema."""
 
     filename: str
-    storage_key: str
+    storage_key: str | None  # None: a map read from the linked folder
     name: str | None = None
     author: str | None = None
     width: int | None = None
@@ -79,10 +79,16 @@ class ImageCreate(ImageBase):
     colors: list[ColorCreate] = []
 
 
+# Whether an image's original can be read (design/library-setup.md §4.7): a linked
+# map's file can be missing, or its folder offline. Thumbnails work either way.
+FileState = Literal["ok", "missing", "offline"]
+
+
 class ImageResponse(ImageBase):
     """Image response schema."""
 
     id: int
+    file_state: FileState = "ok"
     group_id: int | None = None
     group_name: str | None = None
     group_image_count: int | None = None
@@ -569,3 +575,16 @@ class LinkedLibraryStatus(BaseModel):
 class LibraryStatus(BaseModel):
     library_id: str
     linked: LinkedLibraryStatus | None
+
+
+class LibraryScanRequest(BaseModel):
+    # manual: Check for changes; focus: the desktop window regained focus
+    reason: Literal["manual", "focus"]
+
+
+class LibraryScanStarted(BaseModel):
+    started: bool
+
+
+class LinkedRemoved(BaseModel):
+    removed: int

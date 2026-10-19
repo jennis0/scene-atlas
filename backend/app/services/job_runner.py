@@ -33,6 +33,9 @@ from backend.app.services.shutdown import (
     shutdown_requested,
 )
 
+# The library purge, which a linked folder scan waits for (and the other way round).
+PURGE_JOB_NAME = "Purge library"
+
 logger = logging.getLogger(__name__)
 
 _job_runner: "JobRunner | None" = None

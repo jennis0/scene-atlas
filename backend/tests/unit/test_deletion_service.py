@@ -464,3 +464,73 @@ class TestDeleteImageRows:
         with patch("backend.app.services.lancedb_service.get_lancedb_service", return_value=svc):
             pending.apply()
         assert not image_store.exists("cc33.jpg")
+
+
+class TestLinkedImages:
+    """Images read from the linked folder have no stored file (storage_key NULL).
+
+    Regressions: ``safe_delete_image`` counted other references with
+    ``storage_key == None`` (``IS NULL``: every other linked image) and could call
+    ``image_store.delete(None)``; ``delete_image_rows`` only collected thumbnails of
+    images with a storage key, so a linked image's thumbnails were never deleted.
+    """
+
+    @pytest.fixture
+    def linked_images(self, db_session):
+        from backend.app.models import LibrarySource, SourceFile
+
+        source = LibrarySource(kind="folder", location="/maps", state="online")
+        db_session.add(source)
+        db_session.flush()
+        images = []
+        for i in range(2):
+            row = SourceFile(
+                source_id=source.id, rel_key=f"A/map{i}.png", size=1, mtime_ns=1, state="image"
+            )
+            db_session.add(row)
+            db_session.flush()
+            image = Image(
+                filename=f"map{i}.png",
+                storage_key=None,
+                source_file_id=row.id,
+                thumbnail_key=f"thumb{i}_400x400.jpg",
+            )
+            db_session.add(image)
+            images.append(image)
+        db_session.commit()
+        return images
+
+    def _thumbnails(self, thumbnail_store, i):
+        from backend.app.config import settings
+
+        for w, h in settings.thumbnail_sizes:
+            thumbnail_store.put_bytes(f"thumb{i}_{w}x{h}.jpg", b"t")
+
+    def test_safe_delete_removes_its_thumbnails_and_never_a_stored_file(
+        self, db_session, stores, monkeypatch, mock_vector_db, linked_images
+    ):
+        from backend.app.models import SourceFile
+
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        for i in range(2):
+            self._thumbnails(thumbnail_store, i)
+        deleted_keys = []
+        monkeypatch.setattr(image_store, "delete", lambda key: deleted_keys.append(key))
+
+        first, second = linked_images
+        safe_delete_image(db_session, first)
+        db_session.commit()
+
+        assert deleted_keys == []  # no delete(None)
+        assert not thumbnail_store.exists("thumb0_400x400.jpg")
+        assert thumbnail_store.exists("thumb1_400x400.jpg")  # the other linked image's
+        row = db_session.query(SourceFile).filter_by(rel_key="A/map0.png").one()
+        assert (row.state, row.image_id) == ("removed", None)
+
+    def test_delete_rows_returns_their_thumbnails(self, db_session, linked_images):
+        pending = delete_image_rows(db_session, linked_images)
+        db_session.commit()
+        assert pending.storage_keys == []
+        assert sorted(pending.thumbnail_keys) == ["thumb0_400x400.jpg", "thumb1_400x400.jpg"]
+        assert db_session.query(Image).count() == 0

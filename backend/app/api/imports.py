@@ -19,7 +19,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal, cast
 
 import anyio
@@ -231,11 +231,15 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
 
 
 def _waiting_for(job: ImportJob, counts: ImportCounts) -> list[str]:
-    """A local import's folders that are missing while it still has files to import."""
+    """A local import's folders that are missing while it still has files to import. A
+    linked folder is named, never given as a path: servers don't show their paths."""
     open_items = counts.ready + counts.processing + counts.awaiting_bytes
     if not job.source_roots or not open_items or job.status == st.JOB_CANCELLED:
         return []
-    return q.job_missing_roots(job)
+    missing = q.job_missing_roots(job)
+    if job.library_source_id is not None:
+        return [PurePath(root).name or root for root in missing]
+    return missing
 
 
 def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) -> ImportJobSummary:
@@ -256,6 +260,7 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         dismissed=job.dismissed_at is not None,
         upload_interrupted=interrupted,
         local=job.source_roots is not None,
+        linked=job.library_source_id is not None,
         waiting_for=_waiting_for(job, counts),
         counts=counts,
         group_count=groups.total,
@@ -722,6 +727,8 @@ def _check_free_space(db: Session, job_id: str) -> None:
         .filter(
             ImportItem.job_id == job_id,
             ImportItem.state.in_([st.AWAITING_BYTES, st.READY]),
+            # Linked files are read where they are: they need no space in the store
+            ImportItem.source_file_id.is_(None),
         )
         .group_by(ImportItem.state)
     )
@@ -987,10 +994,16 @@ def dismiss_finished_imports(db: Session = Depends(get_db)):
 @router.delete("/{job_id}", response_model=ActionResult)
 @write_locked
 def undo_import(job_id: str, db: Session = Depends(get_db)):
-    """Undo: delete every image this import created, then the import itself."""
+    """Undo: delete every image this import created, then the import itself. Not for a
+    scan of the linked folder, whose maps leave with "Stop using this folder"."""
     _job_or_404(db, job_id)
     try:
         deleted, pending = q.undo_job(db, job_id)
+    except q.LinkedJobError:
+        raise HTTPException(
+            status_code=409,
+            detail="Maps from your linked folder can't be undone; stop using the folder instead",
+        ) from None
     except q.JobBusyError:
         db.commit()  # keep the cancellation; the in-flight batch finishes shortly
         _changed()

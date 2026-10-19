@@ -227,7 +227,10 @@ See [library-setup.md](library-setup.md) ("Interfaces between the parts") for th
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/status` | `library_id` and the linked folder (`linked: null` when none). Until linked scanning exists, the linked state is only online/offline (whether the folder exists) and counts are 0. The path is only returned in app mode |
+| GET | `/status` | `library_id` and the linked folder (`linked: null` when none is configured or known): `state` (`online` / `offline`, checked live; `detached` when a row exists but no folder is configured, or after `DELETE /linked`), `name`, `image_count`, `missing_count`, `last_scan_at`, `scanning`. The path is only returned in app mode |
+| POST | `/scan` | Body `{reason: "manual" \| "focus"}`. 202 `{started}`: starts a scan in the background unless one is running. `focus` is ignored within 60 s of the last scan, or when `linked_rescan_minutes` is 0. 409 if no linked folder is configured (or it's detached) |
+| POST | `/linked/remove-missing` | 200 `{removed}`. Removes the images whose linked file is missing (rows, thumbnails, vectors, and groups left empty); their files become `removed` so they aren't added again |
+| DELETE | `/linked` | 200 `{removed}`. "Stop using this folder": cancels its unfinished scans, removes every image read from it and forgets its files; the source is `detached` until the configuration drops the folder. 409 while a scan or a batch of its items is running. The folder is never touched |
 | POST | `/inspect` | Desktop only (404 in server mode). What opening the given folders (`app_data`, `store`, `linked`; absolute paths, any left out) would do: `new` / `open` / `error` with the wizard's message, a media count for a maps folder (capped at `max_local_import_items`), and a library found in them with its hints. Read-only; admission-controlled like other heavy requests |
 
 ### Settings (`/settings`)
@@ -259,7 +262,13 @@ When `frontend/dist` exists, `/assets` is served statically and a catch-all rout
 ## Services
 
 ### ImageStore
-Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
+Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `stat(key)`, `local_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
+
+### Originals (`originals.py`)
+The source interface: `original_path(image)` reads any original, from the store or the linked folder, and raises `OriginalUnavailable` (`missing` → 404, `offline` → 503 with the reason). `LinkedFolder` (`list`, `stat`, `local_path` with the containment check; no `put` or `delete`) is the only way to the linked folder's files. `Image.file_state` (`ok | missing | offline`) is in every image response. See [storage.md](storage.md#linked-folder).
+
+### Linked folder (`linked_files.py`, `pipeline/linked_scan.py`)
+`linked_scan` scans the linked folder (one at a time, in a thread; at startup, on the `linked_rescan_minutes` timer, and on `POST /library/scan`) and queues new files as one sealed import job. `linked_files` keeps `source_files` in step: item outcomes, moves, removed images. See [ingestion.md §5.7](ingestion.md#57-linked-items).
 
 ### Library identity (`library_identity.py`)
 `library_id`, the `scene-atlas-library.json` markers, and `decide()`, the one implementation of the rules for opening a set of folders. The startup check (`check_library`, then `open_library`) and `POST /library/inspect` (`inspect_folders`) both use it; refusals carry a code with two texts, the startup one and the wizard's. See [storage.md](storage.md#library-identity).
@@ -298,7 +307,7 @@ Process-wide byte budget. Each prepare step reserves its estimated peak decode m
 Shared `ThreadPoolExecutor` (`max_concurrent_prepare` workers) for per-image preparation: hashing, decode, thumbnails, colours, grid detection.
 
 ### DeletionService
-`safe_delete_image` deletes the row and, if no other row references the same `storage_key`, the stored file and thumbnails, plus the vector. `delete_image_rows` does the same for many images and returns the file deletions to apply after commit.
+`safe_delete_image` deletes the row and, if no other row references the same `storage_key`, the stored file and thumbnails, plus the vector. `delete_image_rows` does the same for many images and returns the file deletions to apply after commit. A linked image (`storage_key` NULL) loses its thumbnails and vector; its file is never touched and its `source_files` row becomes `removed`.
 
 ### Validation
 `check_zip_safety` (entry count, uncompressed size, zip-slip) and `verify_media_mime` (file header matches extension).
@@ -370,17 +379,17 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
 3. Library check (`check_library`, [storage.md](storage.md#library-identity)): reads the database (read-only), the store's marker and the linked folder setting, and refuses with `LibraryMismatchError` (logged as `STARTUP ERROR: …`, locks released) if the folders don't belong to one library. Nothing is created before it passes.
 4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
-5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked.
+5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked. `reconcile_linked_source()` brings the linked folder's row in line with the configuration (online, offline or detached).
 6. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
 7. Set `settings.vector_size` from the model manifest.
 8. Start the embedding model background load.
 9. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
-10. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
+10. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`. With a linked folder configured, start its first scan and the rescan timer task.
 11. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
 12. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
 13. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
+Shutdown: cancel heartbeat and the rescan timer → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 

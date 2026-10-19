@@ -136,7 +136,18 @@ There is no restriction on which absolute paths are accepted, so code running in
 - The folders themselves are never set through the API: they reach the backend only as sidecar arguments or env vars.
 - Admission-controlled (`acquire_heavy_op`), since counting a large folder takes seconds.
 
-Linked-folder reads (the containment check) are planned with linked scanning and will be added here.
+### 6c. MEDIUM: Reading the linked folder
+
+**Status**: Mitigated.
+
+The linked folder ([library-setup.md §4](library-setup.md#4-linked-library)) is the first place where a path stored in the database (`source_files.rel_key`) reaches the filesystem. Controls:
+- **Configuration only.** The folder comes from `LINKED_LIBRARY_DIR` or the desktop app's `--linked-library-dir` sidecar argument; no endpoint sets it. `POST /library/scan` names no path. On servers no response carries the folder's path: status and waiting imports give its name.
+- **Containment check** on every read (`originals.LinkedFolder.local_path`): the key must be relative with no `..`; joined to the root, it must resolve (`Path.resolve`) inside the resolved root (case-normalised), to a regular file that isn't a symlink (`lstat`). Anything else is refused as missing and logged. Keys come from the scan's walk, which doesn't follow symlinks, so the check is a second line.
+- **Read-only by type.** `LinkedFolder` has no `put` or `delete`; images read from the folder have no `storage_key`, so deletion, purge and the orphan sweep (which only walk the store's shard folders) can't reach its files. The store and app data may not be or contain the folder (startup check), so purge can't empty it either.
+- **One interface.** File serving, group download, export and the backfills read originals only through `originals.original_path`; the worker resolves linked items through the same check rather than their stored absolute `source_path`.
+- **Server deployments** are documented with a read-only mount (`-v /srv/maps:/library:ro`), so even a bug can't write to the folder.
+
+Accepted: a file swapped for a symlink between the check and the read (a TOCTOU window) could be followed. That needs write access to the user's own maps folder, which already implies control of the files being served.
 
 ### 7. MEDIUM: CORS Configuration
 

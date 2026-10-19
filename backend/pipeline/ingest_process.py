@@ -14,6 +14,10 @@ their destinations (``<store>/.incoming/``); the commit renames them into place
 inside the transaction and deletes them again if the transaction fails. Vectors
 are written after the commit; a failure there is repaired by
 ``vector_reconcile``.
+
+Linked items (design/library-setup.md §4.4) are read where they are, through the linked
+folder, and never copied: the image's original is the file itself (``storage_key``
+NULL). Each outcome is written back to the file's ``source_files`` row.
 """
 
 from __future__ import annotations
@@ -23,8 +27,10 @@ import logging
 import os
 import shutil
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import cast
 
 from PIL import Image as PILImage
 
@@ -41,7 +47,9 @@ from backend.app.services import ingest_state as st
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.image_type_classifier import ImageTypeHead, active_head, image_features
 from backend.app.services.ingest_state import ItemEvent
+from backend.app.services.linked_files import move_if_missing, sync_files
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.originals import OriginalUnavailable, linked_folder
 from backend.app.services.validation import verify_media_mime
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
@@ -51,6 +59,7 @@ from .ingest_queue import (
     AUTO,
     BATTLEMAP,
     KIND_BYTES_LOST,
+    KIND_SOURCE_CHANGED,
     KIND_SOURCE_UNAVAILABLE,
     REFUNDED_KINDS,
     SCENE,
@@ -81,6 +90,8 @@ logger = logging.getLogger(__name__)
 INCOMING_DIRNAME = ".incoming"
 _BYTES_LOST_REASON = "The uploaded file is missing; upload it again"
 _SOURCE_GONE_REASON = "The file was moved or deleted after it was chosen"
+_LINKED_GONE_REASON = "The file was moved or deleted"
+_SOURCE_CHANGED_REASON = "The file changed while it was read"
 
 
 def incoming_dir(store_base: Path) -> Path:
@@ -134,8 +145,8 @@ class PreparedItem:
     """A decoded item with its type-dependent steps done: ready to embed and commit."""
 
     decoded: DecodedItem
-    storage_key: str
-    temp_original: Path  # the stored original, placed at commit
+    storage_key: str | None  # None: a linked item, whose original stays where it is
+    temp_original: Path | None  # the stored original, placed at commit
     stored_hash: str
     file_size: int  # of the stored file
     media_type: str
@@ -146,7 +157,8 @@ class PreparedItem:
         return self.decoded.item
 
     def temp_paths(self) -> list[Path]:
-        return [self.temp_original, *self.decoded.temp_thumbnails.values()]
+        originals = [self.temp_original] if self.temp_original is not None else []
+        return [*originals, *self.decoded.temp_thumbnails.values()]
 
     def discard(self) -> None:
         for path in self.temp_paths():
@@ -305,6 +317,8 @@ def prepare_item(
     thumbnail; only grid detection re-reads the file. Auto items stop after decoding
     (a ``DecodedItem``) and are finished by ``finish_item`` once sorted.
     """
+    if item.source_file_id is not None:
+        return _prepare_linked(item, cfg)
     if item.source_path:
         return _prepare_local(item, cfg)
     staged = staged_path(item.job_id, item.staging_key) if item.staging_key else None
@@ -341,6 +355,8 @@ def _prepare_failed(
         path.unlink(missing_ok=True)
     stage = progress.stage
     if isinstance(exc, FileNotFoundError):
+        if item.source_file_id is not None:
+            return _linked_unreadable(item, str(exc))
         if item.source_path:
             if not Path(item.source_path).is_file():
                 return _missing_source(item, str(exc))
@@ -360,6 +376,61 @@ def _missing_source(item: ClaimedItem, detail: str = "") -> ItemFailure:
             item.id, KIND_SOURCE_UNAVAILABLE, "read", f"Waiting for {gone[0]}", detail
         )
     return ItemFailure(item.id, KIND_FILE, "read", _SOURCE_GONE_REASON, detail)
+
+
+def _linked_unreadable(item: ClaimedItem, detail: str = "") -> ItemFailure:
+    """A linked item's file can't be read: its folder is unavailable (wait: the job's
+    root is the folder, so the job waits too), or the file is gone (fail)."""
+    folder = linked_folder()
+    if folder is None or not folder.available():
+        name = folder.name if folder is not None else "the maps folder"
+        reason = f"Waiting for {name}"
+        return ItemFailure(item.id, KIND_SOURCE_UNAVAILABLE, "read", reason, detail)
+    return ItemFailure(item.id, KIND_FILE, "read", _LINKED_GONE_REASON, detail)
+
+
+def _linked_version(item: ClaimedItem) -> tuple[Path, tuple[int, int]] | ItemFailure:
+    """The linked item's file, through the linked folder (with its containment check),
+    and its (size, mtime) now."""
+    folder = linked_folder()
+    if folder is None:
+        return _linked_unreadable(item)
+    try:
+        path = folder.local_path(item.source_key or "")
+        info = path.stat()
+    except (OriginalUnavailable, OSError) as exc:
+        return _linked_unreadable(item, str(exc))
+    return path, (info.st_size, info.st_mtime_ns)
+
+
+def _prepare_linked(
+    item: ClaimedItem, cfg: PipelineConfig
+) -> PreparedItem | DecodedItem | ItemFailure | EarlyDuplicate:
+    """A linked item's file (design/library-setup.md §4.4): ``_prepare_local`` without the
+    copy. The file is hashed, decoded and grid-detected where it is; stored format doesn't
+    apply. Its (size, mtime) is noted now and checked again before commit."""
+    progress = _Progress(stage="read")
+    found = _linked_version(item)
+    if isinstance(found, ItemFailure):
+        return found
+    source, version = found
+    try:
+        if not verify_media_mime(source, source.suffix.lower()):
+            return ItemFailure(
+                item.id, KIND_FILE, "validate", "File content doesn't match its type"
+            )
+        source_hash = file_sha256(source)
+        duplicate_of = None if item.allow_duplicate else library_byte_duplicate(source_hash)
+        if duplicate_of is not None:
+            return EarlyDuplicate(item.id, duplicate_of, source_hash, version)
+
+        progress.stage = "decode"
+        plan = plan_decode(source, item, cfg)
+        with get_memory_budget().reserve(plan.peak_bytes):
+            linked = replace(item, source_hash=source_hash, source_version=version)
+            return _decode_and_finish(linked, cfg, source, plan, progress)
+    except Exception as exc:
+        return _prepare_failed(item, exc, progress, source)
 
 
 def _prepare_local(
@@ -542,6 +613,18 @@ def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> P
         }
     )
 
+    media_type = "video" if item.kind == "video" else "image"
+    if item.source_file_id is not None:  # linked: the original stays where it is
+        return PreparedItem(
+            decoded=decoded,
+            storage_key=None,
+            temp_original=None,
+            stored_hash=decoded.source_hash,
+            file_size=decoded.file_size,
+            media_type=media_type,
+            grid=grid,
+        )
+
     stored = _store_original(
         item,
         cfg,
@@ -559,7 +642,7 @@ def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> P
         temp_original=stored.path,
         stored_hash=stored.stored_hash,
         file_size=stored.size,
-        media_type="video" if item.kind == "video" else "image",
+        media_type=media_type,
         grid=grid,
     )
 
@@ -836,11 +919,21 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     ImportItem.id.in_([p.item.id for p in prepared])
                 )
             }
+            # Linked files that already are an image's (one image per file)
+            taken = _linked_images(db, [p.item.source_file_id for p in prepared])
             for p in prepared:
                 d = p.decoded
                 row = item_rows.get(p.item.id)
                 if row is None or row.state != st.PROCESSING:
                     logger.warning("Item %s no longer processing; discarding", p.item.id)
+                    continue
+
+                if p.item.source_file_id in taken:
+                    row.state = st.next_item_state(row.state, ItemEvent.DUPLICATE_AT_COMMIT)
+                    row.duplicate_of_image_id = taken[p.item.source_file_id]
+                    row.duplicate_tier = "bytes"
+                    row.source_hash = d.source_hash
+                    result.duplicates.append(p)
                     continue
 
                 if not p.item.allow_duplicate:
@@ -858,7 +951,8 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                         result.duplicates.append(p)
                         continue
 
-                _place(p.temp_original, image_store.get_path(p.storage_key), placed)
+                if p.temp_original is not None and p.storage_key is not None:
+                    _place(p.temp_original, image_store.get_path(p.storage_key), placed)
                 for key, temp in d.temp_thumbnails.items():
                     _place(temp, thumbnail_store.get_path(key), placed)
 
@@ -870,6 +964,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 image = Image(
                     filename=p.item.filename,
                     storage_key=p.storage_key,
+                    source_file_id=p.item.source_file_id,
                     name=name,
                     author=author,
                     group_id=group.id if group is not None else None,
@@ -938,6 +1033,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     by_pixels.setdefault(d.pixel_hash, image.id)
                 result.done.append(CommittedImage(p, image.id, group_name or None, author))
 
+            _write_back_linked(db, prepared, item_rows)
             for job_id in {p.item.job_id for p in prepared}:
                 recompute_job_status(db, job_id)
     except Exception:
@@ -945,6 +1041,48 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
             path.unlink(missing_ok=True)
         raise
     return result
+
+
+def _linked_images(db, file_ids: list[int | None]) -> dict[int, int]:
+    """file id → image id, for linked files that already have an image."""
+    ids = [i for i in file_ids if i is not None]
+    if not ids:
+        return {}
+    rows = db.query(Image.source_file_id, Image.id).filter(Image.source_file_id.in_(ids))
+    return dict(cast(Iterable[tuple[int, int]], rows))
+
+
+def _write_back_linked(db, prepared: list[PreparedItem], item_rows: dict) -> None:
+    """Record the batch's linked outcomes on their files, as read (§4.4). A byte duplicate
+    of a linked image whose file is missing is that file, moved: the image takes it."""
+    linked = [p for p in prepared if p.item.source_file_id is not None]
+    if not linked:
+        return
+    rows = [item_rows[p.item.id] for p in linked if p.item.id in item_rows]
+    versions = {p.item.id: p.item.source_version for p in linked if p.item.source_version}
+    db.flush()
+    sync_files(db, rows, versions)
+    for row in rows:
+        duplicate_of = row.duplicate_of_image_id
+        if row.state == st.DUPLICATE and row.duplicate_tier == "bytes" and duplicate_of:
+            move_if_missing(db, duplicate_of, row.source_file_id)
+
+
+def changed_since_read(prepared: list[PreparedItem]) -> list[ItemFailure]:
+    """Linked items whose file changed (or went) since prepare read it: they go back to
+    the queue rather than commit what was read from a file being written (§4.4)."""
+    changed: list[ItemFailure] = []
+    for p in prepared:
+        if p.item.source_file_id is None:
+            continue
+        found = _linked_version(p.item)
+        if isinstance(found, ItemFailure):
+            changed.append(found)
+        elif found[1] != p.item.source_version:
+            changed.append(
+                ItemFailure(p.item.id, KIND_SOURCE_CHANGED, "commit", _SOURCE_CHANGED_REASON)
+            )
+    return changed
 
 
 # Vectors
@@ -1038,6 +1176,16 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
         finished = _split([f.result() for f in [pool.submit(finish_item, d, cfg) for d in kept]])
         prepared += finished.prepared
         outcome.failures += finished.failures
+
+    if prepared:
+        changed = changed_since_read(prepared)
+        if changed:
+            failed = {f.item_id for f in changed}
+            for p in prepared:
+                if p.item.id in failed:
+                    p.discard()
+            prepared = [p for p in prepared if p.item.id not in failed]
+            outcome.failures += changed
 
     commit: CommitResult | None = None
     if prepared:

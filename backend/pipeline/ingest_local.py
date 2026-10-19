@@ -99,7 +99,7 @@ def availability_dirs(roots: Iterable[Path]) -> list[str]:
 _LIBRARY_ENTRIES = frozenset({MARKER_FILENAME, LOCK_FILENAME})
 
 
-def _walk(top: Path) -> Iterator[os.DirEntry]:
+def walk_files(top: Path) -> Iterator[os.DirEntry]:
     """Every regular file under ``top``, depth first in name order, without symlinks.
 
     Library folders are left out, with everything under them, so a library kept inside
@@ -130,7 +130,7 @@ def count_media(root: Path, limit: int) -> tuple[int, bool]:
     """How many supported images and videos are under the folder ``root``, junk left out:
     ``(count, capped)``, where ``capped`` means counting stopped at ``limit``."""
     count = 0
-    for entry in _walk(root):
+    for entry in walk_files(root):
         relative = Path(entry.path).relative_to(root).as_posix()
         if is_os_junk(relative) or kind_for_path(relative) not in ("image", "video"):
             continue
@@ -150,7 +150,7 @@ def list_root(root: Path) -> Iterator[LocalFile]:
         yield _local_file(root, root.name, root.stat())
         return
     base = root.parent
-    for entry in _walk(root):
+    for entry in walk_files(root):
         path = Path(entry.path)
         relative = normalise_relative_path(path.relative_to(base).as_posix())
         yield _local_file(path, relative, entry.stat(follow_symlinks=False))

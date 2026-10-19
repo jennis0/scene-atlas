@@ -15,23 +15,31 @@ logger = logging.getLogger(__name__)
 def safe_delete_image(db: Session, image: Image) -> None:
     """Delete an image row; remove its files only if no other row shares them.
 
-    Always deletes the image's embedding and all thumbnail sizes; tags and
-    colors go via cascade. The caller commits.
+    Always deletes the image's embedding; tags and colors go via cascade. A linked
+    image's file in the linked folder is never touched: its row becomes ``removed``
+    (``linked_files.forget_images``) and only its thumbnails go. The caller commits.
     """
     from . import get_image_store, get_thumbnail_store
     from .lancedb_service import get_lancedb_service
+    from .linked_files import forget_images
 
     storage_key = image.storage_key
     thumbnail_key = image.thumbnail_key
     image_id = image.id
 
+    forget_images(db, [image])
     # Delete the DB record (cascades tags, colors)
     db.delete(image)
     db.flush()
 
     # Count remaining references *after* this record is removed from the session,
-    # closing the race window that existed when counting before deletion.
-    ref_count = db.query(Image).filter(Image.storage_key == storage_key).count()
+    # closing the race window that existed when counting before deletion. A linked
+    # image has no stored file: `== None` would count every other linked image.
+    ref_count = (
+        db.query(Image).filter(Image.storage_key == storage_key).count()
+        if storage_key is not None
+        else 0
+    )
 
     # Always delete the per-image LanceDB point
     try:
@@ -44,10 +52,11 @@ def safe_delete_image(db: Session, image: Image) -> None:
         image_store = get_image_store()
         thumbnail_store = get_thumbnail_store()
 
-        try:
-            image_store.delete(storage_key)
-        except Exception as e:
-            logger.warning("Failed to delete image file %s: %s", storage_key, e)
+        if storage_key is not None:
+            try:
+                image_store.delete(storage_key)
+            except Exception as e:
+                logger.warning("Failed to delete image file %s: %s", storage_key, e)
 
         if thumbnail_key:
             _delete_all_thumbnails(thumbnail_store, thumbnail_key)
@@ -100,13 +109,20 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
     """Delete image rows (tags/colours cascade) and return the files to remove after commit.
 
     Stored files still referenced by another image (legacy shared-storage
-    records) are kept. Does NOT commit.
+    records) are kept. Linked images have no stored file: their thumbnails go, and their
+    files in the linked folder become ``removed`` rows, never touched. Does NOT commit.
     """
+    from .linked_files import forget_images
+
     pending = PendingFileDeletes()
     if not images:
         return pending
     candidates = {img.storage_key: img.thumbnail_key for img in images if img.storage_key}
+    pending.thumbnail_keys = [
+        img.thumbnail_key for img in images if img.storage_key is None and img.thumbnail_key
+    ]
     pending.image_ids = [img.id for img in images]
+    forget_images(db, images)
     db.flush()
     # Bulk deletes: an ORM delete-cascade loads each image's tags and colours
     # first (two SELECTs per image), which dominates undoing a large import.
@@ -123,7 +139,9 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
     for start in range(0, len(keys), _CHUNK):
         chunk = keys[start : start + _CHUNK]
         still_used |= {
-            key for (key,) in db.query(Image.storage_key).filter(Image.storage_key.in_(chunk))
+            key
+            for (key,) in db.query(Image.storage_key).filter(Image.storage_key.in_(chunk))
+            if key is not None
         }
     for key in keys:
         if key not in still_used:

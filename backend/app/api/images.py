@@ -23,7 +23,7 @@ from ..models.schemas import (
     ImageScope,
     ImageScopeFacets,
 )
-from ..services import get_image_store, get_thumbnail_store, safe_delete_image
+from ..services import get_thumbnail_store, safe_delete_image
 from ..services.bulk_edit_service import (
     bulk_edit_images,
     forget_undo,
@@ -32,6 +32,7 @@ from ..services.bulk_edit_service import (
     undo_record,
 )
 from ..services.image_scope import resolve_scope, scope_facets
+from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 from .rate_limits import limiter
 
@@ -175,19 +176,23 @@ def get_image_scenes(image_id: int, db: Session = Depends(get_db)):
     return db.query(Image).options(*_WITH_RELATIONS).filter(Image.group_id == image.group_id).all()
 
 
+def _original_response(image: Image) -> FileResponse:
+    """The image's original, read through the source interface (stored, or in the linked
+    folder). 404 when the file is missing; 503 with the reason when its folder is offline."""
+    try:
+        return FileResponse(original_path(image))
+    except OriginalUnavailable as exc:
+        status = 503 if exc.state == "offline" else 404
+        raise HTTPException(status_code=status, detail=exc.reason) from None
+
+
 @router.get("/{image_id}/file")
 def get_image_file(image_id: int, db: Session = Depends(get_db)):
-    """Serve the original image file via ImageStore."""
+    """Serve the original image file."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-
-    image_store = get_image_store()
-    file_path = image_store.get_path(image.storage_key)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Image file not found")
-
-    return FileResponse(file_path)
+    return _original_response(image)
 
 
 @router.get("/{image_id}/thumbnail")
@@ -210,12 +215,7 @@ def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
         image_id,
         image.thumbnail_key,
     )
-    image_store = get_image_store()
-    file_path = image_store.get_path(image.storage_key)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Image file not found")
-
-    return FileResponse(file_path)
+    return _original_response(image)
 
 
 # ── Bulk Grid Detection ──────────────────────────────────────────────────────

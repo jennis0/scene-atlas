@@ -27,12 +27,12 @@ from pathlib import Path
 import zipstream
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ...pipeline.naming import export_metadata, unique_export_path
 from ..config import settings
 from ..models import Image
-from ..services import get_image_store
+from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db
 from .rate_limits import limiter
 
@@ -50,7 +50,6 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
     and the metadata dict.  Done in one pass so the DB session can be closed
     before we start streaming.
     """
-    image_store = get_image_store()
     entries: list[tuple[str, Path]] = []
     metadata: dict[str, dict] = {}
     seen_paths: set[str] = set()
@@ -60,7 +59,9 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
     while True:
         batch = (
             db.query(Image)
-            .options(joinedload(Image.tags), joinedload(Image.group))
+            .options(
+                joinedload(Image.tags), joinedload(Image.group), selectinload(Image.source_file)
+            )
             .order_by(Image.id)
             .offset(offset)
             .limit(_BATCH)
@@ -70,9 +71,10 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
             break
 
         for img in batch:
-            source = image_store.get_path(img.storage_key)
-            if not source or not source.exists():
-                logger.warning("Export: missing file for image %d (%s)", img.id, img.storage_key)
+            try:
+                source = original_path(img)
+            except OriginalUnavailable as exc:
+                logger.warning("Export: skipped image %d: %s", img.id, exc.reason)
                 skipped += 1
                 continue
 

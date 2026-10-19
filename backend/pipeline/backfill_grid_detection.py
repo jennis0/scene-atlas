@@ -17,6 +17,7 @@ import logging
 
 from PIL import Image as PILImage
 from sqlalchemy import and_, or_
+from sqlalchemy.orm import selectinload
 
 from backend.app.models.database import (
     GRID_SOURCE_DETECTOR,
@@ -24,8 +25,8 @@ from backend.app.models.database import (
     GRID_SOURCE_USER,
     Image,
 )
-from backend.app.services import get_image_store
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down, shutdown_requested
 from backend.pipeline.db import pipeline_db
 from backend.pipeline.ingest_process import grid_detection_bytes
@@ -90,12 +91,16 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
 
     With *force*, re-detect even where grid info exists. Returns detected/skipped/errors counts.
     """
-    image_store = get_image_store()
     cfg = load_pipeline_config()
 
     detected = skipped = errors = 0
     with pipeline_db() as db:
-        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        images = (
+            db.query(Image)
+            .options(selectinload(Image.source_file))
+            .filter(Image.id.in_(image_ids))
+            .all()
+        )
         for image in images:
             if shutdown_requested():
                 break  # keep what's detected; the caller stops at the batch boundary
@@ -104,9 +109,11 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 if mode is None or image.width is None or image.height is None:
                     skipped += 1
                     continue
-                file_path = image_store.get_path(image.storage_key)
-                if not file_path.exists():
-                    logger.warning("Image %s: file not found at %s", image.id, file_path)
+                try:
+                    file_path = original_path(image)
+                except OriginalUnavailable as exc:
+                    # Missing, or in a linked folder that's offline: left for a later run
+                    logger.warning("Image %s: %s", image.id, exc.reason)
                     skipped += 1
                     continue
 

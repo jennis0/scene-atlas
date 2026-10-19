@@ -253,6 +253,14 @@ whose path, size and mtime are unchanged.
 
 ## 8. Feature 2: linked library (outline)
 
+**Superseded** by [library-setup.md §4](library-setup.md#4-linked-library), which is what was
+built (backend: [ingestion.md §5.7](ingestion.md#57-linked-items),
+[storage.md](storage.md#linked-folder)). Notable changes from this outline: one linked folder,
+available on servers too (`LINKED_LIBRARY_DIR`, an env var rather than a client-named path);
+files are tracked in `source_files` rows rather than on the image; scans also run on a timer;
+Undo is refused for a scan, and "Stop using this folder" removes its maps. The outline is kept
+for its reasoning.
+
 Folders configured **at the app level** (Settings in the desktop app) become part of the library
 without being copied. Desktop app only: in server mode the drop folder is the only way the server
 reads its own paths.
