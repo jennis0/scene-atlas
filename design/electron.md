@@ -96,9 +96,9 @@ Everything else in setup (appearance, stored format, tag packs, search model) is
    3. if the config was provisional, delete the replaced default folders (`provisionalDirsToDelete`, `removeProvisionalDirs`), each only when `hasForeignEntries` is false, then the empty `Scene Atlas` folder they sat in. Only the current defaults are candidates, and a folder that is, holds or sits inside a new folder is never deleted;
    4. `startBackend()` on the new folders, which loads the UI when it is ready. The preload runs again, so the wizard sees `libraryChosen`.
 
-A second call while restarting never resolves. In dev there's no sidecar: the config is saved and the call resolves `{ restarted: false }`; the developer's backend ignores the folders (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` and restart it).
+A second call while restarting never resolves, and nothing else starts a backend until the restart settles: on macOS, `activate` waits for it, so a window closed mid-restart can't leave two backends on the same folders. In dev there's no sidecar: the config is saved and the call resolves `{ restarted: false }`; the developer's backend ignores the folders (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` and restart it).
 
-A backend that refuses the folders ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)) shows its error on the loading page. There's no way back to the library step from there yet: the user edits or deletes the config.
+A backend that refuses the folders ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)) shows its error on the loading page, with **Try again** and **Choose folders…** (see [Startup Sequence](#startup-sequence)). Each `startup:*` handler acts only while the page offers it.
 
 ## IPC Channels
 
