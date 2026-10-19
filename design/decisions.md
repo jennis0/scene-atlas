@@ -557,7 +557,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 ## ADR-021: Auto-update with electron-updater
 
 **Date:** 2026-10-19
-**Status:** Implemented (branch `feature/auto-update`). Current behaviour: [electron.md](electron.md#updates); the upgrade test: [testing.md](testing.md#upgrade-test).
+**Status:** Implemented (PR #39). Current behaviour: [electron.md](electron.md#updates); the upgrade test: [testing.md](testing.md#upgrade-test).
 
 **Context:** The desktop app had no update path. A release without an updater can never update itself, so it had to be in place before the first public release. Builds are unsigned (no paid signing for now), the Windows installer is NSIS, Linux ships an AppImage and a .deb, and macOS a dmg. The installer is about 275 MB, most of it the Python sidecar.
 
@@ -584,3 +584,32 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.
 - The packaged-app tests point the updater at a closed port, so test runs never update.
 - The upgrade test runs on Windows only, from a build of the same code. Upgrading from the previous published release (real migrations, the old updater's own code) and Linux are on the roadmap.
+
+---
+
+## ADR-022: System title bar on Linux, and desktop zoom
+
+**Date:** 2026-10-19
+**Status:** Implemented (PR #40). Current behaviour: [electron.md](electron.md#window-frame).
+
+**Context:** On Linux the borderless window's caption buttons are drawn by Electron in GNOME's style (circles), which looks wrong on other desktops and in WSLg. Separately, the desktop app had no zoom: no visible menu, Chromium's zoom is per origin (and the origin changes with the backend's port), and Text size doesn't scale images. Under WSLg a 4K screen also reports a scale of 1, so the Linux build is tiny there.
+
+**Decision:**
+
+1. **Linux uses the window manager's frame**, with Electron's default menu bar removed. macOS and Windows stay borderless.
+2. **Zoom is a display choice** (Settings → Appearance, 80–200%, plus Ctrl + / − / 0), applied by the preload before the first paint; the page handles the shortcuts.
+3. **No default menu.** It had unsaved zoom, Reload and Toggle Developer Tools. Windows and Linux have none; macOS keeps app, Edit, Window and full screen.
+4. **No device-scale setting.** Electron already follows a real Linux desktop's scale; WSLg is fixed in WSL (`GDK_SCALE`), and zoom covers anyone else.
+
+**Alternatives considered:**
+
+- **Draw our own caption buttons on Linux.** One look everywhere, but window state, keyboard access and double-click-to-maximise to maintain, and still not native to GNOME or KDE.
+- **An "Interface scale" setting** (`--force-device-scale-factor`, applied on restart). It corrects a desktop that reports the wrong scale, not an accessibility need; zoom applies at once and is what WCAG's resize-to-200% expects.
+
+**Consequences:**
+
+- The Linux window looks like every other app on that desktop, not like the Windows and macOS builds.
+- F11 (full screen) and Ctrl+W no longer work on Windows and Linux, as they came from the default menu.
+- The room left for the window's own controls is sized in window pixels from the zoom, so zoom and Text size don't push header controls under the Windows caption buttons or the macOS traffic lights.
+- The main window now remembers its size, position and maximised state (also requested 2026-10-19).
+- Zoom at 200% puts most windows into the compact layout, so the layout reflows rather than scrolling sideways.

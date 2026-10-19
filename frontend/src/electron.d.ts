@@ -55,6 +55,10 @@ interface ElectronAPI {
   chooseImportFolders(): Promise<string[]>
   chooseImportFiles(): Promise<string[]>
 
+  // Zoom (lib/zoom.ts)
+  /** Zoom the page to this percentage (50–300) */
+  setZoom(percent: number): void
+
   // Updates. The state is null until the updater has started.
   getUpdateState(): Promise<AppUpdateState | null>
   /** Check now, even when automatic checks are off */

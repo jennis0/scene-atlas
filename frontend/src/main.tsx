@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { applyPalette, getStoredPalette } from './lib/palette'
 import { applyTextSize, getStoredTextSize } from './lib/textSize'
+import { applyZoom, getZoom } from './lib/zoom'
 import { watchShortWindow } from './lib/compactLayout'
 import { watchContrast } from './lib/contrast'
 import { applyTheme, readThemePreference, resolveTheme } from './lib/theme'
@@ -24,6 +25,7 @@ syncPrefsWithDesktop()
 applyTheme(resolveTheme(readThemePreference()))
 applyPalette(getStoredPalette())
 applyTextSize(getStoredTextSize())
+applyZoom(getZoom())
 watchShortWindow()
 watchContrast()
 
