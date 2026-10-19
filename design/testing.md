@@ -134,7 +134,11 @@ Semantic results get slack because a newer onnxruntime, or DirectML against CPU,
 
 The report, the snapshots and the updater and backend logs are uploaded as `upgrade-test-report` on every run. The test installs into the user's profile and registry, so outside CI it only runs with `SCENE_ATLAS_UPGRADE_TEST=1`; it needs `E2E_IMAGE_KEY` and the variables listed at the top of `upgrade.spec.ts`. The pure parts (`checks.ts`, the feed server) have unit tests run by `npm run test:electron`.
 
-Not covered yet: updating from the previous published release (which would also exercise migrations on a real older database, and the old version's own updater code), and Linux (AppImage) and macOS (notify only) in CI. Both are on the roadmap.
+**From the last release.** The workflow then runs the same test a second time from the latest published release: its installer and blockmap come from GitHub (`gh release download`), and the feed is the same with that blockmap instead of 0.0.0's. That covers the old version's own updater code and migrations on a database an older release made. It is skipped, with a notice, while no release is published; its report goes to `upgrade-report-previous/` in the same artifact.
+
+**From GitHub, after publishing.** `UPGRADE_FROM_GITHUB=1` in place of `UPGRADE_FEED_DIR` leaves the feed override empty, so the old install updates from the real GitHub releases: a check of a published release end to end (run by hand, e.g. on Linux with an older release's AppImage).
+
+Not covered yet: Linux (AppImage) and macOS (notify only) in CI.
 
 ### Paths on Windows
 
