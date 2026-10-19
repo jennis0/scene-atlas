@@ -1,5 +1,6 @@
 """Library identity and the linked folder (design/library-setup.md)."""
 
+from datetime import UTC
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -112,7 +113,12 @@ def library_status(db: Session = Depends(get_db)):
             path=str(location) if settings.app_mode == "app" else None,
             image_count=image_count,
             missing_count=missing_count,
-            last_scan_at=source.last_scan_at if source is not None else None,
+            # Stored naive in UTC; sent with its offset so browsers don't read it as local time.
+            last_scan_at=(
+                source.last_scan_at.replace(tzinfo=UTC)
+                if source is not None and source.last_scan_at is not None
+                else None
+            ),
             scanning=get_linked_scanner().running,
         ),
     )

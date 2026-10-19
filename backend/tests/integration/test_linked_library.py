@@ -169,6 +169,8 @@ def test_first_scan_imports_the_folder_in_place(linked):
     assert status["path"] is None  # server mode never shows the path
     assert (status["image_count"], status["missing_count"]) == (2, 0)
     assert status["last_scan_at"] is not None and status["scanning"] is False
+    # Sent with its UTC offset, so browsers don't read it as local time
+    assert status["last_scan_at"].endswith(("Z", "+00:00"))
 
 
 def test_a_rescan_without_changes_reads_no_file(forest, monkeypatch):
