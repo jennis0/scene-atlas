@@ -436,6 +436,90 @@ Each phase leaves main working, but the feature ships as one PR from `feature/li
    - fold this plan into storage.md, ingestion.md, first-run.md, electron.md and local-ingest.md;
    - scan the real library natively on Windows: time to list, time to the first gallery tiles, total time, and the time for a rescan with no changes.
 
+### Interfaces between the parts
+
+The backend, Electron and frontend are built in parallel against these contracts. Change them here first.
+
+**Sidecar arguments** (`backend/pyinstaller/entry.py`):
+
+- `--linked-library-dir <path>` is optional, alongside `--app-data-dir` and `--image-library-dir`.
+- `entry.py` sets `LINKED_LIBRARY_DIR` from it. The backend setting is `settings.linked_library_dir: Path | None`.
+- Unlike the other two folders, the linked folder doesn't have to exist (§3.3: offline).
+
+**Backend HTTP** (prefix `/api/v1`):
+
+| Endpoint | Modes | Body / response |
+|---|---|---|
+| `POST /library/inspect` | app only (404 on servers) | Body `{app_data?: str, store?: str, linked?: str}`, absolute paths. Response `InspectResult`, below |
+| `GET /library/status` | both | `LibraryStatus`, below. Cheap: counts come from indexed queries |
+| `POST /library/scan` | both | Body `{reason: "manual" \| "focus"}`. 202 `{started: bool}`. `focus` is ignored (`started: false`) if a scan ran in the last 60 s, or when `linked_rescan_minutes` is 0. `manual` always runs unless a scan is already running. 409 if no linked folder is configured |
+| `POST /library/linked/remove-missing` | both | 200 `{removed: int}`. Removes images whose linked file is missing (rows, thumbnails, vectors), and sets their `source_files` rows to `removed` |
+| `DELETE /library/linked` | both | 200 `{removed: int}`. "Stop using this folder": removes every image from the linked source and deletes its `source_files` rows. The source is marked `detached`. The desktop then drops the folder from its config and restarts; on a server the admin unsets the env var |
+
+```ts
+type InspectOutcome = 'new' | 'open' | 'error'
+interface InspectResult {
+  outcome: InspectOutcome              // what Continue would do with these folders
+  message: string | null               // set for 'error' (refusal text from §3.3) and warnings
+  linked: null | {                     // present when `linked` was sent
+    kind: 'maps' | 'empty' | 'library' // 'library' = the folder or its "Scene Atlas" subfolder holds a store marker
+    image_count: number                // supported images found (0 for 'library')
+    capped: boolean                    // counting stopped at max_local_import_items
+  }
+  library: null | {                    // a Scene Atlas library found in any of the sent folders
+    library_id: string
+    setup_completed: boolean | null    // null when its app data wasn't found
+    hints: { app_data: string | null, store: string | null, linked: string | null }  // absolute, resolved
+  }
+  store_has_maps: boolean              // the `store` folder holds files that aren't Scene Atlas's (the "already has maps in it" case)
+}
+
+interface LibraryStatus {
+  library_id: string
+  linked: null | {
+    state: 'online' | 'offline' | 'detached'
+    name: string                       // the folder's base name, shown in both modes
+    path: string | null                // only in app mode; never on servers
+    image_count: number
+    missing_count: number
+    last_scan_at: string | null        // ISO
+    scanning: boolean
+  }
+}
+```
+
+**Image responses** gain `file_state: 'ok' | 'missing' | 'offline'`, and `storage_key` becomes `string | null`. Group summaries used by the gallery tiles carry `file_state` for the hero image.
+
+**App setting:** `linked_rescan_minutes: int`, default 15. The allowed values are 0, 5, 15 and 60. It's in `AppSettings` and `AppSettingsPatch`.
+
+**Import job summaries** gain `linked: boolean`. Linked jobs hide Undo, and their report never opens by itself.
+
+**Electron** (`window.electronAPI`, `frontend/src/electron.d.ts`):
+
+```ts
+interface StorageDirs {
+  appData: string
+  store: string
+  linked: string | null
+  defaults: { appData: string; store: string }   // the provisional defaults (getDefaultDirs)
+}
+// added
+readonly libraryChosen: boolean                    // synchronous, read with displayPrefs (prefs:get-sync)
+getStorageDirs(): Promise<StorageDirs>
+chooseFolder(kind: 'appData' | 'store' | 'linked', current?: string): Promise<string | null>  // plain picker, no warning box: the wizard uses inspect
+applyLibrary(dirs: { appData: string; store: string; linked: string | null }): Promise<{ error: string | null; restarted: boolean }>
+//   Validates and prepares the folders, then saves the config with libraryChosen: true.
+//   Nothing changed: resolves { error: null, restarted: false }.
+//   Something changed: stops the backend, deletes replaced provisional folders, restarts the backend in
+//   this window (loading page, then the UI reloads). It never resolves in that case.
+// removed: chooseAppDataDir, chooseImageLibraryDir, changeStorageDirs (Settings uses applyLibrary);
+//   getAppDataDir/getImageLibraryDir are replaced by getStorageDirs
+```
+
+**Window focus rescans** need no IPC. The frontend calls `POST /library/scan {reason: "focus"}` on the window's `focus` event, desktop only, when `LibraryStatus.linked` is online.
+
+**Config** (`scene-atlas-config.json`) gains `linkedLibraryDir?: string`, `provisional?: boolean` and `libraryChosen?: boolean`.
+
 ### Tests
 
 - **Unit:**
