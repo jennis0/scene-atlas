@@ -187,9 +187,11 @@ To restore: stop the container, copy `battlemap.db` from a backup into the data 
 Pull the new image and restart:
 
 ```bash
-docker compose pull
+docker compose --profile cpu pull
 docker compose --profile cpu up -d
 ```
+
+Both need `--profile cpu`: without it, `docker compose pull` skips the service and nothing changes.
 
 This follows the latest release unless `SCENE_ATLAS_VERSION` pins one; to move a pinned install, change it in `.env` first. Your data volume and images are kept, and the database is backed up before any schema change. Each release's notes say what changed, and a release can update `docker-compose.yml` too: download it again when its notes say so.
 

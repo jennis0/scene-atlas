@@ -9,6 +9,8 @@ How a version is set, built, checked and published, and how each kind of install
 3. **Check the draft.** The run ends with a draft release `v0.2.0` holding its own installers, update metadata and Compose files; its summary links to it. Installed apps and the Docker `latest` tag ignore drafts.
 4. **Publish the draft** on GitHub. Installed desktop apps find it within hours, and `release-published.yml` tags the Docker image `0.2.0` and `latest`.
 
+Edit or publish a draft in GitHub's UI. Through the API (`PATCH /releases/{id}`), pass `tag_name` on every call: an update without it replaces the draft's tag with a placeholder (`untagged-…`), and publishing then creates that as a real tag. `release-published.yml` refuses a tag that isn't a version, so the image is never tagged with it; fix the release by setting it back to a draft with `tag_name`, deleting the stray tag, and publishing again (as happened to v0.1.1). `gh release edit --draft=false` doesn't publish with the `gh` some machines have; the API call does.
+
 A run without `publish` does everything except push the image and create the draft: a full check of `main` between releases. Re-running for the same version replaces its draft; a published version can't be released again, so a fix is a new patch version.
 
 ## Versions
@@ -66,7 +68,7 @@ Each release also carries `docker-compose.yml` and `env.example` (renamed from `
 |---|---|---|
 | Desktop (Windows, AppImage) | electron-updater, from the latest release's `latest*.yml` | Downloads and installs on restart ([electron.md](electron.md#updates)) |
 | Desktop (macOS, .deb) | The same | Opens the release page |
-| Docker (CPU) | The server's update check | `docker compose pull` and `up -d` |
+| Docker (CPU) | The server's update check | `docker compose --profile cpu pull` and `up -d` (the profile is needed: plain `pull` skips a service under a profile) |
 | Docker GPU, standalone | The server's update check | Check out the new tag and rebuild |
 
 ## Not done yet
