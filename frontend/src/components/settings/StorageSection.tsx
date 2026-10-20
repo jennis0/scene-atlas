@@ -12,6 +12,7 @@ import type { LibraryDirs, LibraryFolderKind } from '@/electron'
 import { useLibraryInspect } from '@/hooks/useLibraryInspect'
 import { useLibraryStatus } from '@/hooks/useLibraryStatus'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
+import type { InspectResult } from '@/lib/api/libraryApi'
 import { StopUsingFolder } from './StopUsingFolder'
 
 type Pending = Partial<Record<LibraryFolderKind, string>>
@@ -19,7 +20,7 @@ type Pending = Partial<Record<LibraryFolderKind, string>>
 interface StoragePathRowProps {
   label: string
   description: string
-  current: string | null
+  current: string | null | undefined
   pending: string | undefined
   /** Shown when there's no folder */
   empty?: string
@@ -64,6 +65,31 @@ function StoragePathRow({
   )
 }
 
+/** The folders in use once the pending changes apply; null when nothing is pending */
+function proposedDirs(dirs: LibraryDirs | null, pending: Pending): LibraryDirs | null {
+  if (!dirs || Object.keys(pending).length === 0) return null
+  return {
+    appData: pending.appData ?? dirs.appData,
+    store: pending.store ?? dirs.store,
+    linked: pending.linked ?? dirs.linked,
+  }
+}
+
+/** What the check says about the proposed folders */
+function checkNote(
+  checking: boolean,
+  result: InspectResult | null,
+  currentLibraryId: string | undefined,
+): string | null {
+  if (checking) return 'Checking the folders…'
+  const library = result?.library
+  if (library && currentLibraryId !== undefined && library.library_id !== currentLibraryId) {
+    return 'Scene Atlas library found.'
+  }
+  if (result?.store_has_maps) return 'This folder already has images in it.'
+  return result?.message ?? null
+}
+
 export function StorageSection({ open }: { open: boolean }) {
   const { dirs } = useStorageDirs(open)
   const { data: status } = useLibraryStatus(open)
@@ -72,15 +98,8 @@ export function StorageSection({ open }: { open: boolean }) {
   const [applyError, setApplyError] = useState<string | null>(null)
 
   const changed = Object.keys(pending).length > 0
-  const proposed: LibraryDirs | null =
-    dirs && changed
-      ? {
-          appData: pending.appData ?? dirs.appData,
-          store: pending.store ?? dirs.store,
-          linked: pending.linked ?? dirs.linked,
-        }
-      : null
-  const { state: inspect, result, refusal: inspectRefusal } = useLibraryInspect(proposed)
+  const proposed = proposedDirs(dirs, pending)
+  const inspection = useLibraryInspect(proposed)
 
   const browse = async (kind: LibraryFolderKind) => {
     const current = pending[kind] ?? dirs?.[kind] ?? undefined
@@ -116,40 +135,31 @@ export function StorageSection({ open }: { open: boolean }) {
     }
   }
 
-  const movesFiles = pending.appData !== undefined || pending.store !== undefined
-  const refusal =
-    applyError ??
-    inspectRefusal ??
-    (inspect.status === 'failed' ? "Couldn't check these folders." : null)
-  const note =
-    inspect.status === 'checking'
-      ? 'Checking the folders…'
-      : result?.library && status && result.library.library_id !== status.library_id
-        ? 'Scene Atlas library found.'
-        : result?.store_has_maps
-          ? 'This folder already has images in it.'
-          : (result?.message ?? null)
+  const cancel = () => {
+    setPending({})
+    setApplyError(null)
+  }
 
   return (
     <SettingsSection title="Storage locations">
       <StoragePathRow
         label="Search data"
         description="Stores metadata and thumbnails. Best on a fast drive."
-        current={dirs?.appData ?? null}
+        current={dirs?.appData}
         pending={pending.appData}
         onBrowse={() => void browse('appData')}
       />
       <StoragePathRow
         label="Imported images"
         description="Stores full resolution images. It can be stored on any large drive."
-        current={dirs?.store ?? null}
+        current={dirs?.store}
         pending={pending.store}
         onBrowse={() => void browse('store')}
       />
       <StoragePathRow
         label="Images folder"
         description="Your own folder of images, read where it is."
-        current={dirs?.linked ?? null}
+        current={dirs?.linked}
         pending={pending.linked}
         empty="None"
         browseLabel={dirs?.linked ? 'Change' : 'Choose'}
@@ -158,44 +168,79 @@ export function StorageSection({ open }: { open: boolean }) {
       />
 
       {changed && (
-        <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
-          {movesFiles && (
-            <p className="text-xs text-muted-foreground">
-              Changing a folder doesn&apos;t move your files. Move them yourself before restarting.
-            </p>
-          )}
-          <p role="status" className="text-xs text-muted-foreground">
-            {note}
-          </p>
-          {refusal && (
-            <p role="alert" className="text-xs text-destructive">
-              {refusal}
-            </p>
-          )}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => void apply()}
-              disabled={applying || !result || !!inspectRefusal}
-            >
-              {applying ? 'Restarting…' : 'Restart now to apply'}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              onClick={() => {
-                setPending({})
-                setApplyError(null)
-              }}
-              disabled={applying}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <PendingChange
+          pending={pending}
+          inspection={inspection}
+          currentLibraryId={status?.library_id}
+          applying={applying}
+          applyError={applyError}
+          onApply={() => void apply()}
+          onCancel={cancel}
+        />
       )}
     </SettingsSection>
+  )
+}
+
+/** The pending folder change: what the check found, and restart to apply it or cancel */
+function PendingChange({
+  pending,
+  inspection: { state: inspect, result, refusal: inspectRefusal },
+  currentLibraryId,
+  applying,
+  applyError,
+  onApply,
+  onCancel,
+}: {
+  pending: Pending
+  inspection: ReturnType<typeof useLibraryInspect>
+  currentLibraryId: string | undefined
+  applying: boolean
+  applyError: string | null
+  onApply: () => void
+  onCancel: () => void
+}) {
+  const movesFiles = pending.appData !== undefined || pending.store !== undefined
+  const refusal =
+    applyError ??
+    inspectRefusal ??
+    (inspect.status === 'failed' ? "Couldn't check these folders." : null)
+  const note = checkNote(inspect.status === 'checking', result, currentLibraryId)
+
+  return (
+    <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
+      {movesFiles && (
+        <p className="text-xs text-muted-foreground">
+          Changing a folder doesn&apos;t move your files. Move them yourself before restarting.
+        </p>
+      )}
+      <p role="status" className="text-xs text-muted-foreground">
+        {note}
+      </p>
+      {refusal && (
+        <p role="alert" className="text-xs text-destructive">
+          {refusal}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          onClick={onApply}
+          disabled={applying || !result || !!inspectRefusal}
+        >
+          {applying ? 'Restarting…' : 'Restart now to apply'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          onClick={onCancel}
+          disabled={applying}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
   )
 }

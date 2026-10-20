@@ -27,6 +27,11 @@ function joinPath(base: string, name: string): string {
   return `${base.replace(/[\\/]+$/, '')}${sep}${name}`
 }
 
+/** Whether a found library's hint fills in a folder: one the user hasn't picked, and new */
+function fillsIn(hint: string | null, picked: string | null, path: string | null): hint is string {
+  return !!hint && picked === null && hint !== path
+}
+
 function foundText(linked: NonNullable<InspectResult['linked']>): string {
   const count = linked.image_count.toLocaleString()
   return linked.capped ? `Found more than ${count} images.` : `Found ${count} images.`
@@ -92,7 +97,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
     if (!found || hinted.current.libraryId === found.library_id) return
     const { hints } = found
     hinted.current = { libraryId: found.library_id, store: false, appData: false }
-    if (hints.app_data && appData === null && hints.app_data !== appDataPath) {
+    if (fillsIn(hints.app_data, appData, appDataPath)) {
       setAppData(hints.app_data)
       hinted.current.appData = true
     }
@@ -105,7 +110,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
       setChoice('linked')
       setLinked(hints.linked)
     }
-    if (hints.store && store === null && hints.store !== storePath) {
+    if (fillsIn(hints.store, store, storePath)) {
       setStore(hints.store)
       hinted.current.store = true
     }
