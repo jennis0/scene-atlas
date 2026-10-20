@@ -65,7 +65,28 @@ export async function updatedExecutable(
     const updated = path.join(dir, `Scene-Atlas-${version}-x86_64.AppImage`);
     return fs.existsSync(updated) && !fs.existsSync(exe) ? updated : null;
   }
-  return (await productVersion(exe)) === version ? exe : null;
+  // Windows stamps a four-part version (1.2.3.<build number>) and drops any prerelease;
+  // the spec checks the exact version once the new app is running.
+  const [release] = version.split("-");
+  const installed = (await productVersion(exe)).split(".").slice(0, 3).join(".");
+  return installed === release ? exe : null;
+}
+
+/**
+ * The NSIS installer keeps a copy of itself, which the next update downloads against
+ * differentially, in %LOCALAPPDATA%\scene-atlas-updater. NSIS finds that folder through
+ * Windows rather than the variable, so it is in the real profile, while the app under test
+ * looks in *root*'s (isolatedEnv): copy it there, or every update downloads in full.
+ */
+export function copyInstallerCache(root: string): void {
+  const realLocalAppData = process.env.LOCALAPPDATA;
+  if (process.platform !== "win32" || !realLocalAppData) return;
+  const name = path.join(UPDATER_MARKER, "installer.exe");
+  const from = path.join(realLocalAppData, name);
+  if (!fs.existsSync(from)) return;
+  const to = path.join(isolatedEnv(root).LOCALAPPDATA, name);
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
 }
 
 /**
