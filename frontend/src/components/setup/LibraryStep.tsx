@@ -19,7 +19,7 @@ const STORE_IN_LINKED = 'Scene Atlas'
 const LINKED_EXPLAINER =
   'Scene Atlas adds the maps and scenes in this folder, and any you add to it later. ' +
   'Tokens and other art are skipped. Your files are never changed, moved or deleted. ' +
-  'Maps you import in the app go in the Imported maps folder, not into your own folders.'
+  'Images you import in the app go in the Imported images folder, not into your own folders.'
 
 /** *name* inside *base*, with the platform's separator */
 function joinPath(base: string, name: string): string {
@@ -189,7 +189,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
     <SetupFrame
       nav={nav}
       title="Set up your library"
-      description="Start a new library, or use a folder of maps you already have."
+      description="Start a new library, or use a folder of images you already have."
       primary={{
         onClick: () => void handleContinue(),
         label: found?.setup_completed ? 'Open library' : undefined,
@@ -214,7 +214,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
               name="setup-library"
               choice={{
                 value: 'linked',
-                label: 'Use a folder of maps you already have',
+                label: 'Use a folder of images you already have',
                 description: choice === 'linked' ? <p>{LINKED_EXPLAINER}</p> : undefined,
                 footer:
                   choice === 'linked' ? (
@@ -226,7 +226,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
                           <Button
                             size="sm"
                             variant="outline"
-                            aria-label="Choose a maps folder"
+                            aria-label="Choose your images folder"
                             onClick={() => void pick('linked')}
                           >
                             Choose
@@ -246,7 +246,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
 
           <div className="rounded-lg border border-border/50 bg-card p-4 space-y-4">
             <FolderRow
-              label="Imported maps"
+              label="Imported images"
               description="Stores full resolution images. It can be stored on any large drive."
               path={storePath}
               onChange={() => void pick('store')}
@@ -369,7 +369,7 @@ function StoreNotes({
       </p>
       {result?.store_has_maps && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-warning">
-          This folder already has maps in it.
+          This folder already has images in it.
           {onUseAsLinked && (
             <button
               type="button"

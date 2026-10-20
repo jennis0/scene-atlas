@@ -67,7 +67,7 @@ describe('LinkedFolderSection', () => {
     vi.mocked(libraryApi.status).mockResolvedValue({ library_id: 'lib', linked: null })
     renderWithProviders(<LinkedFolderSection open />)
     await waitFor(() => expect(libraryApi.status).toHaveBeenCalled())
-    expect(screen.queryByText('Maps folder')).not.toBeInTheDocument()
+    expect(screen.queryByText('Images folder')).not.toBeInTheDocument()
   })
 
   it('shows the folder and checks it for changes on request', async () => {

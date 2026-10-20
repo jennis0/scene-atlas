@@ -48,7 +48,7 @@ describe('StorageSection', () => {
     expect(await screen.findByText('C:\\data')).toBeInTheDocument()
     expect(screen.getByText('C:\\images')).toBeInTheDocument()
     expect(screen.getByText('None')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choose maps folder' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose images folder' })).toBeInTheDocument()
     expect(inspect).not.toHaveBeenCalled()
   })
 
@@ -57,7 +57,7 @@ describe('StorageSection', () => {
     const user = userEvent.setup()
     renderWithProviders(<StorageSection open />)
     await screen.findByText('C:\\images')
-    await user.click(screen.getByRole('button', { name: 'Change imported maps folder' }))
+    await user.click(screen.getByRole('button', { name: 'Change imported images folder' }))
 
     expect(api.chooseFolder).toHaveBeenCalledWith('store', 'C:\\images')
     expect(screen.getByText(/doesn't move your files/)).toBeInTheDocument()
@@ -78,7 +78,7 @@ describe('StorageSection', () => {
     const user = userEvent.setup()
     renderWithProviders(<StorageSection open />)
     await screen.findByText('None')
-    await user.click(screen.getByRole('button', { name: 'Choose maps folder' }))
+    await user.click(screen.getByRole('button', { name: 'Choose images folder' }))
     await waitFor(() =>
       expect(inspect).toHaveBeenCalledWith({
         app_data: 'C:\\data',
@@ -97,7 +97,7 @@ describe('StorageSection', () => {
     const user = userEvent.setup()
     renderWithProviders(<StorageSection open />)
     await screen.findByText('C:\\images')
-    await user.click(screen.getByRole('button', { name: 'Change imported maps folder' }))
+    await user.click(screen.getByRole('button', { name: 'Change imported images folder' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('belongs to a different library')
     expect(screen.getByRole('button', { name: 'Restart now to apply' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))

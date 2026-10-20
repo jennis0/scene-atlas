@@ -195,7 +195,7 @@ test("choosing other folders in setup restarts the backend in the window and del
 
   // Refused before anything happens: the store can't be the linked folder.
   expect(await applyLibrary(page, { appData: newAppData, store: maps, linked: maps })).toMatchObject({
-    error: expect.stringContaining("Imported maps"),
+    error: expect.stringContaining("Imported images"),
     restarted: false,
   });
   expect(isAlive(oldSidecar.pid)).toBe(true);

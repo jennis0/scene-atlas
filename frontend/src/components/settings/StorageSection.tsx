@@ -127,7 +127,7 @@ export function StorageSection({ open }: { open: boolean }) {
       : result?.library && status && result.library.library_id !== status.library_id
         ? 'Scene Atlas library found.'
         : result?.store_has_maps
-          ? 'This folder already has maps in it.'
+          ? 'This folder already has images in it.'
           : (result?.message ?? null)
 
   return (
@@ -140,15 +140,15 @@ export function StorageSection({ open }: { open: boolean }) {
         onBrowse={() => void browse('appData')}
       />
       <StoragePathRow
-        label="Imported maps"
+        label="Imported images"
         description="Stores full resolution images. It can be stored on any large drive."
         current={dirs?.store ?? null}
         pending={pending.store}
         onBrowse={() => void browse('store')}
       />
       <StoragePathRow
-        label="Maps folder"
-        description="Your own folder of maps, read where it is."
+        label="Images folder"
+        description="Your own folder of images, read where it is."
         current={dirs?.linked ?? null}
         pending={pending.linked}
         empty="None"

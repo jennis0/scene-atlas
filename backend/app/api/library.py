@@ -133,7 +133,7 @@ def _require_linked(db: Session) -> None:
     if settings.linked_library_dir is None or (
         source is not None and source.state == SOURCE_DETACHED
     ):
-        raise HTTPException(status_code=409, detail="No maps folder is linked")
+        raise HTTPException(status_code=409, detail="No images folder is linked")
 
 
 @router.post("/scan", status_code=202, response_model=LibraryScanStarted)
@@ -180,7 +180,7 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
     if source is None:
         return LinkedRemoved(removed=0)
     if get_linked_scanner().running:
-        raise HTTPException(status_code=409, detail="Your maps folder is being checked; try again")
+        raise HTTPException(status_code=409, detail="Your images folder is being checked; try again")
     for job in open_linked_jobs(db, source.id):
         q.cancel_job(db, job.id)
     if linked_jobs_busy(db, source.id):

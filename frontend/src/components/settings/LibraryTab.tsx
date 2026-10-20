@@ -102,7 +102,7 @@ function LibraryOverview({ open }: { open: boolean }) {
               Search data: <span className="font-mono">{dirs?.appData ?? '—'}</span>
             </p>
             <p className="text-xs text-muted-foreground">
-              Imported maps: <span className="font-mono">{dirs?.store ?? '—'}</span>
+              Imported images: <span className="font-mono">{dirs?.store ?? '—'}</span>
             </p>
           </div>
           <p className="text-xs text-muted-foreground">

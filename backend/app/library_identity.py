@@ -64,21 +64,21 @@ STARTUP_MESSAGES: dict[Refusal, str] = {
     APP_DATA_NOT_HERE: (
         "This image folder belongs to a library whose search data folder isn't here."
     ),
-    STORE_LACKS_MAPS: "The image folder doesn't contain this library's maps.",
-    STORE_HOLDS_LINKED: "The image folder can't be your maps folder or contain it.",
-    APP_DATA_HOLDS_LINKED: "The search data folder can't be your maps folder or contain it.",
+    STORE_LACKS_MAPS: "The image folder doesn't contain this library's images.",
+    STORE_HOLDS_LINKED: "The image folder can't be your images folder or contain it.",
+    APP_DATA_HOLDS_LINKED: "The search data folder can't be your images folder or contain it.",
 }
 WIZARD_MESSAGES: dict[Refusal, str] = {
     DIFFERENT_LIBRARY: "These folders belong to different libraries.",
     APP_DATA_NOT_HERE: (
         "This library's search data folder is missing. Choose it, or pick another folder."
     ),
-    STORE_LACKS_MAPS: "This Imported maps folder doesn't have this library's maps.",
-    STORE_HOLDS_LINKED: "The Imported maps folder can't be your maps folder or a folder above it.",
-    APP_DATA_HOLDS_LINKED: "The Search data folder can't be your maps folder or a folder above it.",
+    STORE_LACKS_MAPS: "This Imported images folder doesn't have this library's images.",
+    STORE_HOLDS_LINKED: "The Imported images folder can't be your images folder or a folder above it.",
+    APP_DATA_HOLDS_LINKED: "The Search data folder can't be your images folder or a folder above it.",
 }
 WIZARD_DATABASE_UNREADABLE = "This search data folder's database can't be read."
-WIZARD_STORE_HAS_MAPS = "This folder already has maps in it."
+WIZARD_STORE_HAS_MAPS = "This folder already has images in it."
 
 
 class LibraryMismatchError(RuntimeError):

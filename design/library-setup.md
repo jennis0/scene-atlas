@@ -59,29 +59,29 @@ The library step has to come **before** Stored format and Tag packs. Each wizard
 Your library
 
 (•) Start a new library
-( ) Use a folder of maps you already have
+( ) Use a folder of images you already have
       D:\Battle Maps                                [Choose]
       Found 56,214 images.
 
       Scene Atlas adds the maps and scenes in this folder, and any
       you add to it later. Tokens and other art are skipped. Your
-      files are never changed, moved or deleted. Maps you import in
-      the app go in the Imported maps folder, not into your own folders.
+      files are never changed, moved or deleted. Images you import in
+      the app go in the Imported images folder, not into your own folders.
 
-Imported maps    D:\Battle Maps\Scene Atlas         [Change]
+Imported images  D:\Battle Maps\Scene Atlas         [Change]
                  Stores full resolution images. It can be stored on any large drive.
 Search data      C:\Users\…\Scene Atlas\data        [Change]
                  Stores metadata and thumbnails. Best on a fast drive.
 ```
 
-Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics.
+Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics. Labels and messages say "images", not "maps", because the folder holds scenes too (user decision 2026-10-20). The explanatory paragraph still names maps and scenes, since that's what it adds.
 
-The paragraph under "Use a folder of maps you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
+The paragraph under "Use a folder of images you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
 
 - What's added: maps and scenes. Auto image type skips tokens and other art, so the copy mustn't promise "everything".
 - That files added later are picked up too (§4.3).
 - That their files are never changed, moved or deleted.
-- That imports made in the app go to the Imported maps folder, not into the user's own folder layout.
+- That imports made in the app go to the Imported images folder, not into the user's own folder layout.
 
 **Picking a folder.** Every folder the user picks is checked by the backend (`POST /library/inspect`, §3.4) before Continue is enabled. The result can be one of the following.
 
@@ -92,7 +92,7 @@ The paragraph under "Use a folder of maps you already have" is the exception. It
 | A Scene Atlas library with a matching search data folder | "Scene Atlas library found." The other folders are filled in from the marker's hints (§3.2). | "Open library" |
 | A Scene Atlas library whose search data folder isn't found | "This library's search data folder is missing. Choose it, or pick another folder." | Blocked until it's resolved |
 | Folders from two different libraries | "These folders belong to different libraries." | Blocked |
-| A maps folder chosen under "Start a new library" | "This folder already has maps in it." with a link: "Use it as your existing folder" | Allowed (today's warning, made actionable) |
+| A maps folder chosen under "Start a new library" | "This folder already has images in it." with a link: "Use it as your existing folder" | Allowed (today's warning, made actionable) |
 
 **Continue on the library step:**
 

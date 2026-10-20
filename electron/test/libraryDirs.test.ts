@@ -66,7 +66,7 @@ describe('parseLibraryDirs', () => {
         { appData: win.appData, store, linked: 'D:\\Battle Maps' },
         'win32',
       )
-      assert.match('error' in result ? result.error : '', /Imported maps folder/, store)
+      assert.match('error' in result ? result.error : '', /Imported images folder/, store)
     }
   })
 

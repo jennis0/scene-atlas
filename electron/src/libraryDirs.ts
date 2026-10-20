@@ -56,10 +56,10 @@ export function parseLibraryDirs(
     return { error: 'Each folder must be a full path.' }
   }
   if (linked && isSameOrInside(linked, store, platform)) {
-    return { error: "The Imported maps folder can't be your maps folder, or contain it." }
+    return { error: "The Imported images folder can't be your images folder, or contain it." }
   }
   if (linked && isSameOrInside(linked, appData, platform)) {
-    return { error: "The Search data folder can't be your maps folder, or contain it." }
+    return { error: "The Search data folder can't be your images folder, or contain it." }
   }
   return { dirs: { appData, store, linked } }
 }
@@ -136,7 +136,7 @@ export function unavailableLinkedError(dirs: LibraryDirs): string | null {
   const { linked } = dirs
   if (!linked || fs.existsSync(linked)) return null
   const inside = [dirs.appData, dirs.store].some((dir) => isSameOrInside(dir, linked))
-  return inside ? `Your maps folder isn't available: ${linked}` : null
+  return inside ? `Your images folder isn't available: ${linked}` : null
 }
 
 /** True when *dir* doesn't exist or has nothing in it (a file isn't empty). */

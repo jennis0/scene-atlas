@@ -175,8 +175,8 @@ async function pickDirectory(
 
 const FOLDER_PICKER_TITLES: Record<FolderKind, string> = {
   appData: 'Choose Search Data Folder',
-  store: 'Choose Imported Maps Folder',
-  linked: 'Choose Your Maps Folder',
+  store: 'Choose Imported Images Folder',
+  linked: 'Choose Your Images Folder',
 }
 
 /** Files and folders to import (design/local-ingest.md). Empty when cancelled. */

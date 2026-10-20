@@ -37,7 +37,7 @@ export function LinkedFolderSection({ open }: { open: boolean }) {
       <div className="border-t border-border/50" />
       <section aria-labelledby="linked-folder-title" className="space-y-3">
         <p id="linked-folder-title" className="section-label">
-          Maps folder
+          Images folder
         </p>
         <FolderState linked={linked} />
         {linked.state !== 'detached' && <RescanControls linked={linked} />}

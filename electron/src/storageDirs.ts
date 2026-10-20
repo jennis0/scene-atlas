@@ -139,7 +139,7 @@ export function defaultStorageBase(
 export function prepareStorageDirs(appDataDir: string, imageLibraryDir: string): string | null {
   const dirs: [string, string][] = [
     ['Search data folder', appDataDir],
-    ['Imported maps folder', imageLibraryDir],
+    ['Imported images folder', imageLibraryDir],
   ]
   for (const [label, dir] of dirs) {
     try {

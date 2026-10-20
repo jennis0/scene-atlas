@@ -9,7 +9,7 @@ export type LibraryFolderKind = 'appData' | 'store' | 'linked'
 export interface LibraryDirs {
   /** App data: database, search index, thumbnails ("Search data") */
   appData: string
-  /** Imported originals and backups ("Imported maps") */
+  /** Imported originals and backups ("Imported images") */
   store: string
   /** The user's own maps folder, read where it is; null when none is linked */
   linked: string | null

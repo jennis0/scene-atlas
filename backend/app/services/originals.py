@@ -187,7 +187,7 @@ def original_path(image: Image) -> Path:
             raise OriginalUnavailable("missing", MISSING_REASON) from None
     folder = linked_folder()
     if folder is None:
-        raise OriginalUnavailable("offline", "The maps folder isn't linked")
+        raise OriginalUnavailable("offline", "The images folder isn't linked")
     row = image.source_file
     if row is None:
         raise OriginalUnavailable("missing", MISSING_REASON)
