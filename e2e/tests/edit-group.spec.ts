@@ -12,7 +12,7 @@ async function openEditDialogForFirstGroup(page: Page) {
   await expect(groupCard).toBeVisible({ timeout: 10_000 });
 
   await groupCard.hover();
-  await groupCard.getByTestId("group-card-menu").click();
+  await groupCard.getByTestId("card-actions-menu").click();
   await page.getByRole("menuitem", { name: /Edit/ }).click();
 
   const dialog = page.getByTestId("edit-group-dialog");

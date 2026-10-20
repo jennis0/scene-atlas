@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { groupApi } from '@/lib/api'
+import { groupApi, imageApi } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
-import { invalidateGalleryQueries } from '@/lib/queryKeys'
+import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import type { Image, ImageGroup, SeedImage } from '@/types'
 
 export interface UseGalleryDialogsReturn {
@@ -40,6 +40,13 @@ export interface UseGalleryDialogsReturn {
   // Merge group picker
   mergeSourceGroup: ImageGroup | null
   setMergeSourceGroup: (group: ImageGroup | null) => void
+
+  // Image actions from the individual view's tile menu
+  moveImage: Image | null
+  setMoveImage: (image: Image | null) => void
+  deleteConfirmImage: Image | null
+  setDeleteConfirmImage: (image: Image | null) => void
+  handleImageDeleteConfirm: () => Promise<void>
 
   // Import dialog: a new import (jobId null) or an existing one. All import
   // state lives in the ImportManager, so opening and closing is free.
@@ -92,6 +99,8 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const [editAllLoading, setEditAllLoading] = useState(false)
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ImageGroup | null>(null)
   const [mergeSourceGroup, setMergeSourceGroup] = useState<ImageGroup | null>(null)
+  const [moveImage, setMoveImage] = useState<Image | null>(null)
+  const [deleteConfirmImage, setDeleteConfirmImage] = useState<Image | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [importDialog, setImportDialog] = useState<{ open: boolean; jobId: string | null }>({
     open: false,
@@ -136,6 +145,21 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     }
   }, [deleteConfirmGroup, invalidateGallery])
 
+  const handleImageDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirmImage) return
+    setDeleting(true)
+    try {
+      await imageApi.delete(deleteConfirmImage.id)
+      setDeleteConfirmImage(null)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scenes() })
+      invalidateGallery()
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to delete image'))
+    } finally {
+      setDeleting(false)
+    }
+  }, [deleteConfirmImage, invalidateGallery, queryClient])
+
   const openImport = useCallback((jobId: string | null = null) => {
     setImportDialog({ open: true, jobId })
   }, [])
@@ -168,6 +192,11 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
     deleting,
     mergeSourceGroup,
     setMergeSourceGroup,
+    moveImage,
+    setMoveImage,
+    deleteConfirmImage,
+    setDeleteConfirmImage,
+    handleImageDeleteConfirm,
     importDialog,
     openImport,
     closeImport,

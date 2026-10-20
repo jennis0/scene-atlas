@@ -1,18 +1,8 @@
-import { useState } from 'react'
-import { MoreHorizontal, Pencil, Merge, Trash2, Layers, FolderDown } from 'lucide-react'
-import { toast } from 'sonner'
-import { downloadFile } from '@/lib/download'
+import { Pencil, Merge, Layers, FolderDown } from 'lucide-react'
 import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { VideoIndicator } from '@/components/ui/video-indicator'
-import { isAnyDialogOpen } from '@/components/ui/dialogStack'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+import { CardActionsMenu } from '@/components/CardActionsMenu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import type { ImageGroup } from '@/types'
 
 interface GroupCardProps {
@@ -25,7 +15,6 @@ interface GroupCardProps {
 
 export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCardProps) {
   const { heroImage, mosaicImages, totalScenes, matchingCount, baseName, author, groupId } = group
-  const [downloading, setDownloading] = useState(false)
 
   const maxMosaic =
     mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
@@ -33,20 +22,6 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
   const displayedCount = 1 + visibleMosaic.length
   const overflowCount = totalScenes - displayedCount
   const hasMosaic = visibleMosaic.length > 0
-  const hasActions = groupId !== null
-
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!groupId || downloading) return
-    setDownloading(true)
-    try {
-      await downloadFile(getGroupDownloadUrl(groupId), `${baseName}.zip`)
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Group download failed'))
-    } finally {
-      setDownloading(false)
-    }
-  }
 
   return (
     <div
@@ -64,48 +39,26 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
         className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
       />
 
-      {/* Action menu — top-right; shown on hover, on keyboard focus, and always on touch */}
-      {hasActions && (
-        <div className="absolute top-2 right-2 z-10">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                data-testid="group-card-menu"
-                aria-label={`Actions for ${baseName}`}
-                className="opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 rounded-md flex items-center justify-center bg-black/50 text-white/80 hc:text-white hover:text-white hover:bg-black/70 backdrop-blur-sm transition-all"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              // Leave focus alone when an item opened a dialog: the dialog takes it, and
-              // hands it back to this trigger when it closes.
-              onCloseAutoFocus={(e) => isAnyDialogOpen() && e.preventDefault()}
-            >
-              <DropdownMenuItem onClick={() => onEdit?.()}>
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onMerge?.()}>
-                <Merge className="h-4 w-4 mr-2" />
-                Merge into...
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownload} disabled={downloading}>
-                <FolderDown className="h-4 w-4 mr-2" />
-                {downloading ? 'Downloading…' : 'Download'}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => onDelete?.()}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      {groupId !== null && (
+        <CardActionsMenu
+          label={baseName}
+          download={{
+            url: getGroupDownloadUrl(groupId),
+            filename: `${baseName}.zip`,
+            failure: 'Group download failed',
+            icon: <FolderDown className="h-4 w-4 mr-2" />,
+          }}
+          onDelete={onDelete}
+        >
+          <DropdownMenuItem onClick={() => onEdit?.()}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onMerge?.()}>
+            <Merge className="h-4 w-4 mr-2" />
+            Merge into...
+          </DropdownMenuItem>
+        </CardActionsMenu>
       )}
 
       <div className="flex" style={{ height: '160px' }}>

@@ -35,6 +35,7 @@ from ..models.schemas import (
 from ..services import get_image_store
 from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
+from ..services.fts_service import search_text_for
 from .dependencies import get_db, write_locked
 
 router = APIRouter()
@@ -388,6 +389,14 @@ def delete_group(
     return {"message": f"Group {group_id} and all its images deleted"}
 
 
+def _reassign_images(images: list[Image], target: ImageGroup) -> None:
+    """Put images in ``target``. They take its author, which is part of their search text."""
+    for image in images:
+        image.group_id = target.id
+        image.author = target.author
+        image.search_text = search_text_for(image)
+
+
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
 @write_locked
 def move_images(
@@ -407,15 +416,21 @@ def move_images(
     if not source:
         raise HTTPException(status_code=404, detail="Source group not found")
 
-    target = db.query(ImageGroup).filter(ImageGroup.id == payload.target_group_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Target group not found")
+    if payload.target_group_id is not None:
+        target = db.query(ImageGroup).filter(ImageGroup.id == payload.target_group_id).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="Target group not found")
+    else:
+        target = None
 
     # Validate all image_ids belong to source group
     images = (
-        db.query(Image).filter(Image.id.in_(payload.image_ids), Image.group_id == group_id).all()
+        db.query(Image)
+        .options(selectinload(Image.tags))
+        .filter(Image.id.in_(payload.image_ids), Image.group_id == group_id)
+        .all()
     )
-    if len(images) != len(payload.image_ids):
+    if len(images) != len(set(payload.image_ids)):
         found_ids = {img.id for img in images}
         missing = [i for i in payload.image_ids if i not in found_ids]
         raise HTTPException(
@@ -423,11 +438,14 @@ def move_images(
             detail=f"Images not found in source group: {missing}",
         )
 
-    # Move images to target
-    for image in images:
-        image.group_id = target.id
-        image.author = target.author
+    if target is None:
+        # A new group of its own: same creator as the group it leaves.
+        target = ImageGroup(base_name=payload.new_group_name, author=source.author)
+        db.add(target)
+        db.flush()  # get target.id
+        target.primary_image_id = payload.image_ids[0]
 
+    _reassign_images(images, target)
     images_moved = len(images)
 
     # Fix primary_image_id on source if it was moved
@@ -452,6 +470,7 @@ def move_images(
     return MoveImagesResponse(
         source_group_id=group_id,
         target_group_id=target.id,
+        target_group_name=target.base_name,
         images_moved=images_moved,
         source_group_deleted=source_deleted,
     )
@@ -482,11 +501,10 @@ def merge_group(
         raise HTTPException(status_code=404, detail="Target group not found")
 
     # Move all images from source to target
-    images = db.query(Image).filter(Image.group_id == group_id).all()
-    for image in images:
-        image.group_id = target.id
-        image.author = target.author
-
+    images = (
+        db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
+    )
+    _reassign_images(images, target)
     images_moved = len(images)
 
     # Flush so SQLAlchemy's identity map knows the images belong to target,

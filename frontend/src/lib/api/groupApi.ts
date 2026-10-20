@@ -6,6 +6,7 @@ import type {
   GroupPickerResponse,
   GroupMergeResponse,
   MoveImagesResponse,
+  MoveTarget,
   GroupSummary,
 } from '@/types'
 
@@ -78,13 +79,16 @@ export const groupApi = {
     return data
   },
 
+  /** Moves images out of a group into another one, or into a new group of their own. */
   moveImages: async (
     sourceGroupId: number,
-    targetGroupId: number,
+    target: MoveTarget,
     imageIds: number[],
   ): Promise<MoveImagesResponse> => {
     const { data } = await api.post<MoveImagesResponse>(`/groups/${sourceGroupId}/move-images`, {
-      target_group_id: targetGroupId,
+      ...('groupId' in target
+        ? { target_group_id: target.groupId }
+        : { new_group_name: target.newGroupName }),
       image_ids: imageIds,
     })
     return data
