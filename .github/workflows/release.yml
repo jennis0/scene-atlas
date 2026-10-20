@@ -432,6 +432,12 @@ jobs:
             exit 0
           fi
           previous="${tag#v}"
+          # A run that doesn't publish can build the last release's own version (main
+          # between releases); a publishing run's version is always newer (preflight).
+          if [ "$previous" = "$UPGRADE_NEW_VERSION" ]; then
+            echo "::notice::This build is $tag's own version, so no upgrade test from it"
+            exit 0
+          fi
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir dist-upgrade-previous \
             --pattern "Scene-Atlas-Setup-$previous.exe" --pattern "Scene-Atlas-Setup-$previous.exe.blockmap"
           mkdir dist-upgrade-feed-previous
