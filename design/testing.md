@@ -136,7 +136,7 @@ The report, the snapshots and the updater and backend logs are uploaded as `upgr
 
 **From the last release.** The workflow then runs the same test a second time from the latest published release: its installer and blockmap come from GitHub (`gh release download`), and the feed is the same with that blockmap instead of 0.0.0's. That covers the old version's own updater code and migrations on a database an older release made. It is skipped, with a notice, while no release is published; its report goes to `upgrade-report-previous/` in the same artifact.
 
-**From GitHub, after publishing.** `UPGRADE_FROM_GITHUB=1` in place of `UPGRADE_FEED_DIR` leaves the feed override empty, so the old install updates from the real GitHub releases: a check of a published release end to end (run by hand, e.g. on Linux with an older release's AppImage).
+**From GitHub, after publishing.** `UPGRADE_FROM_GITHUB=1` in place of `UPGRADE_FEED_DIR` leaves the feed override empty, so the old install updates from the real GitHub releases: a check of a published release end to end (run by hand, e.g. on Linux with an older release's AppImage). Without FUSE (WSL without `libfuse2`), set `APPIMAGE_EXTRACT_AND_RUN=1`: the runtime then doesn't set `APPIMAGE`, so `launch()` sets it to the AppImage it starts, or the app would only notify.
 
 Not covered yet: Linux (AppImage) and macOS (notify only) in CI.
 
