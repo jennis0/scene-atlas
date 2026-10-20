@@ -138,9 +138,11 @@ test("the window opens at its saved size and saves it again on close", async () 
 
   const app = await launch(profile);
   const page = await waitForBackendUi(app.browser);
-  expect(await page.evaluate(() => [window.outerWidth, window.outerHeight])).toEqual([
-    960, 640,
-  ]);
+  // On Windows the page's outer size includes the invisible resize borders (8 px left,
+  // right and bottom at 100% scaling, as on CI), which the window's bounds don't.
+  const border = process.platform === "win32" ? [16, 8] : [0, 0];
+  const [outerWidth, outerHeight] = await page.evaluate(() => [window.outerWidth, window.outerHeight]);
+  expect([outerWidth - border[0], outerHeight - border[1]]).toEqual([960, 640]);
 
   await page.evaluate(() => window.close());
   await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
