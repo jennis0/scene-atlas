@@ -554,7 +554,156 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 ---
 
-## ADR-021: Library setup in the wizard, and the linked library
+## ADR-021: Auto-update with electron-updater
+
+**Date:** 2026-10-19
+**Status:** Implemented (PR #39). Current behaviour: [electron.md](electron.md#updates); the upgrade test: [testing.md](testing.md#upgrade-test).
+
+**Context:** The desktop app had no update path. A release without an updater can never update itself, so it had to be in place before the first public release. Builds are unsigned (no paid signing for now), the Windows installer is NSIS, Linux ships an AppImage and a .deb, and macOS a dmg. The installer is about 275 MB, most of it the Python sidecar.
+
+**Decision:**
+
+1. **electron-updater with the GitHub provider**, reading `latest*.yml` from GitHub Releases. The builds keep `--publish never`; the Release workflow's publish job uploads the metadata with the installers. Blockmaps are back on, so Windows downloads differentially.
+2. **Install where an install can replace itself, otherwise notify.** Windows (NSIS) and Linux AppImage download in the background and install on restart or quit. macOS (unsigned, so Squirrel.Mac would reject the update) and the .deb only say a version is out and open its release page.
+3. **Stop the backend before installing.** The NSIS installer starts when install is called, before the app quits, and would find the sidecar's files in use.
+4. **Automatic checks can be turned off** in Settings (the library staying on the machine is the app's pitch, and a check contacts GitHub). Check now works either way.
+5. **A database snapshot before pending migrations**, because migrations only go forward (`backups/pre-migration/`, five kept; startup stops if the snapshot fails).
+6. **Releases are gated on an upgrade test**: an old build installed for real is updated from a local feed, and the library and the results of a set of queries are compared before and after. Library problems always fail; changed search results fail unless the release accepts them with a reason, which goes into the release notes. A pre-publish check stops a release whose update metadata doesn't match its assets.
+
+**Alternatives considered:**
+
+- **Electron's built-in `autoUpdater`** (Squirrel), alone or through update.electronjs.org. Rejected: Windows needs Squirrel.Windows installers instead of NSIS, Linux isn't supported, and macOS needs signing.
+- **Wait for code signing.** Rejected: the first release would have no way to update, and its users would have to reinstall by hand. The belief that unsigned updates warn in SmartScreen each time was wrong as far as we know: SmartScreen keys on the Mark-of-the-Web, which electron-updater's download doesn't get. To be confirmed on a real PC.
+- **Notify-only everywhere.** Simpler, but most users are on Windows, where a 275 MB manual download and reinstall per release is what an updater is for.
+- **Expected results committed as goldens** for the upgrade test. Rejected: the old version's results are the right baseline for "an update doesn't change what you see", and need no upkeep. The golden search tests already pin intended ranking changes within a version.
+
+**Consequences:**
+
+- Unsigned, the only integrity check on an update is the sha512 in `latest.yml`, from the same release: whoever can publish a release can update every install. Windows signing (SignPath) closes that; it then needs `publisherName` set.
+- macOS auto-install needs an Apple Developer account and a `zip` mac target.
+- The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.
+- The packaged-app tests point the updater at a closed port, so test runs never update.
+- The upgrade test runs on Windows only, from a build of the same code and (since ADR-024) from the last published release. Linux is on the roadmap.
+
+---
+
+## ADR-022: System title bar on Linux, and desktop zoom
+
+**Date:** 2026-10-19
+**Status:** Implemented (PR #40). Current behaviour: [electron.md](electron.md#window-frame).
+
+**Context:** On Linux the borderless window's caption buttons are drawn by Electron in GNOME's style (circles), which looks wrong on other desktops and in WSLg. Separately, the desktop app had no zoom: no visible menu, Chromium's zoom is per origin (and the origin changes with the backend's port), and Text size doesn't scale images. Under WSLg a 4K screen also reports a scale of 1, so the Linux build is tiny there.
+
+**Decision:**
+
+1. **Linux uses the window manager's frame**, with Electron's default menu bar removed. macOS and Windows stay borderless.
+2. **Zoom is a display choice** (Settings → Appearance, 80–200%, plus Ctrl + / − / 0), applied by the preload before the first paint; the page handles the shortcuts.
+3. **No default menu.** It had unsaved zoom, Reload and Toggle Developer Tools. Windows and Linux have none; macOS keeps app, Edit, Window and full screen.
+4. **No device-scale setting.** Electron already follows a real Linux desktop's scale; WSLg is fixed in WSL (`GDK_SCALE`), and zoom covers anyone else.
+
+**Alternatives considered:**
+
+- **Draw our own caption buttons on Linux.** One look everywhere, but window state, keyboard access and double-click-to-maximise to maintain, and still not native to GNOME or KDE.
+- **An "Interface scale" setting** (`--force-device-scale-factor`, applied on restart). It corrects a desktop that reports the wrong scale, not an accessibility need; zoom applies at once and is what WCAG's resize-to-200% expects.
+
+**Consequences:**
+
+- The Linux window looks like every other app on that desktop, not like the Windows and macOS builds.
+- F11 (full screen) and Ctrl+W no longer work on Windows and Linux, as they came from the default menu.
+- The room left for the window's own controls is sized in window pixels from the zoom, so zoom and Text size don't push header controls under the Windows caption buttons or the macOS traffic lights.
+- The main window now remembers its size, position and maximised state (also requested 2026-10-19).
+- Zoom at 200% puts most windows into the compact layout, so the layout reflows rather than scrolling sideways.
+
+## ADR-023: Server-mode update check
+
+**Date:** 2026-10-19
+**Status:** Implemented (branch `feature/release-process`). Current behaviour: [backend.md](backend.md#update-check), [frontend.md](frontend.md#updates).
+
+**Context:** ADR-021 gave the desktop app an updater, but a self-hosted server (Docker or standalone) said nothing about new releases, and Settings didn't even show its version. A server can't update itself: its admin pulls and rebuilds. Server mode has no authentication or roles, so anything Settings shows, every user behind the proxy sees, and any endpoint every user can call.
+
+**Decision:**
+
+1. **The backend checks, not the browser,** in server mode only: GitHub's `releases/latest` API, 60 s after startup and then every 24 h, in an asyncio task that never blocks startup. The desktop sidecar never checks; Electron does.
+2. **`CHECK_FOR_UPDATES` (default on) turns it off,** and then no outbound request is made at all. It is an environment setting for the admin, not a UI toggle, because there are no roles to keep users from changing it.
+3. **The API only returns the cached answer** (`GET /system/updates`). There is no Check now: unauthenticated users could spend the server's 60-requests-an-hour GitHub limit.
+4. **Failures are quiet and keep the last good answer.** 404 (no release yet) counts as up to date; timeouts, offline hosts, rate limiting and malformed responses log one warning per streak.
+5. **Versions are compared by their release numbers,** and a stable release beats a prerelease of the same numbers. Prereleases are never offered. A running version that isn't a plain release (a dev build) is reported as `unknown` and never nags.
+6. **One Settings section for both modes,** fed by Electron or the backend. Server mode is read-only: the version, the status, and links to the release notes and the upgrade guide. No toast on a server: most people behind its proxy can't upgrade it, so a toast would only be noise for them.
+7. **Stdlib `http.client` to a fixed host and path, no new dependency,** and a small comparator rather than `packaging`: neither an HTTP client nor `packaging` is a declared runtime dependency (both arrive only through `huggingface-hub`).
+
+**Alternatives considered:**
+
+- **Check from the browser.** Rejected: every user and every page load would call GitHub, from users' IPs, and it would bypass the admin's off switch.
+- **Run it on the maintenance Scheduler.** Rejected: that is gated by the `scheduler_enabled` runtime setting and persists last-run times, so after a restart the cached answer would be empty for up to a day.
+- **Persist the last answer to disk.** Not needed: restarts are rare on a server, and the first check after one is a minute away.
+- **The releases Atom feed** (what electron-updater reads, with no rate limit). Rejected for now: it lists prereleases, so finding the latest stable means parsing XML entries; once a day the API limit is no concern.
+
+**Consequences:**
+
+- Every server with the default setting contacts `api.github.com` daily, revealing its IP address and running version (in the `User-Agent`). Documented in [configuration.md](../docs/deploy/configuration.md#updates).
+- A private repository looks the same as one with no releases (404), so checks report up to date until the repository is public.
+- The upgrade link points at the Docker guide (`deploy/server#updating`); standalone installs upgrade differently ([standalone.md](../docs/deploy/standalone.md#updating)).
+- The comparator handles only `x.y.z` releases; a release tag in another form makes every check fail (logged once).
+
+## ADR-024: Versions in the repo, draft releases and a published Docker image
+
+**Date:** 2026-10-19
+**Status:** Implemented (branch `feature/release-process`). How to release: [releasing.md](releasing.md).
+
+**Context:** The Release workflow took the version as an input and wrote it into `package.json` on the build runners only. The repo stayed at 0.1.0, so the backend (`pyproject.toml`, `backend/__init__.py`, `settings.app_version`) reported 0.1.0 in every release, as did every Docker and source install: no server could tell which release it ran, so no update check could work. Releasing meant a dry run, then a second run with `publish=true` that rebuilt everything, so the artifacts checked were never the ones shipped, and the release went live at once. Nothing stopped a publish from a branch, a version already released or older than the last, or a prerelease being marked latest and offered to every install. Server installs built the image from a clone and updated with `git pull` on `main`, i.e. onto unreleased code.
+
+**Decision:**
+
+1. **The version lives in the repo** and changes in a PR: `package.json` (with its lockfile) for the desktop app and `backend/__init__.py` for the backend, which `pyproject.toml` reads (hatch dynamic version) and `config.py` imports. `scripts/release/release_version.py bump` sets both; a unit test fails if they disagree. The frontend's unused version is gone.
+2. **A preflight job** checks the version first: publishing only from `main`, a plain semver, newer than every `v*` tag.
+3. **One run makes a draft release** from its own builds; a person checks it and publishes it on GitHub. Drafts are invisible to electron-updater and to the Docker `latest` tag. Hyphenated versions are GitHub prereleases.
+4. **A CPU Docker image on GHCR**, pushed as `sha-<commit>` by the run and tagged with the version and `latest` only when the draft is published (`release-published.yml`). The container user moves from a build argument to Compose's run-time `user:`, so one image serves every host.
+
+**Alternatives considered:**
+
+- **Version from the git tag** (hatch-vcs or stamping at build time). Rejected: Docker builds, PyInstaller and source installs without `.git` would each need plumbing to learn their version, and a bump PR is a small price for a version visible in the code.
+- **The workflow commits the bump to `main`.** Rejected: it needs a token that bypasses branch protection, and every change to `main` goes through a PR.
+- **Start as root and drop privileges in an entrypoint** (the PUID/PGID pattern) for the runtime user. Rejected for now: it can fix a volume's ownership when the UID changes, but runs as root at start and adds a script; Compose's `user:` with a world-writable volume root does the job without root.
+- **Push `<version>` and `latest` from the run.** Rejected: a draft that is later discarded would already be what `docker compose pull` fetches.
+
+**Consequences:**
+
+- A release takes a bump PR, then the workflow, then a click to publish.
+- `main` between releases reports the last release's version.
+- Server installs without a clone: the release carries `docker-compose.yml` and `env.example`. The GPU profile still builds from a checkout of a release tag.
+- The GHCR package must be made public once, by hand, after the first push.
+- Changing `APP_UID` after the first start needs a `chown -R` of the data volume.
+
+## ADR-025: The user chooses how the desktop app updates
+
+**Date:** 2026-10-20
+**Status:** Implemented (branch `feature/update-choice`). Current behaviour: [electron.md](electron.md#updates).
+
+**Context:** ADR-021's only control was "Check for updates automatically". On Windows and the AppImage, a check that found a version downloaded it at once and installed it on quit, Check now included, so the choice was between not hearing about updates and having them installed. The first check also ran 15 s after first launch, before the user could reach Settings. The user asked that updating be easy to refuse: never forced.
+
+**Decision:**
+
+1. **Three choices**, in Settings → Updates and on the setup wizard's first step: Automatic (as before), Ask first (say a version is out; download and install only when the user presses Update) and Off (Check now only, then as Ask first). Saved as `updateChoice` in the app config.
+2. **Ask first is the default.** Nothing installs without a click.
+3. **No checks until a choice is made.** The wizard shows the choice before the app first contacts GitHub; finishing setup records the default if the user left it. Libraries set up before this get the default the next time the app opens past setup.
+4. **An update the user asked for installs on quit,** as Automatic's do: pressing Update is the decision, so Restart to update or quitting both install it. Moving away from Automatic after a download keeps Restart to update on offer but stops the install on quit.
+5. **Notify-only installs (macOS, .deb) have no Automatic.**
+
+**Alternatives considered:**
+
+- **Keep two states, but make Off never install.** Simpler, but no way to hear about a fix without either installing it automatically or checking by hand.
+- **Skip this version.** Not now: Ask first already never installs, and a skipped version would need its own state and UI.
+- **Default to Automatic.** More users on the latest version, but they'd have to find Settings to stop it; the user wants nothing installed without a click.
+
+**Consequences:**
+
+- Fewer users on the latest version, so fixes reach people more slowly and old versions linger. Release notes matter more.
+- The upgrade test presses Update when a build waits for it; 0.1.x builds (Automatic-only) download by themselves.
+- A 0.1.x config's default-on checks become Ask first, and an explicit off stays Off.
+
+---
+
+## ADR-026: Library setup in the wizard, and the linked library
 
 **Date:** 2026-10-19
 **Status:** Accepted (plan). Design: [library-setup.md](library-setup.md).

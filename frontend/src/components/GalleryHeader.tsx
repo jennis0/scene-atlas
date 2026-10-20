@@ -7,16 +7,16 @@ import { GalleryResultsBar } from '@/components/GalleryResultsBar'
 import { SearchModelStatus } from '@/components/SearchModelStatus'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/contexts/ThemeContext'
-import { isApp } from '@/lib/appMode'
+import { isFrameless, TITLE_BAR_BAND, TRAFFIC_LIGHT_INSET, windowChrome } from '@/lib/appMode'
 import { useCompactHeader } from '@/lib/compactLayout'
 import type { UseGallerySearchReturn } from '@/hooks/useGallerySearch'
 import type { EmbeddingStatus } from '@/lib/api/modelsApi'
 import type { ImageTypeFilter } from '@/components/import/fileFilter'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 
-// Platform helpers for borderless window layout
-const isMac = isApp && window.electronAPI?.platform === 'darwin'
-const needsOverlayPadding = isApp && !isMac // Windows/Linux titlebar overlay
+// The header doubles as the title bar where the window has none (lib/appMode.ts)
+const isMac = windowChrome === 'inset'
+const needsOverlayPadding = windowChrome === 'overlay' // Windows caption buttons
 
 export interface GalleryHeaderProps {
   search: UseGallerySearchReturn & {
@@ -103,7 +103,7 @@ export function GalleryHeader({
         aria-label="Image type"
         className={
           compact
-            ? `flex items-stretch self-stretch ${isApp ? 'no-drag-region' : ''}`
+            ? `flex items-stretch self-stretch ${isFrameless ? 'no-drag-region' : ''}`
             : 'flex items-stretch border-b border-border/60'
         }
       >
@@ -140,11 +140,11 @@ export function GalleryHeader({
 
   return (
     <header className="border-b border-border/70 bg-card">
-      {/* Windows/Linux: draggable titlebar strip matching the OS overlay zone */}
-      {needsOverlayPadding && <div className="h-8 drag-region" />}
-      <div className={`container mx-auto px-4 ${isMac ? 'pl-20' : ''}`}>
+      {/* Windows: draggable strip under the caption buttons */}
+      {needsOverlayPadding && <div className={`${TITLE_BAR_BAND} drag-region`} />}
+      <div className={`container mx-auto px-4 ${isMac ? TRAFFIC_LIGHT_INSET : ''}`}>
         <div
-          className={`${compact ? '' : needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 items-center justify-between border-b border-border/70 ${isApp ? 'drag-region' : ''}`}
+          className={`${compact ? '' : needsOverlayPadding ? 'pt-2 pb-2' : 'pt-4 pb-3'} flex flex-wrap gap-x-4 gap-y-2 items-center justify-between border-b border-border/70 ${isFrameless ? 'drag-region' : ''}`}
         >
           <div className={compact ? 'flex items-stretch gap-x-6 self-stretch' : ''}>
             <h1
@@ -156,7 +156,7 @@ export function GalleryHeader({
             {compact && tabStrip}
           </div>
           {/* Admin cluster: utility actions (ghost) + gap + primary Import CTA */}
-          <div className={`flex items-center gap-1 ${isApp ? 'no-drag-region' : ''}`}>
+          <div className={`flex items-center gap-1 ${isFrameless ? 'no-drag-region' : ''}`}>
             <Button
               variant="ghost"
               size="sm"

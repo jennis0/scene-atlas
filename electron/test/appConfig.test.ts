@@ -86,6 +86,18 @@ describe('parseConfig', () => {
       assert.equal(parseConfig(raw, 'linux'), null, JSON.stringify(raw))
     }
   })
+
+  test("keeps the window state and update choice, so saving the config doesn't drop them", () => {
+    const windowState = { x: 10, y: 20, width: 1200, height: 800, maximized: false }
+    const result = parseConfig({ ...base, windowState, updateChoice: 'off' }, 'linux')
+    assert.deepEqual(result?.config.windowState, windowState)
+    assert.equal(result?.config.updateChoice, 'off')
+    // 0.1.x's checkForUpdates: false is read as Off
+    assert.equal(
+      parseConfig({ ...base, checkForUpdates: false }, 'linux')?.config.updateChoice,
+      'off',
+    )
+  })
 })
 
 describe('firstLaunchConfig', () => {

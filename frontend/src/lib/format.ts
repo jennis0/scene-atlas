@@ -8,3 +8,14 @@ export function formatBytes(bytes: number): string {
 export function filenameStem(filename: string): string {
   return filename.replace(/\.[^.]+$/, '')
 }
+
+/**
+ * An image's full name: its group's name then its own, as the gallery tiles show them.
+ * Import strips the group's name from its images' names ("Frozen Lake" / "Snowy"), so the
+ * image name alone is often just the variant.
+ */
+export function fullImageName(image: { name: string; group_name: string | null }): string {
+  const { name, group_name } = image
+  if (!group_name || name.toLowerCase().includes(group_name.toLowerCase())) return name
+  return `${group_name} ${name}`
+}

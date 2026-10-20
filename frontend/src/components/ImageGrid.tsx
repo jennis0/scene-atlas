@@ -2,6 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useRef, useState, useEffect } from 'react'
 import { GRID_GAP, GRID_PADDING } from '@/lib/constants'
 import { SceneTile } from '@/components/SceneTile'
+import { ImageCardMenu, type ImageCardActions } from '@/components/ImageCardMenu'
 import type { Image } from '@/types'
 
 interface ImageGridProps {
@@ -9,9 +10,11 @@ interface ImageGridProps {
   /** Tile width in px; tiles are 4:3 */
   tileWidth: number
   onImageClick: (image: Image, index: number) => void
+  /** Gives each tile an actions menu */
+  actions?: ImageCardActions
 }
 
-export function ImageGrid({ images, tileWidth, onImageClick }: ImageGridProps) {
+export function ImageGrid({ images, tileWidth, onImageClick, actions }: ImageGridProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [columnsPerRow, setColumnsPerRow] = useState(6)
 
@@ -94,6 +97,7 @@ export function ImageGrid({ images, tileWidth, onImageClick }: ImageGridProps) {
                       variantText={variantText || undefined}
                       authorText={image.author || undefined}
                       onClick={() => onImageClick(image, startIdx + colIdx)}
+                      menu={actions && <ImageCardMenu image={image} actions={actions} />}
                     />
                   )
                 })}

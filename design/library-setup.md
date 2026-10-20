@@ -1,6 +1,6 @@
 # Library setup and the linked library
 
-Status: **plan** (2026-10-19). Decision record: [ADR-021](decisions.md#adr-021-library-setup-in-the-wizard-and-the-linked-library).
+Status: **plan** (2026-10-19). Decision record: [ADR-026](decisions.md#adr-026-library-setup-in-the-wizard-and-the-linked-library).
 
 This plan covers three things that ship together:
 

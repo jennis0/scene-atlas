@@ -116,7 +116,13 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `library:apply` | renderer → main | `({ appData, store, linked })`: see [Changing folders](#changing-folders-in-window-restart). Resolves `{ error, restarted: false }`, or never when the backend restarts |
 | `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: `{ displayPrefs, libraryChosen }` from the config, exposed as `electronAPI.displayPrefs` and `electronAPI.libraryChosen` |
 | `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
-| `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows/Linux title-bar overlay, and saves them for the next launch |
+| `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows title-bar overlay, and saves them for the next launch |
+| `updates:get-state` | renderer → main | The updater's state (`UpdateState` in `updatePolicy.ts`), null before it starts |
+| `updates:check` | renderer → main | Check now, even with automatic checks off; returns the state |
+| `updates:set-enabled` | renderer → main | `(boolean)`: turns automatic checks on or off and saves it to the config |
+| `updates:install` | renderer → main | Stops the backend and quits into the downloaded version's installer |
+| `updates:open-download` | renderer → main | Notify mode: opens the new version's release page |
+| `updates:state` | main → renderer | Every state change, to every window |
 
 ### Preload API Surface
 
@@ -129,6 +135,8 @@ window.electronAPI = {
   getStorageDirs: () => Promise<StorageDirs>,
   chooseFolder: (kind, current?) => Promise<string | null>,
   applyLibrary: (dirs) => Promise<{ error: string | null; restarted: boolean }>,
+  getUpdateState, checkForUpdates, setUpdateChoice,    // see Updates
+  downloadUpdate, installUpdate, openUpdateDownload, onUpdateState,
 }
 ```
 
@@ -148,13 +156,37 @@ Imports name local files by path ([local-ingest.md](local-ingest.md)): the prelo
 
 In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
 
-## Borderless Window
+## Window Frame
 
-Uses platform-specific titlebar:
-- **macOS:** `titleBarStyle: 'hiddenInset'` (native traffic lights)
-- **Windows/Linux:** `titleBarStyle: 'hidden'` with `titleBarOverlay` (system buttons drawn by Electron: `#0e1118` background, `#ede8dc` symbols, 32px high)
+`frameOptions()` in `windowFrame.ts`; the frontend's counterpart is `windowChrome` in `frontend/src/lib/appMode.ts`.
 
-The frontend reserves top padding for the window controls drag region.
+| Platform | Frame | Title bar drawn by |
+|---|---|---|
+| macOS | `titleBarStyle: 'hiddenInset'` | The page (gallery header, `WindowDragBar`), around the native traffic lights |
+| Windows | `titleBarStyle: 'hidden'` with `titleBarOverlay` (32px, the UI's background and text colours) | The page, beside Electron's caption buttons |
+| Linux | The window manager's own frame | The system |
+
+Linux kept the borderless overlay until 2026-10-19 ([ADR-022](decisions.md#adr-022-system-title-bar-on-linux-and-desktop-zoom)). Electron draws GNOME-style (Adwaita) caption buttons there, circles that look wrong on any other desktop, and a system frame matches the desktop's theme and scaling. On macOS and Windows, pages mark drag regions (`isFrameless`); on Linux they don't need to, and the gallery header drops the overlay's top band.
+
+The caption buttons and traffic lights keep their size whatever the zoom or Text size, so the room the page leaves for them is in window pixels: `TITLE_BAR_BAND` (32 px, the overlay's height) and `TRAFFIC_LIGHT_INSET` (80 px) in `appMode.ts` divide by `--zoom`, which `lib/zoom.ts` sets on the root element. In rem the band grew with Text size, and in plain px it would grow with zoom, leaving an empty strip at 200% and header controls under the buttons at 80%. Chromium's `env(titlebar-area-*)` values would do the same job, but whether they account for page zoom is unverified.
+
+### Window state
+
+The main window opens at the size and position it was last left at, maximised if it was (`windowState.ts`, saved as `windowState` in the config on resize, move, maximise and close; the un-maximised bounds come from `getNormalBounds`). `restoredBounds` keeps the size between the minimum (900×600) and the screen it opens on, so the 1400×900 default also fits a 1366×768 laptop, and keeps the position only while 100×20 px of the window's top edge is on a screen, so a window last on an unplugged monitor opens on the primary one. Wayland compositors place windows themselves and ignore the position. The setup window isn't remembered.
+
+### Zoom
+
+Settings → Appearance → Zoom (80–200%, desktop only: a browser has its own) and Ctrl + / − / 0 (⌘ on macOS). It scales the whole page, images included; Text size scales only text and its spacing. Kept as the `scene-atlas-zoom` display choice ([first-run.md](first-run.md#desktop-display-choices-and-window-colours)), not Chromium's per-origin zoom, which is lost whenever the backend's port changes.
+
+- The preload applies the saved zoom with `webFrame.setZoomFactor` before the page paints (the loading page too), and exposes `setZoom(percent)`.
+- `frontend/src/lib/zoom.ts` keeps the level and handles the shortcuts (`zoomStepForKey`, a `keydown` listener that prevents the default), for the Settings control and the keys alike.
+- The page, not the main process, handles the keys: Playwright's key presses (CDP) skip `before-input-event`, so a main-process handler couldn't be tested, and the menus have no zoom items to clash with ([Menus](#menus)).
+
+### Menus
+
+`removeMenu()` and `setMacMenu()` in `windowFrame.ts`. Electron's default menu had zoom shortcuts that changed the zoom without saving it, plus Reload and Toggle Developer Tools, which a release shouldn't offer. Windows and Linux windows have no menu (Chromium handles copy, paste and undo itself; on Linux the frame would show the menu as a bar). macOS keeps the app, Edit and Window menus, and View with full screen only. In dev, F12 still opens DevTools.
+
+**HiDPI.** Electron follows the desktop's scale on Linux (Wayland, or `Xft.dpi`/`GDK_SCALE` on X11). WSLg reports none: a 4K screen arrives as 3840×2160 at scale 1, so Linux apps there are tiny. That's the WSL setup, not the app: set `GDK_SCALE=2` in WSL ([building.md](../docs/development/building.md)), or use Zoom.
 
 ## Build & Packaging
 
@@ -222,16 +254,59 @@ There is one build per platform; GPU support comes from the onnxruntime package 
 
 The PyInstaller spec keeps onnxruntime's `entry_points.txt` (DirectML plugin registration). UPX is off: it corrupted bundled shared libraries (numpy's OpenBLAS), slows startup and trips Windows antivirus. At runtime `ort_providers.py` resolves the provider and falls back to CPU (see [gpu-acceleration.md](gpu-acceleration.md)).
 
-**Releases and updates:** there is no auto-updater, so electron-builder publishes nothing (`publish: null`) and writes no update metadata (`latest.yml`, `.blockmap`). The Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers, and only once all three have passed. An updater would need code signing first: an unsigned Windows installer warns in SmartScreen on every update. macOS builds are signed and notarized only when the Apple signing secrets are set (none are yet); the build step unsets empty ones, because electron-builder reads an empty `CSC_LINK` as a path and fails.
+**Releases:** the builds run with `--publish never`; the Release workflow's `publish` job creates the GitHub Release `v<version>` from the three builds' installers and update metadata, only once all three have passed and the metadata is checked. See [Updates](#updates). macOS builds are signed and notarized only when the Apple signing secrets are set (none are yet); the build step unsets empty ones, because electron-builder reads an empty `CSC_LINK` as a path and fails.
 
 **Windows specifics:** installers are named without spaces (`Scene-Atlas-Setup-<version>.exe`; GitHub rewrites spaces in asset names). electron-builder picks up `assets/icon.ico`, `icon.icns` and `icon.png` by name from `buildResources` ([brand.md](brand.md) covers how they're drawn). `main.ts` sets the AppUserModelID to the `appId`, matching the installer's shortcuts, or a pinned shortcut and the running app show as two taskbar icons. The sidecar is spawned with `windowsHide`: it is a console program, and Windows would otherwise open a console window beside the app.
+
+## Updates
+
+The app updates itself with electron-builder's **electron-updater**, not Electron's built-in `autoUpdater` (Squirrel), which needs Squirrel.Windows installers, has no Linux support and only works on signed macOS builds ([ADR-021](decisions.md#adr-021-auto-update-with-electron-updater)).
+
+**Feed.** `publish` in `electron-builder.yml` names the GitHub repo, which electron-builder writes into `resources/app-update.yml`. The app reads `latest.yml` (Windows), `latest-mac.yml` or `latest-linux.yml` from the latest GitHub Release (the releases Atom feed, so no API rate limit), skipping drafts and, for a non-prerelease version, prereleases. The builds write those files and the `.blockmap`s next to the installers; nothing else changes about how a release is made.
+
+**What each install does** (`updateModeFor` in `updatePolicy.ts`):
+
+| Install | Mode | Why |
+|---|---|---|
+| Windows (NSIS) | install | Downloads in the background (differentially from the blockmaps, so a release that mostly changes the UI downloads far less than the 275 MB installer) and installs on restart or quit |
+| Linux AppImage (`APPIMAGE` set) | install | Replaces the AppImage: the new file takes the new version's name (`Scene-Atlas-<version>-x86_64.AppImage`) and the old one is deleted, so a shortcut to the old name breaks. A renamed file without a version in its name is overwritten in place |
+| macOS | notify | Squirrel.Mac only installs a build whose signature matches; ours are unsigned. Signing also needs a `zip` mac target |
+| Linux .deb | notify | Belongs to the package manager |
+
+Notify mode says a version is out and opens its release page (`releasePageUrl`; anything from the feed that isn't a plain version opens the releases list instead). `updater.ts` picks the updater itself (`createAppUpdater`) rather than leaving it to electron-updater, which on Linux reads `resources/package-type`: the `.deb` build writes that file into the unpacked app the AppImage is also built from, so an AppImage built after it would update itself as a `.deb`; and without the file it falls back to the AppImage updater, which doesn't check at all outside an AppImage. Linux notify mode uses the `.deb` updater, which checks anywhere and, with `autoDownload` off, never downloads. An updater that reports itself inactive puts the state at `unsupported`, so Settings hides the section instead of showing a check that never runs.
+
+**The user's choice** ([ADR-025](decisions.md#adr-025-the-user-chooses-how-the-desktop-app-updates)), `updateChoice` in the config, set in Settings → Updates and on the setup wizard's first step:
+
+| Choice | Checks | Downloads | Installs on quit |
+|---|---|---|---|
+| Automatic | yes | in the background | yes |
+| Ask first (default) | yes | when the user presses Update | only an update the user asked for |
+| Off | only Check now | when the user presses Update | only an update the user asked for |
+| none yet | no | — | — |
+
+`updaterBehaviour` in `updatePolicy.ts` is the table. A notify-only install has no Automatic (Settings hides it, and the policy treats it as Ask first). Until a choice is made the app makes no checks of its own, so a new install doesn't contact GitHub during setup unless the user picks a choice there; once setup is finished, `UpdateNotifier` records the default (`DEFAULT_UPDATE_CHOICE`, Ask first) for a library that was set up before the choice existed or a wizard left on it. A 0.1.x config's `checkForUpdates: false` becomes Off (`savedUpdateChoice`); its default-on wasn't a choice to install, so it becomes the default. Switching away from Automatic after a download leaves Restart to update on offer but stops it installing on quit.
+
+**When.** 15 s after launch, then every 6 h (Automatic and Ask first), and whenever the user presses Check now. The UI shows the version, the state and the action (Update, Restart to update, or Download in notify mode), and a toast says once per version that one is out (with Update) or ready (`UpdateNotifier`).
+
+**Installing.** *Restart to update* stops the backend (`stopSidecar`, up to `QUIT_GRACE_MS`) **before** calling the updater's `install(silent, runAfter)`, because the NSIS installer is spawned at that call, not at quit, and would find the backend's files in use; the installer runs silently into the existing install and starts the new version. If the installer can't start, the app relaunches on the current version so the backend comes back. Quitting with an update downloaded installs it (`autoInstallOnAppQuit`) from the `quit` event, which comes after `will-quit` has already stopped the backend. A storage change's `app.exit()` skips `quit`, so it never installs. A per-machine install asks for elevation (electron-updater runs the installer through `elevate.exe`).
+
+**Signatures.** Unsigned, the only check is the sha512 in `latest.yml`, which comes from the same release as the installer: anyone who can publish a release can update every install. electron-updater compares the installer's Authenticode publisher with `publisherName` in `app-update.yml` only once that is set, so a move to signed builds (SignPath) needs `win.signtoolOptions.publisherName`; installs from unsigned builds still accept the first signed one. SmartScreen keys on the Mark-of-the-Web, which a browser adds and electron-updater's download doesn't, so only the first, manual install should warn (not yet checked on a real PC; see the roadmap).
+
+**Data across versions.** Migrations only go forward, so the backend snapshots the database before running pending ones ([storage.md](storage.md#backups)); going back to an older version means restoring that snapshot.
+
+**Logs.** `{userData}/updater.log` (rotated like `backend.log`).
+
+**Server mode.** A self-hosted server can't update itself; the backend checks GitHub daily and Settings says when a newer version is out, with links to its release notes and the upgrade guide ([backend.md](backend.md#update-check), [ADR-023](decisions.md#adr-023-server-mode-update-check)). The same `UpdatesSection` serves both modes; the toast is desktop only.
+
+**Testing.** `electron/test/updatePolicy.test.ts` (the rules), the packaged-app tests (state over IPC, the feed override), and the upgrade test in the Release workflow, which installs an old build and updates it from a local feed ([testing.md](testing.md#upgrade-test)). `SCENE_ATLAS_UPDATE_FEED` replaces the GitHub feed with a generic one for those tests; `parseFeedOverride` only accepts plain http on `127.0.0.1`, so it can't point an install at another machine. The packaged-app launcher sets it to a closed port, so test runs never contact GitHub or install a real release.
 
 ## Config Storage
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, linkedLibraryDir?, provisional, libraryChosen, displayPrefs?, windowColors? }`. `provisional`: the folders are the first-launch defaults, empty when written, not yet confirmed in setup. `libraryChosen`: the wizard's library step is done; a config without it predates this and counts as chosen. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, linkedLibraryDir?, provisional, libraryChosen, displayPrefs?, windowColors?, windowState?, updateChoice? }`. `provisional`: the folders are the first-launch defaults, empty when written, not yet confirmed in setup. `libraryChosen`: the wizard's library step is done; a config without it predates this and counts as chosen. `windowState`: see [Window state](#window-state). `updateChoice`: see [Updates](#updates); a 0.1.x `checkForUpdates: false` is read as Off. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
+| Updater log | `{userData}/updater.log` (+ `updater.log.1`) |
 | Default app data dir (first launch) | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
 | Default store (image library) dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
 
@@ -251,6 +326,10 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 | `electron/src/config.ts` | Config file load/save, default directories |
 | `electron/src/appConfig.ts` | Config shape, parsing and migration, the first-launch config (tests in `electron/test/`) |
 | `electron/src/libraryDirs.ts` | Validating and comparing library folders, provisional cleanup choices (tests in `electron/test/`) |
+| `electron/src/windowFrame.ts` | Frame per platform, menus, starting colours, and where the main window opens and how its state is saved |
+| `electron/src/windowState.ts` | The main window's saved bounds: validation and where it reopens (tests in `electron/test/`) |
+| `electron/src/updater.ts` | Wires electron-updater to the state the UI shows; install stops the backend first |
+| `electron/src/updatePolicy.ts` | Update rules: install or notify per platform, the feed override, the state's shape (tests in `electron/test/`) |
 | `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
 | `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, foreign-entry detection, path comparison (tests in `electron/test/`, run with `npm run test:electron`) |
 | `electron/loading.html` | Startup / error page shown until the sidecar serves the UI, and during an in-window restart; fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |

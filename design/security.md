@@ -173,6 +173,7 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 
 | Scanner | Finding | Why accepted |
 |---|---|---|
+| Opengrep `httpsconnection-detected` | `http.client.HTTPSConnection` in `backend/app/services/update_check.py` (`# nosemgrep`) | An audit rule that flags every `HTTPSConnection`, for Python versions that didn't verify certificates. On 3.12 it does, and the call passes `ssl.create_default_context()` (certificate and host name checked; a unit test asserts it). It replaced `urllib.request.urlopen`, whose rules flag that urllib also opens `file://`; the host and path here are constants. |
 | bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
 | npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4. |
 | npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` 3 → `app-builder-lib` | Build-time only (roarr formats its own log messages); no patched `sprintf-js`. electron-builder 27 moves to `@electron/get` 5 and drops the chain; it is still alpha. |

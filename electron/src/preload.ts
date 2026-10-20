@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 // Types only: a sandboxed preload can't load local modules.
 import type { DefaultDirs, FolderKind, LibraryDirs } from './libraryDirs'
 
@@ -34,6 +34,16 @@ try {
 } catch {
   // Main process unavailable: the UI falls back to its localStorage
 }
+
+// Zoom (frontend/src/lib/zoom.ts): a percentage display choice, applied here so the page
+// paints at it from the start. A sandboxed preload can't import shared modules, hence the
+// key (ZOOM_STORAGE_KEY there) and range here.
+function zoomFactor(percent: unknown): number | null {
+  const value = Number(percent)
+  return Number.isFinite(value) && value >= 50 && value <= 300 ? value / 100 : null
+}
+const savedZoom = zoomFactor(displayPrefs['scene-atlas-zoom'])
+if (savedZoom !== null) webFrame.setZoomFactor(savedZoom)
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -72,4 +82,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   chooseImportFolders: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-folders'),
   chooseImportFiles: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-files'),
+
+  setZoom: (percent: number): void => {
+    const factor = zoomFactor(percent)
+    if (factor !== null) webFrame.setZoomFactor(factor)
+  },
+
+  // Updates (design/electron.md#updates). The state is null before the updater exists.
+  getUpdateState: (): Promise<unknown> => ipcRenderer.invoke('updates:get-state'),
+  checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
+  setUpdateChoice: (choice: string): Promise<unknown> =>
+    ipcRenderer.invoke('updates:set-choice', choice),
+  downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('updates:download'),
+  // Quits into the installer; resolves only if there was nothing to install.
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
+  openUpdateDownload: (): Promise<void> => ipcRenderer.invoke('updates:open-download'),
+  onUpdateState: (callback: (state: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      callback(state)
+    }
+    ipcRenderer.on('updates:state', listener)
+    return () => {
+      ipcRenderer.removeListener('updates:state', listener)
+    }
+  },
 })

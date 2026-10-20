@@ -27,7 +27,7 @@ backend/
 │   │   ├── rate_limits.py        # Shared slowapi Limiter
 │   │   ├── search.py             # Image and group search, facets
 │   │   ├── settings.py           # DB-backed app settings
-│   │   ├── system.py             # Library info, delete library, reset tags
+│   │   ├── system.py             # Library info, update check status, delete library, reset tags
 │   │   └── tags.py               # Tag categories, values, packs
 │   ├── data/
 │   │   ├── grid_models/          # Grid detector v3 ONNX models (presence GBM, hex LR) + meta.json
@@ -59,6 +59,7 @@ backend/
 │   │   ├── shutdown.py           # Process-wide shutdown signal for long jobs
 │   │   ├── search_service.py     # Hybrid search, filters, facets (see search.md)
 │   │   ├── tag_packs.py          # Tag pack import
+│   │   ├── update_check.py       # Server mode: daily check for a newer release (ADR-023)
 │   │   ├── validation.py         # ZIP safety check, MIME verification
 │   │   └── video_utils.py        # Video first frame + dimensions
 │   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
@@ -148,10 +149,10 @@ Shared parameters for `/` and `/groups`:
 | GET | `/{id}/download` | Stream group as ZIP |
 | PUT | `/{id}` | Update group metadata. `images` is the list to keep: images left out are deleted |
 | DELETE | `/{id}` | Delete group |
-| POST | `/{id}/move-images` | Move images between groups |
+| POST | `/{id}/move-images` | Move some of this group's images into another group (`target_group_id`) or a new one (`new_group_name`, taking this group's author); deletes this group if it empties |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
-Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. Move and merge also give moved images the target group's author and rebuild their `search_text`. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |
@@ -219,6 +220,7 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/info` | Storage usage and library stats |
+| GET | `/updates` | The server's last update check: `status`, `current_version`, `checks_enabled`, `latest_version`, `update_available`, `release_url`, `last_checked`. Cached only; never contacts GitHub (see [Update check](#update-check)) |
 | DELETE | `/library` | Delete entire library job (rate limited: destructive) |
 | POST | `/tags/reset` | Reset tags to seed defaults (rate limited: destructive) |
 
@@ -331,6 +333,14 @@ Asyncio scheduler; each task runs in the default executor. A task stopped by shu
 | `sweep_orphaned_store_files` | 24 h | `pipeline/maintenance.py` |
 | `reconcile_vectors` | 24 h | `pipeline/vector_reconcile.py` |
 
+### Update check
+
+`services/update_check.py` ([ADR-023](decisions.md#adr-023-server-mode-update-check)). In server mode with `check_for_updates` on, an asyncio task started in the lifespan asks GitHub's `releases/latest` API for the latest release 60 s after startup and then every 24 h (the fetch runs in a thread: stdlib `http.client` to a fixed host and path, so no URL or scheme comes from data; 10 s timeout, 1 MB cap). The answer is kept in memory; `GET /system/updates` only reads it, so users can't spend the server's unauthenticated GitHub rate limit. Otherwise (desktop sidecar, `CHECK_FOR_UPDATES=false`) no request is ever made and the status is `disabled`; Electron has its own updater ([electron.md](electron.md#updates)).
+
+- **Versions.** `parse_version` accepts `1.2.3`, `1.2.3-pre.1` (semver) and `1.2.3b1` / `rc1` / `a1` (PEP 440), with an optional leading `v`. Only the release numbers and whether it is a prerelease are kept. A stable release is newer if its numbers are higher, or equal to a running prerelease's. Prereleases (and drafts) from GitHub are never offered. A running version that doesn't parse (a dev build such as `1.2.3.dev4+g…`) is `unknown` and never compared.
+- **Failures.** 404 (no release published yet, or a private repository) is a successful check with no latest version. Timeouts, offline / air-gapped hosts, rate limiting (403/429) and malformed responses keep the last good result; the first failure of a streak logs a warning, later ones log at debug. A newer version is logged once at info.
+- **URLs.** `release_url` is built from the parsed numbers (`…/releases/tag/v<x.y.z>`), never from response text, else the releases list, like `releasePageUrl` in `electron/src/updatePolicy.ts`. The frontend also accepts only URLs under our releases.
+
 ## Configuration
 
 Two sources:
@@ -343,6 +353,7 @@ Two sources:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `app_mode` | `server` | `app` when run as the Electron sidecar |
+| `check_for_updates` | `True` | Server mode only: daily update check against GitHub ([Update check](#update-check)); `False` makes no request. Tests and E2E set it off |
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
@@ -378,7 +389,7 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
 2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
 3. Library check (`check_library`, [storage.md](storage.md#library-identity)): reads the database (read-only), the store's marker and the linked folder setting, and refuses with `LibraryMismatchError` (logged as `STARTUP ERROR: …`, locks released) if the folders don't belong to one library. Nothing is created before it passes.
-4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head).
+4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head). Pending migrations are preceded by a SQLite snapshot in `backups/pre-migration/`; if it fails, startup stops unmigrated ([storage.md](storage.md#backups)).
 5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked. `reconcile_linked_source()` brings the linked folder's row in line with the configuration (online, offline or detached).
 6. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
 7. Set `settings.vector_size` from the model manifest.
@@ -386,10 +397,10 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 9. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
 10. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`. With a linked folder configured, start its first scan and the rescan timer task.
 11. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-12. Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
+12. Start the update checker (server mode with `check_for_updates`; first check after 60 s, never blocking startup). Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
 13. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat and the rescan timer → `request_shutdown()` (long jobs stop at their next batch boundary) → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
+Shutdown: cancel heartbeat and the rescan timer → `request_shutdown()` (long jobs stop at their next batch boundary) → stop the update checker → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 

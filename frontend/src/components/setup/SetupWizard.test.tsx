@@ -142,6 +142,9 @@ describe('SetupWizard', () => {
         getStorageDirs: vi.fn().mockResolvedValue({ ...DIRS, linked: null, defaults: DIRS }),
         chooseFolder: vi.fn(),
         applyLibrary: vi.fn().mockResolvedValue({ error: null, restarted: false }),
+        // Appearance also offers how the app updates
+        getUpdateState: vi.fn().mockResolvedValue(null),
+        onUpdateState: vi.fn(() => () => {}),
       }) as unknown as Window['electronAPI']
 
     afterEach(() => {

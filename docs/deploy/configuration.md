@@ -41,6 +41,14 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
 
+### Updates
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHECK_FOR_UPDATES` | `true` | Server mode: ask GitHub (`api.github.com`) for the latest Scene Atlas release a minute after startup and then once a day, and show it to everyone in **Settings**. `false` makes no request. The desktop app ignores it and has its own setting |
+
+The check sends no library data; GitHub sees the server's IP address and its Scene Atlas version (in the `User-Agent`).
+
 ### Authentication
 
 Scene Atlas has **no built-in authentication**. In server mode, anyone who can reach the port has full access, including deleting the library. Run it only behind a reverse proxy that authenticates users (basic auth, forward-auth, or an OAuth proxy) and never expose it directly to the internet. See [Docker Server: Reverse Proxy](/deploy/server#reverse-proxy).

@@ -9,6 +9,8 @@ import {
 } from './displayPrefs.ts'
 import type { DefaultDirs, LibraryDirs } from './libraryDirs.ts'
 import { isAbsolutePath, pathFor } from './storageDirs.ts'
+import { savedUpdateChoice, type UpdateChoice } from './updatePolicy.ts'
+import { sanitizeWindowState, type WindowState } from './windowState.ts'
 
 export interface AppConfig {
   appDataDir: string
@@ -24,6 +26,10 @@ export interface AppConfig {
   displayPrefs?: DisplayPrefs
   /** The UI's last background and text colours, for the window and title bar at launch */
   windowColors?: WindowColors
+  /** The main window's last size, position and maximised state (windowState.ts) */
+  windowState?: WindowState
+  /** How the app updates itself (updatePolicy.ts); absent until the user chooses */
+  updateChoice?: UpdateChoice
 }
 
 /**
@@ -61,6 +67,9 @@ export function parseConfig(
   if (typeof imageLibraryDir !== 'string' || !imageLibraryDir) return null
   const provisional = parsed.provisional === true
   const windowColors = sanitizeWindowColors(parsed.windowColors)
+  const windowState = sanitizeWindowState(parsed.windowState)
+  // 0.1.x saved checkForUpdates instead; it is dropped the next time the config is saved.
+  const updateChoice = savedUpdateChoice(parsed)
   return {
     config: {
       appDataDir,
@@ -71,6 +80,8 @@ export function parseConfig(
         typeof parsed.libraryChosen === 'boolean' ? parsed.libraryChosen : !provisional,
       displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
       ...(windowColors ? { windowColors } : {}),
+      ...(windowState ? { windowState } : {}),
+      ...(updateChoice ? { updateChoice } : {}),
     },
     migrated: false,
   }

@@ -180,7 +180,9 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
     if source is None:
         return LinkedRemoved(removed=0)
     if get_linked_scanner().running:
-        raise HTTPException(status_code=409, detail="Your images folder is being checked; try again")
+        raise HTTPException(
+            status_code=409, detail="Your images folder is being checked; try again"
+        )
     for job in open_linked_jobs(db, source.id):
         q.cancel_job(db, job.id)
     if linked_jobs_busy(db, source.id):

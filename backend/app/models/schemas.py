@@ -338,10 +338,22 @@ class GroupMergeResponse(BaseModel):
 
 
 class MoveImagesRequest(BaseModel):
-    """Move specific images from one group to another."""
+    """Move specific images from one group to another: an existing group
+    (``target_group_id``) or a new one (``new_group_name``), exactly one."""
 
-    target_group_id: int
-    image_ids: list[int]
+    target_group_id: int | None = None
+    new_group_name: str | None = Field(default=None, min_length=1, max_length=255)
+    image_ids: list[int] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "MoveImagesRequest":
+        if self.new_group_name is not None:
+            self.new_group_name = self.new_group_name.strip()
+            if not self.new_group_name:
+                raise ValueError("new_group_name is blank")
+        if (self.target_group_id is None) == (self.new_group_name is None):
+            raise ValueError("send exactly one of target_group_id and new_group_name")
+        return self
 
 
 class MoveImagesResponse(BaseModel):
@@ -349,6 +361,7 @@ class MoveImagesResponse(BaseModel):
 
     source_group_id: int
     target_group_id: int
+    target_group_name: str
     images_moved: int
     source_group_deleted: bool
 
@@ -588,3 +601,27 @@ class LibraryScanStarted(BaseModel):
 
 class LinkedRemoved(BaseModel):
     removed: int
+
+
+# Updates (server mode, ADR-023)
+
+
+# disabled: no checks (desktop app, or CHECK_FOR_UPDATES=false); pending: no check has
+# succeeded yet; up_to_date: no newer release, or none published yet; available:
+# latest_version is newer; unknown: the running version isn't a release (a dev build), so
+# it isn't compared
+UpdateStatusKind = Literal["disabled", "pending", "up_to_date", "available", "unknown"]
+
+
+class UpdateCheckResponse(BaseModel):
+    """The server's last update check (``GET /system/updates``). Never triggers a check."""
+
+    status: UpdateStatusKind
+    current_version: str
+    checks_enabled: bool
+    latest_version: str | None
+    update_available: bool
+    # The latest release's page, or the releases list when there isn't one
+    release_url: str
+    # When a check last succeeded
+    last_checked: datetime | None

@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { filenameStem } from '@/lib/format'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { MoveImageDialog } from '@/components/MoveImageDialog'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 import { useModalLayer } from '@/components/ui/modalLayer'
 import { useSceneFilters } from '@/hooks/useSceneFilters'
@@ -77,6 +78,7 @@ export function ImageViewer({
   const [editingName, setEditingName] = useState(false)
   const [editingSubgroup, setEditingSubgroup] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [moving, setMoving] = useState(false)
   // Grid overlay stays on across images until turned off, and is remembered on this device
   const [showGrid, setShowGrid] = useState(() => {
     try {
@@ -241,6 +243,7 @@ export function ImageViewer({
             <ViewerToolbar
               image={img}
               onEditGroup={onEditGroup}
+              onMove={() => setMoving(true)}
               onDelete={() => setConfirmingDelete(true)}
               onClose={onClose}
             />
@@ -325,6 +328,9 @@ export function ImageViewer({
         onConfirm={() => deleteMutation.mutate()}
         isLoading={deleteMutation.isPending}
       />
+
+      {/* Stays open on the image: it now shows its new group */}
+      <MoveImageDialog image={moving ? img : null} onClose={() => setMoving(false)} />
     </div>,
     document.body,
   )

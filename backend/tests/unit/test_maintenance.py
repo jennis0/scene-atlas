@@ -67,8 +67,8 @@ class TestRotateBackups:
         root = tmp_path / "backups"
         root.mkdir()
         # Enough valid dirs to trigger rotation
-        for i in range(10):
-            _make_backup_dir(root, f"2024010{i}_120000" if i < 10 else "20240110_120000")
+        for day in range(1, 11):
+            _make_backup_dir(root, f"202401{day:02d}_120000")
         # Add one with an invalid name
         invalid = _make_backup_dir(root, "unknown_backup_dir")
 
@@ -77,20 +77,44 @@ class TestRotateBackups:
         # Invalid-name dir must still be there
         assert invalid.exists()
 
+    def test_other_dirs_take_no_daily_slot(self, tmp_path):
+        """pre-migration/ (and any non-timestamp name) sorts after the dates in reverse
+        order; it must neither be deleted nor push a real backup out of a daily slot."""
+        root = tmp_path / "backups"
+        root.mkdir()
+        for day in range(1, 6):
+            _make_backup_dir(root, f"202401{day:02d}_000000")
+        others = [_make_backup_dir(root, n) for n in ("pre-migration", "zz", "2024_notes")]
+        (root / "readme.txt").write_text("left alone")
+
+        deleted = rotate_backups(root, keep_daily=3, keep_weekly=0)
+
+        assert deleted == 2
+        remaining = {d.name for d in root.iterdir()}
+        assert remaining == {
+            "20240103_000000",
+            "20240104_000000",
+            "20240105_000000",
+            "pre-migration",
+            "zz",
+            "2024_notes",
+            "readme.txt",
+        }
+        assert all(d.exists() for d in others)
+
     def test_weekly_retention_keeps_one_per_week(self, tmp_path):
         root = tmp_path / "backups"
         root.mkdir()
-        # Create 14 daily backups — 2 weeks worth
+        # 14 daily backups — 2 weeks worth (2024-01-01 .. 2024-01-14)
         for day in range(1, 15):
-            _make_backup_dir(
-                root, f"20240{day:02d}01_000000" if day <= 9 else f"20241{day - 9:02d}01_000000"
-            )
+            _make_backup_dir(root, f"202401{day:02d}_000000")
 
         deleted = rotate_backups(root, keep_daily=3, keep_weekly=2)
-        remaining = list(root.iterdir())
-        # keep_daily=3 + keep_weekly=2 → at most 5 kept, rest deleted
-        assert deleted >= 1
-        assert len(remaining) <= 5
+
+        # Daily: 14, 13, 12. Weekly: 11, then 4 (the first a full week older).
+        remaining = {d.name for d in root.iterdir()}
+        assert remaining == {f"202401{day:02d}_000000" for day in (14, 13, 12, 11, 4)}
+        assert deleted == 9
 
     def test_all_fit_in_keep_daily_nothing_deleted(self, tmp_path):
         root = tmp_path / "backups"

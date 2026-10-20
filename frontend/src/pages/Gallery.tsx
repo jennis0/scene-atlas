@@ -6,6 +6,7 @@ import { searchApi } from '@/lib/api'
 import { QUERY_KEYS } from '@/lib/queryKeys'
 import type { SeedImage } from '@/types'
 import { ImageGrid } from '@/components/ImageGrid'
+import type { ImageCardActions } from '@/components/ImageCardMenu'
 import { GroupGrid } from '@/components/GroupGrid'
 import { ImageViewer } from '@/components/ImageViewer'
 import { ImportDialog } from '@/components/imports/ImportDialog'
@@ -15,6 +16,7 @@ import { ActivityDock } from '@/components/ActivityDock'
 const EditGroupDialog = lazy(() => import('@/components/EditGroupDialog'))
 import { TagManagementDialog } from '@/components/TagManagementDialog'
 import { MergeGroupPicker } from '@/components/MergeGroupPicker'
+import { MoveImageDialog } from '@/components/MoveImageDialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { LibraryInfoDialog } from '@/components/LibraryInfoDialog'
 import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
@@ -36,7 +38,18 @@ export function Gallery() {
   const queryClient = useQueryClient()
   const search = useGallerySearch()
   const dialogs = useGalleryDialogs(search.displayImages)
-  const { openImport, setReviewGroupIds } = dialogs
+  const { openImport, setReviewGroupIds, setEditGroupId, setMoveImage, setDeleteConfirmImage } =
+    dialogs
+
+  // Stable, so the virtualised grid's tiles don't re-render for it
+  const imageActions = useMemo<ImageCardActions>(
+    () => ({
+      onEditGroup: (image) => image.group_id !== null && setEditGroupId(image.group_id),
+      onMove: setMoveImage,
+      onDelete: setDeleteConfirmImage,
+    }),
+    [setEditGroupId, setMoveImage, setDeleteConfirmImage],
+  )
 
   // Memoize seedImages so useEditGroupLoad doesn't re-fire on every render
   const seedImages = useMemo(
@@ -256,6 +269,7 @@ export function Gallery() {
               images={search.displayImages}
               tileWidth={tileWidth}
               onImageClick={(image, index) => dialogs.setSelectedImage({ image, index })}
+              actions={imageActions}
             />
           </div>
         ) : (
@@ -418,6 +432,22 @@ export function Gallery() {
         excludeGroupId={dialogs.mergeSourceGroup?.groupId}
         currentGroupName={dialogs.mergeSourceGroup?.baseName}
         onMergeComplete={() => dialogs.setMergeSourceGroup(null)}
+      />
+
+      <MoveImageDialog image={dialogs.moveImage} onClose={() => dialogs.setMoveImage(null)} />
+
+      <ConfirmDialog
+        open={dialogs.deleteConfirmImage !== null}
+        onOpenChange={(v) => !v && dialogs.setDeleteConfirmImage(null)}
+        title="Delete Image"
+        description={
+          <>
+            Permanently delete <strong>{dialogs.deleteConfirmImage?.name}</strong>? This cannot be
+            undone.
+          </>
+        }
+        onConfirm={dialogs.handleImageDeleteConfirm}
+        isLoading={dialogs.deleting}
       />
     </div>
   )

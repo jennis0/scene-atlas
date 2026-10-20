@@ -1,12 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  IpcMainInvokeEvent,
-  nativeTheme,
-  shell,
-} from 'electron'
+import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, nativeTheme, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
@@ -40,10 +32,20 @@ import {
   provisionalDirsToDelete,
   removeProvisionalDirs,
   unavailableLinkedError,
-  type FolderKind,
   type LibraryDirs,
 } from './libraryDirs'
 import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
+import { pickImportPaths, pickLibraryFolder } from './pickers'
+import { Updater } from './updater'
+import { parseUpdateChoice, type UpdateState } from './updatePolicy'
+import {
+  frameOptions,
+  mainWindowPlacement,
+  rememberWindowState,
+  removeMenu,
+  setMacMenu,
+  setTitleBarColors,
+} from './windowFrame'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -64,6 +66,7 @@ let sidecarProcess: ChildProcess | null = null
 let currentDirs: LibraryDirs | null = null
 // The running restartBackend(): nothing else may start a backend until it settles.
 let restarting: Promise<void> | null = null
+let updater: Updater | null = null
 
 // The packaged UI is served by the sidecar, so its origin is the backend's.
 let backendOrigin: string | null = null
@@ -82,34 +85,6 @@ if (isWindows) app.setAppUserModelId('com.sceneatlas.app')
 const hasInstanceLock = app.requestSingleInstanceLock()
 if (!hasInstanceLock) {
   app.quit()
-}
-
-// Window helpers
-
-/** The colours a new window starts in: the UI's last reported ones, else the navy palette's
- * page background and text (frontend/src/index.css) for the current light/dark. */
-function windowColors(): { background: string; foreground: string } {
-  const saved = loadConfig()?.windowColors
-  if (saved) return saved
-  return nativeTheme.shouldUseDarkColors
-    ? { background: '#0e1118', foreground: '#ede8dc' }
-    : { background: '#eee9e2', foreground: '#2b2622' }
-}
-
-/** Borderless window config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
-function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
-  const { background, foreground } = windowColors()
-  return {
-    backgroundColor: background,
-    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(!isMac && {
-      titleBarOverlay: {
-        color: background,
-        symbolColor: foreground,
-        height: 32,
-      },
-    }),
-  }
 }
 
 const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
@@ -154,49 +129,6 @@ function hardenWindow(win: BrowserWindow): void {
     })
   }
 }
-
-async function pickDirectory(
-  win: BrowserWindow | null,
-  title: string,
-  defaultPath?: string,
-): Promise<string | null> {
-  const options: Electron.OpenDialogOptions = {
-    title,
-    // Electron 43+ opens dialogs in Downloads unless given a starting folder.
-    defaultPath: defaultPath ?? app.getPath('home'),
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Select Folder',
-  }
-  const result = win
-    ? await dialog.showOpenDialog(win, options)
-    : await dialog.showOpenDialog(options)
-  return result.canceled ? null : result.filePaths[0]
-}
-
-const FOLDER_PICKER_TITLES: Record<FolderKind, string> = {
-  appData: 'Choose Search Data Folder',
-  store: 'Choose Imported Images Folder',
-  linked: 'Choose Your Images Folder',
-}
-
-/** Files and folders to import (design/local-ingest.md). Empty when cancelled. */
-async function pickImportPaths(win: BrowserWindow | null, kind: 'folders' | 'files') {
-  const options: Electron.OpenDialogOptions =
-    kind === 'folders'
-      ? { title: 'Import folders', properties: ['openDirectory', 'multiSelections'] }
-      : {
-          title: 'Import files',
-          properties: ['openFile', 'multiSelections'],
-          filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
-        }
-  options.buttonLabel = 'Import'
-  const result = win
-    ? await dialog.showOpenDialog(win, options)
-    : await dialog.showOpenDialog(options)
-  return result.canceled ? [] : result.filePaths
-}
-
-const IMPORT_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'zip']
 
 // IPC
 
@@ -249,20 +181,15 @@ handleTrusted('window:set-colors', (event, raw) => {
   const colors = sanitizeWindowColors(raw)
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!colors || !win) return
-  win.setBackgroundColor(colors.background)
-  if (!isMac) win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
+  setTitleBarColors(win, colors.background, colors.foreground)
   const saved = loadConfig()?.windowColors
   if (saved?.background !== colors.background || saved?.foreground !== colors.foreground) {
     updateConfig({ windowColors: colors })
   }
 })
 
-handleTrusted('imports:choose-folders', (event) =>
-  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'folders'),
-)
-handleTrusted('imports:choose-files', (event) =>
-  pickImportPaths(BrowserWindow.fromWebContents(event.sender), 'files'),
-)
+handleTrusted('imports:choose-folders', (event) => pickImportPaths(event.sender, 'folders'))
+handleTrusted('imports:choose-files', (event) => pickImportPaths(event.sender, 'files'))
 
 // The library's folders (design/library-setup.md): the setup wizard's library step and
 // Settings choose them; the backend checks them (POST /library/inspect) before they're applied.
@@ -276,11 +203,7 @@ handleTrusted('library:get-dirs', () => {
 handleTrusted('library:choose-folder', (event, kind, current) => {
   if (!isFolderKind(kind)) throw new Error('Invalid folder kind')
   const start = isAbsolutePath(current) ? current : (currentDirs?.[kind] ?? undefined)
-  return pickDirectory(
-    BrowserWindow.fromWebContents(event.sender),
-    FOLDER_PICKER_TITLES[kind],
-    start,
-  )
+  return pickLibraryFolder(event.sender, kind, start)
 })
 
 // Resolves only when the folders are rejected or nothing changed. Otherwise the backend
@@ -320,15 +243,46 @@ handleTrusted('library:apply', (_event, raw) => {
   return new Promise(() => {})
 })
 
+// Updates (design/electron.md#updates)
+
+handleTrusted('updates:get-state', () => updater?.getState() ?? null)
+handleTrusted('updates:check', () => updater?.check() ?? null)
+handleTrusted('updates:set-choice', (_event, raw) => {
+  const choice = parseUpdateChoice(raw)
+  if (!choice || !updater) return updater?.getState() ?? null
+  updateConfig({ updateChoice: choice })
+  return updater.setChoice(choice)
+})
+handleTrusted('updates:download', () => updater?.download() ?? null)
+// Doesn't resolve when the installer starts: the app quits.
+handleTrusted('updates:install', () => updater?.install())
+handleTrusted('updates:open-download', () => updater?.openDownload())
+
+function broadcastUpdateState(state: UpdateState): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('updates:state', state)
+  }
+}
+
+function startUpdater(): void {
+  const logPath = path.join(app.getPath('userData'), 'updater.log')
+  rotateLog(logPath)
+  updater = new Updater({
+    choice: loadConfig()?.updateChoice ?? null,
+    logPath,
+    stopBackend: () => stopSidecar(QUIT_GRACE_MS),
+    onChange: broadcastUpdateState,
+  })
+  updater.start()
+}
+
 // Windows
 
 function createMainWindow(): BrowserWindow {
+  const placement = mainWindowPlacement()
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
-    ...borderlessOptions(),
+    ...placement.bounds,
+    ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -336,8 +290,11 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
     },
   })
+  if (placement.maximized) win.maximize()
 
   hardenWindow(win)
+  removeMenu(win)
+  rememberWindowState(win)
 
   win.webContents.on('did-finish-load', () => {
     if (backendError !== null) sendBackendError(win)
@@ -626,7 +583,10 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(() => {
-  if (hasInstanceLock) start()
+  if (!hasInstanceLock) return
+  setMacMenu()
+  startUpdater()
+  start()
 })
 
 app.on('window-all-closed', () => {

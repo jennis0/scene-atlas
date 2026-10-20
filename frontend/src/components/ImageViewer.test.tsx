@@ -17,6 +17,11 @@ vi.mock('@/lib/api', () => ({
     addToImage: vi.fn().mockResolvedValue(undefined),
     removeTag: vi.fn().mockResolvedValue(undefined),
   },
+  groupApi: {
+    search: vi.fn().mockResolvedValue({ groups: [], total: 0 }),
+    moveImages: vi.fn(),
+  },
+  getThumbnailUrlById: vi.fn((id: number) => `/thumb/${id}`),
   getImageUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/file`),
   getThumbnailUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/thumbnail`),
   getGroupDownloadUrl: vi.fn((id: number) => `/api/v1/groups/${id}/download`),
@@ -139,6 +144,15 @@ describe('ImageViewer', () => {
       await user.click(screen.getByTitle('Remove biome: forest'))
       await waitFor(() => expect(tagApi.removeTag).toHaveBeenCalled())
       expect(vi.mocked(tagApi.removeTag).mock.calls[0][0]).toBe(55)
+    })
+
+    it('opens the move dialog from its toolbar button', async () => {
+      const { user } = setup(makeImage())
+      await user.click(screen.getByRole('button', { name: 'Move to another group' }))
+      expect(await screen.findByText('Move to Group')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /New group: Forest Pack Forest Clearing/ }),
+      ).toBeInTheDocument()
     })
 
     it('calls onEditGroup with the group id', async () => {

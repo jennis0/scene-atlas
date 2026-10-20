@@ -142,13 +142,42 @@ async function freePort(): Promise<number> {
   });
 }
 
+/** The packaged app checks GitHub for updates, and on Windows installs one on quit. Tests
+ * point it at a closed loopback port instead, so a check fails at once and nothing is
+ * downloaded; the upgrade test passes its own feed. */
+const NO_UPDATES = { SCENE_ATLAS_UPDATE_FEED: "http://127.0.0.1:9/" };
+
+export interface LaunchOptions {
+  /** Another build of the app, e.g. an installed copy (default: the unpacked build) */
+  exe?: string;
+  env?: Record<string, string>;
+}
+
+/**
+ * Without FUSE (WSL, containers), an AppImage runs with APPIMAGE_EXTRACT_AND_RUN=1, but
+ * then its runtime doesn't set APPIMAGE, so the app takes itself for an unpacked build
+ * and only notifies of updates. Set it as the FUSE runtime would.
+ */
+function appImageEnv(exe: string): Record<string, string> {
+  if (!exe.endsWith(".AppImage") || process.env.APPIMAGE_EXTRACT_AND_RUN !== "1") return {};
+  return { APPIMAGE: path.resolve(exe) };
+}
+
 /** Start the app on a profile; resolves once its DevTools endpoint accepts a connection. */
-export async function launch(profile: Profile, extraArgs: string[] = []): Promise<RunningApp> {
+export async function launch(
+  profile: Profile,
+  extraArgs: string[] = [],
+  options: LaunchOptions = {},
+): Promise<RunningApp> {
   const cdpPort = await freePort();
+  const exe = options.exe ?? appExecutable();
   const child = spawn(
-    appExecutable(),
+    exe,
     [`--user-data-dir=${profile.userData}`, `--remote-debugging-port=${cdpPort}`, ...extraArgs],
-    { stdio: "ignore", env: { ...process.env, ...defaultFolderEnv(profile) } },
+    {
+      stdio: "ignore",
+      env: { ...process.env, ...NO_UPDATES, ...appImageEnv(exe), ...defaultFolderEnv(profile), ...options.env },
+    },
   );
   let exited = false;
   child.once("exit", () => (exited = true));

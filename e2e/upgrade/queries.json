@@ -1,0 +1,17 @@
+{
+  "semanticDefaults": { "top": 5, "minShared": 4 },
+  "semantic": [
+    { "query": "dark cave with water" },
+    { "query": "forest clearing at night" },
+    { "query": "snowy mountain pass" },
+    { "query": "tavern interior with tables" },
+    { "query": "city streets and rooftops" },
+    { "query": "desert ruins" },
+    { "query": "ship deck at sea" },
+    { "query": "dungeon corridors lit by torches" },
+    { "query": "a portrait of a character" }
+  ],
+  "hybrid": ["Hydra", "Astral", "cave", "forest", "temple"],
+  "text": ["Hydra", "Astral"],
+  "derived": { "authors": 5, "tags": 10, "groupNames": 10 }
+}

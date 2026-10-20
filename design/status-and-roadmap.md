@@ -1,6 +1,6 @@
 # Scene Atlas: Status and Roadmap
 
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-19
 
 This is the single source of truth for what exists, what is in progress and what is outstanding. Architecture detail lives in the docs linked from [README.md](README.md).
 
@@ -37,12 +37,13 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-so400m, 1152-d). [onnx-int8-quantisation.md](onnx-int8-quantisation.md) |
 | Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelStep.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
 | GPU acceleration | `backend/app/services/ort_providers.py`, `clip_service.py` | `inference_device=auto`; CUDA / DirectML / CoreML / CPU. [gpu-acceleration.md](gpu-acceleration.md) |
-| Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. No built-in auto-updater. [electron.md](electron.md) |
+| Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. Updates via electron-updater: installs on Windows and AppImage, notifies on macOS and .deb (ADR-021); the user chooses Automatic, Ask first (default) or Off (ADR-025). [electron.md](electron.md#updates) |
+| Server update check | `backend/app/services/update_check.py`, `GET /api/v1/system/updates`, `frontend/src/components/settings/UpdatesSection.tsx` | Server mode: daily GitHub check, Settings shows the version and a newer release; `CHECK_FOR_UPDATES=false` turns it off (ADR-023). [backend.md](backend.md#update-check) |
 | Maintenance | `backend/app/services/scheduler.py`, `backend/pipeline/maintenance.py`, `ingest_maintenance.py`, `vector_reconcile.py` | Daily backups, 6-hourly ingest cleanup, orphan sweep, vector reconciliation |
 | Concurrency control | `backend/app/services/prepare_pool.py`, `memory_budget.py`, `api/dependencies.py` | [resource-management.md](resource-management.md) |
 | Security hardening | `backend/app/main.py` (`SecurityHeadersMiddleware`), `backend/app/api/rate_limits.py` | Security headers, rate limits, CORS warning. No built-in authentication. [security.md](security.md) |
 | Checks | `.husky/pre-push`, `.github/workflows/ci.yml`, `.github/workflows/release.yml` | Lint + unit tests pre-push; security, integration and frontend build on PRs; manual release with cross-platform tests, E2E and builds. [testing.md](testing.md) |
-| Release builds | `.github/workflows/release.yml`, `scripts/build/` | Windows x64 (DirectML), macOS arm64, Linux x64 |
+| Release builds | `.github/workflows/release.yml`, `release-published.yml`, `scripts/build/`, `scripts/release/` | Windows x64 (DirectML), macOS arm64, Linux x64, and a CPU Docker image on GHCR (amd64). Version in the repo, draft releases (ADR-024). [releasing.md](releasing.md) |
 
 ## In progress
 
@@ -57,8 +58,11 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Item | Notes | Priority |
 |---|---|---|
 | Sidecar size | Windows (2026-10-19): sidecar 610 MB, installer 243 MB ([electron.md](electron.md#build--packaging) has the breakdown and what was cut); Linux ~810 MB before those cuts (2026-10-18), and keeps pyarrow's Flight/Substrait/S3 libraries, which its pyarrow links. Biggest parts: `_lancedb.pyd` 225 MB (grows each release: 47 MB wheel at 0.30, 75 MB at 0.40), opencv 111 MB (grid v3 and video thumbnails), scipy 67 MB (grid detection's `scipy.signal` pulls in optimize and sparse; replacing `find_peaks`/`fftconvolve`/`median_filter` would drop it, at some risk to grid detection). Replacing LanceDB with brute-force numpy search was considered and rejected (2026-10-17): fast enough at 100k images (~6 ms), but re-implementing updates, per-model tables, re-embedding and reconcile isn't worth ~65 MB of download. | Low |
-| Verify the sidecar lifecycle on packaged macOS (and Linux in CI) | Windows verified 2026-10-19 by `e2e/packaged` (graceful stop, which was broken, no orphan after a kill, single instance, storage-change relaunch). The specs are cross-platform; run them on the macOS and Linux (xvfb) Release builds. Not yet covered anywhere: the loading page's message when another backend holds the storage lock. | Medium |
-| Windows code signing | Unsigned installers trigger SmartScreen; a prerequisite for any auto-updater. | Medium |
+| Verify the sidecar lifecycle on packaged macOS (and Linux in CI) | Windows verified 2026-10-19 by `e2e/packaged`, and Linux locally the same day (WSLg, all seven passing) (graceful stop, which was broken, no orphan after a kill, single instance, storage-change relaunch). The specs are cross-platform; run them on the macOS and Linux (xvfb) Release builds. Not yet covered anywhere: the loading page's message when another backend holds the storage lock. | Medium |
+| Windows code signing | Unsigned installers trigger SmartScreen on first install, and an unsigned update is only checked against the sha512 in its own release ([electron.md](electron.md#updates)). SignPath Foundation's free OSS signing is the option; set `win.signtoolOptions.publisherName` with it so electron-updater checks the publisher. | Medium |
+| Check SmartScreen on an update | Expected: only the first, manual install warns, because electron-updater's download carries no Mark-of-the-Web. Confirm with one update on a real Windows PC before going live. | High |
+| Upgrade test on Linux | Run `e2e/upgrade` on the AppImage build (xvfb, libfuse2): the AppImage installs updates too. | Medium |
+| macOS auto-install | Needs signing (below) and a `zip` mac target; then `updateModeFor` can return install on macOS. | Low |
 | macOS signing and notarization | The Release workflow signs and notarizes when the `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` secrets are set; none are yet, so the DMG is unsigned and Gatekeeper blocks first launch. Needs an Apple Developer account. | Medium |
 | Serve setup/loading pages from a custom protocol | Would let the `grantFileProtocolExtraPrivileges` fuse go off ([electron.md](electron.md#fuses)). Only `loading.html` is left now that the storage window is gone. | Low |
 | Parser: Moonlight Maps file names | `Moonlight_Maps_Demon_Skull_Desert06_25x25_72_[skull,giant,desert].jpg` keeps the DPI (`72`) and the bracketed list in the display name ("Desert 06 72 [skull,giant,desert]"). Strip the DPI after a grid size, and turn a trailing `[a,b,c]` list into tags. Found importing the demo library (design/brand.md, Screenshots). [parser.md](parser.md) | Medium |
@@ -80,8 +84,8 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Drop folder | Server-mode bulk import without the browser: a watched folder whose files are imported, then removed. Local folder import is built; the linked library is in progress ([library-setup.md](library-setup.md)). [local-ingest.md](local-ingest.md#9-feature-3-drop-folder-outline) | Low |
 | Move library | Settings only repoints folders today; the user moves files by hand. Copy, verify, switch, then remove the old copy. Due before launch (user decision 2026-10-19). | High |
-| Backups as a feature | Daily backups exist (SQLite plus a full LanceDB copy into the store) but have no restore, no UI and no pre-migration snapshot, and copy every model's vectors. Deferred from library setup (2026-10-19); design them on their own. [storage.md](storage.md#backups) | Medium |
-| Framework majors | React 19 (with @types/react 19, then React Router 8, which needs it), Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Both React 19 and Tailwind 4 need a visual pass. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
+| Backups as a feature | Daily backups exist (SQLite plus a full LanceDB copy into the store) plus a snapshot before migrations, but have no restore and no UI, and copy every model's vectors. Deferred from library setup (2026-10-19); design them on their own. [storage.md](storage.md#backups) | Medium |
+| Framework majors | Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Tailwind 4 needs a visual pass: v4 has no regex `safelist` (tag chip colours) or `<alpha-value>` (the `shade` colour), its CSS theme has no separate text-colour palette (the ink colours), it changes the default border, ring and shadow scales, and needs `tw-animate-css` in place of `tailwindcss-animate`. Dependabot ignores Tailwind 4 and tailwind-merge 3 until then. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
 
 ## Key design constraints
 

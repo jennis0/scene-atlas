@@ -13,9 +13,9 @@ See also:
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React 18 + TypeScript 6 |
+| Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 (dev server on :5173, proxies `/api` to :8000) |
-| Routing | React Router 7 (`react-router`) |
+| Routing | React Router 8 (`react-router`) |
 | Lint | ESLint 10 flat config (`eslint.config.js`) |
 | Styling | Tailwind CSS 3, tokens in `src/index.css` |
 | UI primitives | Own components in `components/ui/`; Radix only for checkbox, dropdown menu and popover |
@@ -70,9 +70,11 @@ Tests sit next to the code they cover (`*.test.ts(x)`).
 
 - **GalleryHeader** — search input, sort, view-mode toggle (individual / grouped), image-type toggle, relevance slider, filter button, import, tag management, library info, Edit All.
 - **GalleryFilterPanel / FilterMenuContent** — tag, author, colour, grid and media filters, fed by `GET /search/facets`.
-- **ImageGrid** (individual view) — virtualised grid of `SceneTile`s.
+- **ImageGrid** (individual view) — virtualised grid of `SceneTile`s. Each tile has a "..." menu (`ImageCardMenu`): Edit group, Move to group…, Download (the image), Delete.
 - **GroupGrid** (grouped view) — virtualised grid of `GroupCard`s with infinite scroll (an `IntersectionObserver` sentinel in Gallery calls `fetchNextPage`).
-- **ImageViewer** — full-screen viewer with metadata editing and a scene panel for the image's group.
+- **ImageViewer** — full-screen viewer with metadata editing and a scene panel for the image's group. Its toolbar puts group actions (Edit group, Download group) on the left and image actions (download, move, delete) as icons on the right.
+- **MoveImageDialog** — moves one image to another group or to a new group of its own, from the tile menu or the viewer. Groups are ranked by likeness to the image's name; the pinned "New group" row is named from the search text, else the image's name. No undo: moving back is the same action.
+- **CardActionsMenu** — the "..." menu shared by `GroupCard` and image tiles (their own items, then Download and Delete). The card root needs `group/card` for the hover reveal. Group pickers (merge and move) share `GroupPickerShell`, `GroupPickerResults` and `useGroupPickerSearch`.
 - **EditGroupDialog** — edit one group, or many via Edit All.
 - **ImportDialog**, **ActivityDock**, **TagManagementDialog**, **LibraryInfoDialog**, **EmptyLibraryWelcome**.
 
@@ -199,6 +201,10 @@ The CSP in `index.html` allows fonts from `'self'` only, so `vite.config.ts` nev
 ## Dialogs
 
 `components/ui/dialog.tsx` is a custom modal rendered through `createPortal` (not Radix); `confirm-dialog.tsx` builds on it. Focus handling is described in [dialog-focus-management.md](dialog-focus-management.md).
+
+## Updates
+
+`settings/UpdatesSection.tsx` (Settings → Updates) serves both modes; `UpdateNotifier.tsx` (a toast once per version) is desktop only. In the desktop app they read `useAppUpdates` (Electron's updater over IPC: automatic-check toggle, Check now, install or download; [electron.md](electron.md#updates)). In a browser they read `useServerUpdates`, which fetches `GET /system/updates` hourly with React Query: the backend's cached daily check ([backend.md](backend.md#update-check)). Server mode is read-only: the version, a status line, and when a version is out, links to its release notes and to the upgrade guide (`SERVER_UPGRADE_DOCS_URL`). There is no toggle or Check now; the admin turns checks off with `CHECK_FOR_UPDATES`, and Settings then says so. A server has no toast: most people behind its proxy can't upgrade it, so the update waits in Settings. Release links are accepted only under the project's GitHub releases.
 
 ## API Client (`lib/api/`)
 

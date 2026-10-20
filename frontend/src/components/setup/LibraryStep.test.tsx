@@ -258,8 +258,9 @@ describe('LibraryStep', () => {
     })
     const user = userEvent.setup()
     renderStep()
-    expect(await screen.findByRole('radio', { name: /Use a folder of images/ })).toBeChecked()
-    expect(screen.getByText('E:\\data')).toBeInTheDocument()
+    // The radio renders before the folders arrive; it's checked once they have
+    expect(await screen.findByText('E:\\data')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Use a folder of images/ })).toBeChecked()
     await waitFor(() => expect(continueButton()).toBeEnabled())
     await user.click(continueButton())
     expect(api.applyLibrary).toHaveBeenCalledWith({

@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend import __version__
+
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _LEGACY_LIBRARY_DIR = _REPO_ROOT / "images"
 
@@ -42,12 +44,17 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Scene Atlas"
-    app_version: str = "0.1.0"
+    app_version: str = __version__
     debug: bool = False
 
     # Deployment mode: 'app' when running as Electron desktop sidecar,
     # 'server' when running standalone via uvicorn.  Set via APP_MODE env var.
     app_mode: Literal["app", "server"] = "server"
+
+    # Server mode: ask GitHub once a day whether a newer release is out, to show in
+    # Settings (services/update_check.py). False makes no request at all. The desktop
+    # app ignores it; Electron checks for updates itself.
+    check_for_updates: bool = True
 
     # Storage roots — set via APP_DATA_DIR and IMAGE_LIBRARY_DIR env vars. With neither
     # set (development), they're data/ and images/ in the checkout; with only

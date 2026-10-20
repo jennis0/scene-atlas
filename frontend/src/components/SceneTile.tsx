@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { getThumbnailUrl } from '@/lib/api'
 import { VideoIndicator } from '@/components/ui/video-indicator'
 import { FileMissingMark } from '@/components/FileMissingMark'
@@ -17,6 +17,8 @@ export interface SceneTileProps {
   onClick: () => void
   /** When true, renders a selection ring. Default false. */
   isActive?: boolean
+  /** Actions menu for the top-right corner (a `CardActionsMenu`) */
+  menu?: ReactNode
 }
 
 export function SceneTile({
@@ -27,6 +29,7 @@ export function SceneTile({
   authorText,
   onClick,
   isActive = false,
+  menu,
 }: SceneTileProps) {
   const [loaded, setLoaded] = useState(false)
   const [errored, setErrored] = useState(false)
@@ -51,7 +54,7 @@ export function SceneTile({
   return (
     <div
       data-testid="scene-tile"
-      className={`focus-ring-within group relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
+      className={`focus-ring-within group/card relative overflow-hidden rounded-lg bg-card transition-[transform,box-shadow] duration-200 ${
         isActive
           ? 'border border-primary/60 ring-2 ring-primary/70 shadow-lg shadow-primary/15'
           : 'border border-border/30 hover:border-primary/40 hover:shadow-xl hover:shadow-shade/40'
@@ -117,6 +120,8 @@ export function SceneTile({
         onClick={onClick}
         className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
       />
+
+      {menu}
 
       {isActive && (
         <div className="absolute inset-0 ring-2 ring-inset ring-primary/40 rounded-lg pointer-events-none" />

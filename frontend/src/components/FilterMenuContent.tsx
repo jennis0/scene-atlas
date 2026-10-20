@@ -18,7 +18,7 @@
  *  Clicking an active item toggles it off (or switches mode)
  */
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, type JSX } from 'react'
 import {
   Search,
   X,

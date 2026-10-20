@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import (
     Boolean,
@@ -570,12 +571,14 @@ def init_db(engine):
       migrations have already run at startup), so we stamp at ``head`` to bring
       it under Alembic management without re-running any DDL.
     - **Alembic-managed database**: applies any pending migrations (upgrade head).
+      A file-backed SQLite database is snapshotted first
+      (``maintenance.backup_before_migration``); if that fails, this raises
+      ``MigrationBackupError`` and nothing is migrated.
     """
     # Locate alembic.ini — path differs between normal runtime and frozen binary.
     # In a PyInstaller --onedir binary sys._MEIPASS is the _internal/ directory
     # where bundled data files (including alembic.ini) are extracted.
     import sys as _sys
-    from pathlib import Path as _Path
 
     from alembic import command
     from alembic.config import Config as AlembicConfig
@@ -585,10 +588,10 @@ def init_db(engine):
     if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
         # Frozen PyInstaller binary: alembic.ini and backend/alembic/ are bundled
         # into sys._MEIPASS (_internal/).
-        root = _Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
+        root = Path(_sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue]
     else:
         # Normal dev runtime: 4 levels up from backend/app/models/database.py
-        root = _Path(__file__).parent.parent.parent.parent
+        root = Path(__file__).parent.parent.parent.parent
     alembic_cfg = AlembicConfig(str(root / "alembic.ini"))
     # Absolute, because Alembic resolves a relative script_location against the CWD,
     # not the config file. Setting it also parses alembic.ini, which has to happen
@@ -598,6 +601,13 @@ def init_db(engine):
     # replace the root logger's handlers and remove our rotating file handler.
     # Logging is managed entirely by setup_logging() in logging_config.py.
     alembic_cfg.config_file_name = None
+
+    # Snapshot before the migration transaction opens: migrations are one-way, so the
+    # snapshot is the only way back to the previous app version with this data.
+    with engine.connect() as conn:
+        current_rev = MigrationContext.configure(conn).get_current_revision()
+    if current_rev is not None:
+        _backup_before_pending_migrations(engine, alembic_cfg, current_rev)
 
     with engine.begin() as conn:
         # env.py migrates on this connection, not on a URL: Alembic's Config is a
@@ -620,6 +630,46 @@ def init_db(engine):
             # Already Alembic-managed: apply any pending migrations.
             logger.info("Running Alembic upgrade (current: %s)", current_rev)
             command.upgrade(alembic_cfg, "head")
+
+
+class MigrationBackupError(RuntimeError):
+    """The pre-migration snapshot failed, so init_db() refused to migrate."""
+
+
+def _sqlite_file_path(engine) -> Path | None:
+    """The database file behind *engine*, or None if it isn't a file-backed SQLite."""
+    database = engine.url.database
+    if engine.url.get_backend_name() != "sqlite" or not database or database == ":memory:":
+        return None
+    return Path(database)
+
+
+def _backup_before_pending_migrations(engine, alembic_cfg, current_rev: str) -> None:
+    """Snapshot the database if Alembic is about to migrate it from *current_rev*.
+
+    Nothing to do at head, or at a revision this build doesn't know (a database
+    from a newer version: the upgrade fails anyway, and a snapshot per failed
+    start would rotate out the ones that lead back).
+    """
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(alembic_cfg)
+    head_rev = script.get_current_head()
+    if current_rev == head_rev or current_rev not in {r.revision for r in script.walk_revisions()}:
+        return
+    db_path = _sqlite_file_path(engine)
+    if db_path is None:
+        return
+
+    # Deferred, like the rest of init_db's imports: maintenance imports app config.
+    from backend.pipeline.maintenance import backup_before_migration
+
+    try:
+        backup_before_migration(db_path, current_rev, str(head_rev))
+    except Exception as exc:
+        raise MigrationBackupError(
+            f"Could not back up the database before migrating it: {exc}"
+        ) from exc
 
 
 SETUP_COMPLETED_KEY = "setup_completed_at"

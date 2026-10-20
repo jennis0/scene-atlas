@@ -6,8 +6,10 @@ import { Gallery } from './pages/Gallery'
 import ErrorBoundary from './components/ErrorBoundary'
 import { SetupWizard } from './components/setup/SetupWizard'
 import { WindowDragBar } from './components/WindowDragBar'
+import { UpdateNotifier } from './components/UpdateNotifier'
 import { modelsApi, type SetupStatus } from './lib/api/modelsApi'
 import { useTheme } from './contexts/ThemeContext'
+import { listenForZoomKeys } from './lib/zoom'
 
 /** Setup is needed until the wizard is finished, or when the model is missing and isn't
  * on its way (design/first-run.md). A download in progress shows in the gallery instead. */
@@ -36,6 +38,9 @@ function App() {
   useEffect(() => {
     checkSetupStatus()
   }, [checkSetupStatus])
+
+  // Desktop: Ctrl + / − / 0 zoom on every screen, setup included.
+  useEffect(() => listenForZoomKeys(), [])
 
   const handleSetupComplete = useCallback(() => setGate({ kind: 'ready' }), [])
 
@@ -77,6 +82,7 @@ function App() {
           </Routes>
         </div>
       </Router>
+      <UpdateNotifier />
       {/* Outside the app root so toasts stay usable while a modal inerts the page */}
       {createPortal(
         <div data-modal-exempt="">

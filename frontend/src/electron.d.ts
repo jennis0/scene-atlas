@@ -25,6 +25,33 @@ export interface ApplyLibraryResult {
   restarted: boolean
 }
 
+/** How the desktop app updates itself: download and install on restart, say a version is
+ * out and wait for the user, or no checks of its own (electron/src/updatePolicy.ts) */
+export type UpdateChoice = 'automatic' | 'ask' | 'off'
+
+/** The desktop app's updater (electron/src/updatePolicy.ts, design/electron.md#updates) */
+export interface AppUpdateState {
+  status:
+    | 'unsupported'
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'error'
+  /** 'install' downloads and installs; 'notify' links to the download (macOS, .deb) */
+  mode: 'install' | 'notify'
+  currentVersion: string
+  /** The user's choice, or the default ('ask') until they make one */
+  choice: UpdateChoice
+  /** False until a choice is made; the app makes no checks of its own until then */
+  choiceMade: boolean
+  version?: string
+  percent?: number
+  error?: string
+}
+
 export interface ElectronAPI {
   readonly platform: 'darwin' | 'win32' | 'linux'
 
@@ -68,6 +95,23 @@ export interface ElectronAPI {
   /** Native pickers; resolve to [] when cancelled. */
   chooseImportFolders(): Promise<string[]>
   chooseImportFiles(): Promise<string[]>
+
+  // Zoom (lib/zoom.ts)
+  /** Zoom the page to this percentage (50–300) */
+  setZoom(percent: number): void
+
+  // Updates. The state is null until the updater has started.
+  getUpdateState(): Promise<AppUpdateState | null>
+  /** Check now, even when automatic checks are off */
+  checkForUpdates(): Promise<AppUpdateState | null>
+  setUpdateChoice(choice: UpdateChoice): Promise<AppUpdateState | null>
+  /** Download the version found (install mode, when the choice isn't automatic) */
+  downloadUpdate(): Promise<AppUpdateState | null>
+  /** Quit into the downloaded version's installer */
+  installUpdate(): Promise<void>
+  /** Open the new version's release page (notify mode) */
+  openUpdateDownload(): Promise<void>
+  onUpdateState(callback: (state: AppUpdateState) => void): () => void
 }
 
 declare global {

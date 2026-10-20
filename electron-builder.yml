@@ -17,7 +17,8 @@ files:
   - electron/loading.html
   - electron/fonts/**/*
   - "!**/*.map"
-  - "!**/node_modules/**"
+# Production dependencies (only electron-updater) are added from node_modules by
+# electron-builder; devDependencies never are.
 
 # The PyInstaller --onedir output is bundled as a resource directory
 # named 'sidecar'. At runtime: path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')
@@ -49,9 +50,14 @@ electronFuses:
   # serving them from a custom protocol (protocol.handle) instead.
   grantFileProtocolExtraPrivileges: true
 
-# Releases are created by the Release workflow's publish job from the build artifacts.
-# There is no auto-updater, so no update metadata (latest.yml, blockmaps) is generated.
-publish: null
+# Where the packaged app looks for updates (written into resources/app-update.yml). The
+# builds run with --publish never, so this only makes electron-builder write the update
+# metadata (latest.yml, latest-mac.yml, latest-linux.yml, blockmaps); the Release
+# workflow's publish job uploads them with the installers (design/electron.md#updates).
+publish:
+  provider: github
+  owner: jennis0
+  repo: scene-atlas
 
 # ── Windows ─────────────────────────────────────────────────────────────────
 win:
@@ -61,8 +67,6 @@ win:
 
 nsis:
   artifactName: Scene-Atlas-Setup-${version}.${ext}
-  # The .blockmap only serves differential auto-updates, which the app doesn't do.
-  differentialPackage: false
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

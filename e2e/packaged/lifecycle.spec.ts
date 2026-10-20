@@ -144,6 +144,86 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   expect(backendAppLog(profile.appData)).toContain("Shutdown complete");
 });
 
+test("zoom applies at once, follows the shortcuts and comes back at the next launch", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  // Chromium folds the zoom into devicePixelRatio.
+  const dpr = () => page.evaluate(() => window.devicePixelRatio);
+  const base = await dpr();
+
+  await page.evaluate(() => {
+    const api = (window as any).electronAPI;
+    api.setDisplayPref("scene-atlas-zoom", "150");
+    api.setZoom(150);
+  });
+  await expect.poll(dpr).toBeCloseTo(base * 1.5);
+
+  // The page handles the zoom shortcuts (lib/zoom.ts).
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+0" : "Control+0");
+  await expect.poll(dpr).toBeCloseTo(base);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+=" : "Control+=");
+  await expect.poll(dpr).toBeCloseTo(base * 1.1);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+
+  // The preload applies the saved zoom before the page paints.
+  const again = await launch(profile);
+  const relaunched = await waitForBackendUi(again.browser);
+  expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(base * 1.1);
+});
+
+test("the window opens at its saved size and saves it again on close", async () => {
+  profile = makeProfile(true);
+  // Electron's CDP can't resize a window (no Browser.setWindowBounds), so the size is
+  // seeded; electron/test/windowState.test.ts covers where it reopens. It must fit the
+  // screen, or the app shrinks it: CI's Windows runners have a work area of 1040x728.
+  const configPath = path.join(profile.userData, "scene-atlas-config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const windowState = { x: 40, y: 40, width: 960, height: 640, maximized: false };
+  fs.writeFileSync(configPath, JSON.stringify({ ...config, windowState }));
+
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  // On Windows the page's outer size includes the invisible resize borders (8 px left,
+  // right and bottom at 100% scaling, as on CI), which the window's bounds don't.
+  const border = process.platform === "win32" ? [16, 8] : [0, 0];
+  const [outerWidth, outerHeight] = await page.evaluate(() => [window.outerWidth, window.outerHeight]);
+  expect([outerWidth - border[0], outerHeight - border[1]]).toEqual([960, 640]);
+
+  await page.evaluate(() => window.close());
+  await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
+  const saved = JSON.parse(fs.readFileSync(configPath, "utf8")).windowState;
+  expect(saved).toMatchObject({ width: 960, height: 640, maximized: false });
+});
+
+test("the updater reports its version and checks the feed it is given", async () => {
+  profile = makeProfile(true);
+  const app = await launch(profile);
+  const page = await waitForBackendUi(app.browser);
+  const version = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8"),
+  ).version;
+
+  const state = await page.evaluate(() => (window as any).electronAPI.getUpdateState());
+  // A new profile hasn't chosen how to update: the default is Ask first.
+  expect(state).toMatchObject({ currentVersion: version, choice: "ask" });
+  // The unpacked build isn't an AppImage, so only Windows installs.
+  expect(state.mode).toBe(process.platform === "win32" ? "install" : "notify");
+
+  // launch() points the updater at a closed port: the check fails, and says so.
+  await page.evaluate(() => (window as any).electronAPI.checkForUpdates());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).electronAPI.getUpdateState()), {
+      timeout: 30_000,
+    })
+    .toMatchObject({ status: "error", error: "Couldn't check for updates." });
+  expect(fs.readFileSync(path.join(profile.userData, "updater.log"), "utf8")).toContain(
+    "Using the update feed http://127.0.0.1:9/",
+  );
+});
+
 test("the backend doesn't outlive a killed app", async () => {
   profile = makeProfile(true);
   const app = await launch(profile);
