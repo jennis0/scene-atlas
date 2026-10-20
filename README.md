@@ -56,7 +56,7 @@ mkdir images
 docker compose --profile cpu up -d
 ```
 
-Then open <http://localhost:8000>. Update with `docker compose pull` and the same `up`. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](https://jennis0.github.io/scene-atlas/deploy/server).
+Then open <http://localhost:8000>. Update with `docker compose --profile cpu pull` and the same `up`. Scene Atlas has no sign-in of its own, so put it behind a reverse proxy that handles sign-in before you open it up beyond your own network. See [Docker server](https://jennis0.github.io/scene-atlas/deploy/server).
 
 ## Documentation
 
