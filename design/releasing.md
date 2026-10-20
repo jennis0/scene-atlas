@@ -54,7 +54,7 @@ So no one pulls a version that hasn't been published, and the published tag is t
 
 **Runtime user.** One image serves everyone, so the user is chosen at run time: Compose runs it as `APP_UID:APP_GID` from `.env` (`user:`), and the user that must write the image bind mount is the host's. The image keeps a default `app` user (1000). `/app/data` is mode 0777 in the image, so a fresh named volume (which copies it) is writable by whatever user runs it; files inside belong to that user. `HOME=/tmp` covers libraries that cache under `~` when the user has no home. The container never runs as root. Changing `APP_UID` after the first start needs a `chown -R` of the volume (docs/deploy/server.md).
 
-`scripts/build/smoke_docker.py` runs the image as `4321:4321` on a fresh volume and fails unless `/health` reports the database as `ok`, `/` reports the release version, and the UI is served.
+`scripts/build/smoke_docker.py` runs the image as `4321:4321` on a fresh volume and fails unless `/health` reports the database as `ok`, `/` reports the release version, and the UI is served. It does that twice: with `docker run`, then through `docker-compose.yml` with only the `.env` a user would write (port, `APP_UID`, `SCENE_ATLAS_VERSION`), which checks the Compose file's own settings. v0.1.0's Compose file quoted the `CORS_ORIGINS` default inside the substitution, so the app got `'["…"]'`, couldn't parse it, and restarted forever unless `.env` set it; `docker run` never saw that.
 
 **The first push** creates the GHCR package as private. Make it public once, in the package's settings on GitHub; the `org.opencontainers.image.source` label links it to the repo.
 

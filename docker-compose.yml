@@ -36,7 +36,8 @@ x-common: &common
     APP_DATA_DIR: /app/data
     IMAGE_LIBRARY_DIR: /app/images
     APP_MODE: server
-    CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:8000"]'}
+    # Quoted as a whole: quotes inside the default would reach the app, and it isn't JSON.
+    CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:8000"]}'
     # Proxies trusted to report the client IP; set to your proxy's address as seen
     # from the container (see docs/deploy/server.md).
     FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}

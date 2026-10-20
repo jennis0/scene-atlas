@@ -504,7 +504,7 @@ jobs:
         run: docker build --build-arg "VERSION=$VERSION" --tag "$IMAGE:sha-$GITHUB_SHA" .
 
       - name: Smoke-test the image
-        run: python3 scripts/build/smoke_docker.py --image "$IMAGE:sha-$GITHUB_SHA" --version "$VERSION"
+        run: python3 scripts/build/smoke_docker.py --image "$IMAGE:sha-$GITHUB_SHA" --version "$VERSION" --compose docker-compose.yml
 
       - name: Push the image
         if: inputs.publish
