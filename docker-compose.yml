@@ -4,8 +4,12 @@
 # The frontend is built into the Docker image and served by the backend.
 #
 # Usage:
-#   docker compose --profile cpu up -d       # CPU inference
-#   docker compose --profile gpu up -d       # NVIDIA GPU inference
+#   docker compose --profile cpu up -d       # CPU inference (published image)
+#   docker compose --profile gpu up -d       # NVIDIA GPU inference (built from source)
+#
+# The CPU profile runs the image published with each release, so it needs only this file
+# and a .env. Update it with `docker compose pull` (docs/deploy/server.md#updating).
+# `docker compose --profile cpu up -d --build` builds it from a checkout instead.
 #
 # Configuration:
 #   Copy .env.example to .env and edit to customise. All variables below
@@ -21,13 +25,8 @@
 # See README.md and .env.example for full configuration reference.
 
 x-common: &common
-  build:
-    context: .
-    network: host
-    args: &common-build-args
-      # Container user; must be able to write IMAGE_DIR (run `id -u` / `id -g` on the host).
-      APP_UID: ${APP_UID:-1000}
-      APP_GID: ${APP_GID:-1000}
+  # The user the container runs as; must be able to write IMAGE_DIR (`id -u` / `id -g`).
+  user: "${APP_UID:-1000}:${APP_GID:-1000}"
   ports:
     - "${PORT:-8000}:8000"
   volumes:
@@ -43,24 +42,33 @@ x-common: &common
     FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
     DEBUG: ${DEBUG:-false}
+    # Daily check for a newer release, shown in Settings; false makes no request.
+    CHECK_FOR_UPDATES: ${CHECK_FOR_UPDATES:-true}
   restart: unless-stopped
 
 services:
   # CPU inference (default). Use: docker compose --profile cpu up -d
   scene-atlas:
     <<: *common
+    # SCENE_ATLAS_VERSION pins a release (e.g. 0.2.0); unset follows the latest one.
+    image: ghcr.io/jennis0/scene-atlas:${SCENE_ATLAS_VERSION:-latest}
+    build:
+      context: .
+      network: host
     profiles:
       - cpu
 
   # NVIDIA GPU inference. Use: docker compose --profile gpu up -d
   # Requires: nvidia-container-toolkit installed on the host.
+  # No GPU image is published: this one is always built from a checkout.
   scene-atlas-gpu:
     <<: *common
+    image: scene-atlas-gpu:local
+    pull_policy: build
     build:
       context: .
       network: host
       args:
-        <<: *common-build-args
         EXTRA: gpu
     environment:
       <<: *common-env

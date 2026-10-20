@@ -95,7 +95,15 @@ The app data directory contains the SQLite database, LanceDB vector index, and t
 
 ## Updates
 
-The app does not update itself. Download new versions from [GitHub Releases](https://github.com/jennis0/scene-atlas/releases) and install over the existing version; your data directories and settings are kept.
+Scene Atlas checks for a new version shortly after it starts and every few hours while it is open. Turn this off, or check now, in **Settings → Updates**.
+
+| Installed from | Updating |
+|---|---|
+| Windows installer (`.exe`) | Downloads in the background. **Restart to update** installs it, or it installs when you quit. |
+| Linux `.AppImage` | The same. The new version replaces the file, with the new version number in its name, so update any shortcut to it. |
+| macOS (`.dmg`), Linux `.deb` | Says a new version is out and links to its download. Install it over the existing version. |
+
+Your data directories and settings are kept, and the database is backed up before an update changes its structure. Going back to an older version means restoring that backup.
 
 ## Troubleshooting
 

@@ -1,15 +1,16 @@
 name: Release
 
-# Manual-only release pipeline. Run this against main before tagging a release.
-# Stages: full test suite → E2E → multi-platform Electron builds → publish.
+# Manual-only release pipeline (design/releasing.md).
+# Stages: version check → full test suite → E2E → Electron builds and Docker image → publish.
 #
-# Workflow:
-#   1. Merge PRs to main
-#   2. Trigger this workflow manually against main
-#   3. Wait for full tests + E2E + builds to pass
-#   4. Download and verify artifacts
-#   5. Re-run with publish=true and a version (e.g. 0.5.0); the publish job creates
-#      the GitHub Release v<version> once all three builds have passed
+# Releasing:
+#   1. Bump the version in a PR (scripts/release/release_version.py bump 0.2.0) and merge it
+#   2. Run this workflow against main with publish=true. Without it, everything runs
+#      except the publish: a check of main between releases.
+#   3. It creates a draft release v<version> from this run's own builds, and pushes the
+#      Docker image as sha-<commit>. Installed apps and `latest` ignore drafts.
+#   4. Check the draft's installers, then publish it on GitHub. Publishing tags the
+#      Docker image with the version (release-published.yml).
 
 on:
   workflow_dispatch:
@@ -18,10 +19,6 @@ on:
         description: 'Publish to GitHub Releases'
         type: boolean
         default: false
-      version:
-        description: 'Version to release (e.g. 0.5.0) — only used when publish is true'
-        type: string
-        required: false
       # The upgrade test compares search results before and after updating
       # (design/testing.md#upgrade-test). Library problems always fail it.
       accept_search_changes:
@@ -33,14 +30,54 @@ on:
         type: string
         required: false
 
-# Read-only by default; the publish job asks for what it needs.
+# Read-only by default; the publish and docker jobs ask for what they need.
 permissions:
   contents: read
 
+# One release run at a time: two could race to create the same draft.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  # ── Stage 0: The version ──────────────────────────────────────────────────
+  # Seconds, before an hour of tests and builds: the version comes from the repo
+  # (package.json and backend/__init__.py, which must agree) and, to publish, must be
+  # newer than every release tag. Publishing only happens from main.
+  preflight:
+    name: Check the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish only from main
+        if: inputs.publish && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Publish from main, not $GITHUB_REF_NAME"
+          exit 1
+
+      - name: Require a reason to accept search changes
+        if: inputs.accept_search_changes && inputs.search_change_reason == ''
+        run: |
+          echo "::error::Set search_change_reason to say why search results are expected to change"
+          exit 1
+
+      - name: Check the version
+        id: version
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=()
+          if [ "$PUBLISH" = true ]; then args=(--publish); fi
+          python3 scripts/release/release_version.py check "${args[@]}"
+
   # ── Stage 1: Full test suite ──────────────────────────────────────────────
   test-backend:
     name: Backend tests
+    needs: [preflight]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -83,6 +120,7 @@ jobs:
 
   test-frontend:
     name: Frontend tests
+    needs: [preflight]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -219,7 +257,7 @@ jobs:
   #   macOS:   onnxruntime (CoreML built-in on Apple Silicon, zero overhead)
   #   Linux:   onnxruntime (CPU only — CUDA provider too large for desktop)
   build:
-    needs: [e2e, test-cross-platform]
+    needs: [preflight, e2e, test-cross-platform]
     strategy:
       fail-fast: false
       matrix:
@@ -243,41 +281,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Require a version to publish
-        if: inputs.publish && inputs.version == ''
-        shell: bash
-        run: |
-          echo "::error::Set the version input to publish a release"
-          exit 1
-
-      - name: Require a reason to accept search changes
-        if: inputs.accept_search_changes && inputs.search_change_reason == ''
-        shell: bash
-        run: |
-          echo "::error::Set search_change_reason to say why search results are expected to change"
-          exit 1
-
-      # ── Set version from input ──────────────────────────────────────────
-      - name: Set version
-        if: inputs.publish && inputs.version != ''
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = process.env.RELEASE_VERSION;
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
-            pkg.version = process.env.RELEASE_VERSION;
-            fs.writeFileSync('frontend/package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
 
       # ── Python / uv setup ──────────────────────────────────────────────
       - name: Install uv
@@ -335,8 +338,8 @@ jobs:
         run: uv run --no-project python scripts/build/smoke_sidecar.py
 
       # ── Build Electron app ───────────────────────────────────────────────
-      # Signed (macOS) whether or not this run publishes, so the artifacts verified
-      # in a dry run are the ones that get released. Unsigned while the signing secrets
+      # Signed (macOS) whether or not this run publishes, so a run without publish
+      # builds what a release would. Unsigned while the signing secrets
       # aren't set: an unset secret arrives as an empty string, which electron-builder
       # reads as a path (CSC_LINK="" fails with "<repo> not a file"), so empty ones are
       # unset first.
@@ -390,6 +393,12 @@ jobs:
           cp dist-upgrade-old/Scene-Atlas-Setup-0.0.0.exe.blockmap dist-upgrade-feed/
           echo "UPGRADE_NEW_VERSION=$version" >> "$GITHUB_ENV"
 
+      # The encrypted test images are in Git LFS, which the checkout above leaves as a
+      # pointer file (the other builds don't need them).
+      - name: Fetch the test images for the upgrade test
+        if: matrix.platform == 'windows'
+        run: git lfs pull --include "e2e/fixtures/e2e-images.zip.enc"
+
       - name: Cache the search model for the upgrade test
         if: matrix.platform == 'windows'
         uses: actions/cache@v6
@@ -436,19 +445,54 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ── Stage 4: Publish ──────────────────────────────────────────────────────
-  # One release from all three builds, created only once every build has passed
-  # (the build matrix doesn't fail fast, so publishing from it could release a
-  # partial set). The installers go up with electron-updater's metadata, which the
-  # installed apps read to find the release (design/electron.md#updates).
+  # ── Docker image (design/releasing.md#docker-image) ──────────────────────
+  # The CPU server image, smoke-tested as an arbitrary user on a fresh volume. To publish,
+  # it is pushed as sha-<commit> only: the version and latest tags are added when the
+  # draft release is published (release-published.yml), so nothing pulls an unreleased one.
+  docker:
+    name: Docker image
+    needs: [preflight, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build --build-arg "VERSION=$VERSION" --tag "$IMAGE:sha-$GITHUB_SHA" .
+
+      - name: Smoke-test the image
+        run: python3 scripts/build/smoke_docker.py --image "$IMAGE:sha-$GITHUB_SHA" --version "$VERSION"
+
+      - name: Push the image
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+
+  # ── Stage 4: Draft release ────────────────────────────────────────────────
+  # One draft release from all three builds, created only once every build has passed
+  # (the build matrix doesn't fail fast, so publishing from it could release a partial
+  # set). The installers go up with electron-updater's metadata, which installed apps read
+  # once the draft is published (design/electron.md#updates), and the Docker Compose files
+  # for server installs (docs/deploy/server.md).
   publish:
-    name: Publish GitHub Release
-    needs: [build]
+    name: Create the draft release
+    needs: [preflight, build, docker]
     if: inputs.publish
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
       # First: checkout cleans the workspace, which would delete release/.
       - name: Checkout
@@ -467,24 +511,51 @@ jobs:
       # A mismatch between latest*.yml and the uploaded files breaks every installed
       # app's update, so it stops the release (design/testing.md#update-metadata-check).
       - name: Verify update metadata
-        env:
-          VERSION: ${{ inputs.version }}
         run: uv run --no-project --with pyyaml python scripts/release/verify_update_metadata.py --dir release --version "$VERSION"
 
-      - name: Create release
+      # Added after the check, which would read docker-compose.yml as update metadata.
+      # .env.example is renamed: GitHub doesn't keep a leading dot in an asset name.
+      - name: Add the Docker Compose files
+        run: |
+          mkdir release/compose
+          cp docker-compose.yml release/compose/docker-compose.yml
+          cp .env.example release/compose/env.example
+
+      # A re-run for the same version replaces the draft an earlier run left. A published
+      # release is never touched (the version check stops that run before it gets here).
+      - name: Replace an earlier draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"v$VERSION\" and .draft) | .id" |
+          while read -r id; do
+            echo "Deleting the earlier draft $id"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+          done
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACCEPT_SEARCH_CHANGES: ${{ inputs.accept_search_changes }}
           SEARCH_CHANGE_REASON: ${{ inputs.search_change_reason }}
         run: |
-          notes=()
+          notes="Docker: \`ghcr.io/$GITHUB_REPOSITORY:$VERSION\` ([updating a server](https://jennis0.github.io/scene-atlas/deploy/server#updating))"
           if [ "$ACCEPT_SEARCH_CHANGES" = true ]; then
-            notes=(--notes "Search results change in this release: $SEARCH_CHANGE_REASON")
+            notes+=$'\n\n'"Search results change in this release: $SEARCH_CHANGE_REASON"
           fi
-          gh release create "v$VERSION" release/*/* \
+          flags=(--draft)
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          url=$(gh release create "v$VERSION" release/*/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Scene Atlas $VERSION" \
-            "${notes[@]}" \
-            --generate-notes
+            --notes "$notes" \
+            --generate-notes \
+            "${flags[@]}")
+          {
+            echo "## Draft release v$VERSION"
+            echo
+            echo "Check the installers on [the draft]($url), then publish it."
+            echo "Publishing makes it the update for installed apps and tags the Docker image."
+          } >> "$GITHUB_STEP_SUMMARY"

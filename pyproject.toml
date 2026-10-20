@@ -1,6 +1,7 @@
 [project]
 name = "scene-atlas"
-version = "0.1.0"
+# Read from backend/__init__.py (scripts/release/bump_version.py; design/releasing.md)
+dynamic = ["version"]
 description = "Scene Atlas — tabletop RPG scene manager with semantic search"
 requires-python = ">=3.12"
 dependencies = [
@@ -81,6 +82,9 @@ sidecar = ["pyinstaller>=6.0"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "backend/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]

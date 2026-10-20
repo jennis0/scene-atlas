@@ -1,0 +1,41 @@
+name: Release published
+
+# When a draft from the Release workflow is published, its Docker image (pushed as
+# sha-<commit>) gets the version tag and, unless it's a prerelease, latest
+# (design/releasing.md#docker-image). Retagging copies no layers: it's the image the
+# Release workflow tested.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  docker-tags:
+    name: Tag the Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - name: Tag sha-<commit> with the version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # GITHUB_SHA is the commit the release's tag points at.
+        run: |
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::$TAG isn't a release tag (v1.2.3 or v1.2.3-beta.1)"
+            exit 1
+          fi
+          tags=(--tag "$IMAGE:$version")
+          if [ "$PRERELEASE" != true ]; then tags+=(--tag "$IMAGE:latest"); fi
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx imagetools create "${tags[@]}" "$IMAGE:sha-$GITHUB_SHA"
+          echo "Tagged $IMAGE:sha-$GITHUB_SHA as ${tags[*]}" >> "$GITHUB_STEP_SUMMARY"

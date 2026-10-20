@@ -18,6 +18,8 @@ _TEST_ROOT = Path(tempfile.mkdtemp(prefix="scene-atlas-tests-"))
 os.environ["APP_DATA_DIR"] = str(_TEST_ROOT / "data")
 os.environ["IMAGE_LIBRARY_DIR"] = str(_TEST_ROOT / "images")
 atexit.register(shutil.rmtree, _TEST_ROOT, ignore_errors=True)
+# Tests never contact GitHub; the update checker's own tests inject a fake fetcher.
+os.environ["CHECK_FOR_UPDATES"] = "false"
 
 import pytest
 from PIL import Image as PILImage

@@ -38,6 +38,7 @@ import {
   type QueryConfig,
 } from "./checks";
 import {
+  copyInstallerCache,
   install,
   isolatedEnv,
   serveFeed,
@@ -99,6 +100,7 @@ test("an update keeps the library, its edits and its search results", async () =
   profile = makeProfile(true);
   installDir = path.join(profile.root, "install");
   let exe = await install(oldInstaller, installDir);
+  copyInstallerCache(profile.root);
 
   const modelCache = process.env.UPGRADE_MODEL_CACHE;
   const modelDir = path.join(profile.appData, "models", MODEL);

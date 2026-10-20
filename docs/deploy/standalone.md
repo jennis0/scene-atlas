@@ -16,6 +16,7 @@ Scene Atlas has no login or access control. If anything other than your own mach
 ```bash
 git clone https://github.com/jennis0/scene-atlas.git
 cd scene-atlas
+git checkout v<version>      # the latest release, from https://github.com/jennis0/scene-atlas/releases
 
 # Install Python dependencies (pick one)
 uv sync --extra cpu          # CPU-only inference
@@ -94,7 +95,8 @@ Scene Atlas reads the client IP from `X-Forwarded-For` on connections from `FORW
 
 ```bash
 cd /opt/scene-atlas
-git pull
+git fetch --tags
+git checkout v<version>      # the new release
 uv sync --extra cpu    # or whichever extra you use
 cd frontend && npm ci && npm run build && cd ..
 sudo systemctl restart scene-atlas

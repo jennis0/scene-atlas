@@ -69,6 +69,8 @@ export default defineConfig({
         APP_DATA_DIR: dataDir,
         IMAGE_LIBRARY_DIR: path.join(dataDir, "library"),
         API_HOST: "127.0.0.1",
+        // Test runs never contact GitHub for the server-mode update check
+        CHECK_FOR_UPDATES: "false",
       },
       cwd: path.resolve(__dirname, ".."),
     },

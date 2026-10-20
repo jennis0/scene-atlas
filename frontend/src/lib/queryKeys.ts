@@ -19,6 +19,7 @@ export const QUERY_KEYS = {
   groupSearch: (query: string, excludeGroupId?: number | null, currentGroupName?: string) =>
     ['groupSearch', query, excludeGroupId, currentGroupName] as const,
   systemInfo: ['system-info'] as const,
+  serverUpdates: ['system-updates'] as const,
   appSettings: ['app-settings'] as const,
   models: ['models'] as const,
   modelSetupStatus: ['models', 'setup-status'] as const,

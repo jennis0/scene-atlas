@@ -38,11 +38,12 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelStep.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
 | GPU acceleration | `backend/app/services/ort_providers.py`, `clip_service.py` | `inference_device=auto`; CUDA / DirectML / CoreML / CPU. [gpu-acceleration.md](gpu-acceleration.md) |
 | Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. Auto-update via electron-updater: installs on Windows and AppImage, notifies on macOS and .deb (ADR-021). [electron.md](electron.md#updates) |
+| Server update check | `backend/app/services/update_check.py`, `GET /api/v1/system/updates`, `frontend/src/components/settings/UpdatesSection.tsx` | Server mode: daily GitHub check, Settings shows the version and a newer release; `CHECK_FOR_UPDATES=false` turns it off (ADR-023). [backend.md](backend.md#update-check) |
 | Maintenance | `backend/app/services/scheduler.py`, `backend/pipeline/maintenance.py`, `ingest_maintenance.py`, `vector_reconcile.py` | Daily backups, 6-hourly ingest cleanup, orphan sweep, vector reconciliation |
 | Concurrency control | `backend/app/services/prepare_pool.py`, `memory_budget.py`, `api/dependencies.py` | [resource-management.md](resource-management.md) |
 | Security hardening | `backend/app/main.py` (`SecurityHeadersMiddleware`), `backend/app/api/rate_limits.py` | Security headers, rate limits, CORS warning. No built-in authentication. [security.md](security.md) |
 | Checks | `.husky/pre-push`, `.github/workflows/ci.yml`, `.github/workflows/release.yml` | Lint + unit tests pre-push; security, integration and frontend build on PRs; manual release with cross-platform tests, E2E and builds. [testing.md](testing.md) |
-| Release builds | `.github/workflows/release.yml`, `scripts/build/` | Windows x64 (DirectML), macOS arm64, Linux x64 |
+| Release builds | `.github/workflows/release.yml`, `release-published.yml`, `scripts/build/`, `scripts/release/` | Windows x64 (DirectML), macOS arm64, Linux x64, and a CPU Docker image on GHCR (amd64). Version in the repo, draft releases (ADR-024). [releasing.md](releasing.md) |
 
 ## In progress
 

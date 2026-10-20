@@ -129,22 +129,25 @@ test("zoom applies at once, follows the shortcuts and comes back at the next lau
 test("the window opens at its saved size and saves it again on close", async () => {
   profile = makeProfile(true);
   // Electron's CDP can't resize a window (no Browser.setWindowBounds), so the size is
-  // seeded; electron/test/windowState.test.ts covers where it reopens.
+  // seeded; electron/test/windowState.test.ts covers where it reopens. It must fit the
+  // screen, or the app shrinks it: CI's Windows runners have a work area of 1040x728.
   const configPath = path.join(profile.userData, "scene-atlas-config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  const windowState = { x: 40, y: 40, width: 1100, height: 760, maximized: false };
+  const windowState = { x: 40, y: 40, width: 960, height: 640, maximized: false };
   fs.writeFileSync(configPath, JSON.stringify({ ...config, windowState }));
 
   const app = await launch(profile);
   const page = await waitForBackendUi(app.browser);
-  expect(await page.evaluate(() => [window.outerWidth, window.outerHeight])).toEqual([
-    1100, 760,
-  ]);
+  // On Windows the page's outer size includes the invisible resize borders (8 px left,
+  // right and bottom at 100% scaling, as on CI), which the window's bounds don't.
+  const border = process.platform === "win32" ? [16, 8] : [0, 0];
+  const [outerWidth, outerHeight] = await page.evaluate(() => [window.outerWidth, window.outerHeight]);
+  expect([outerWidth - border[0], outerHeight - border[1]]).toEqual([960, 640]);
 
   await page.evaluate(() => window.close());
   await waitUntil("app to quit", () => !isAlive(app.child.pid!), 30_000);
   const saved = JSON.parse(fs.readFileSync(configPath, "utf8")).windowState;
-  expect(saved).toMatchObject({ width: 1100, height: 760, maximized: false });
+  expect(saved).toMatchObject({ width: 960, height: 640, maximized: false });
 });
 
 test("the updater reports its version and checks the feed it is given", async () => {

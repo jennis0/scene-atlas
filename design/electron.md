@@ -265,6 +265,8 @@ Notify mode says a version is out and opens its release page (`releasePageUrl`; 
 
 **Logs.** `{userData}/updater.log` (rotated like `backend.log`).
 
+**Server mode.** A self-hosted server can't update itself; the backend checks GitHub daily and Settings says when a newer version is out, with links to its release notes and the upgrade guide ([backend.md](backend.md#update-check), [ADR-023](decisions.md#adr-023-server-mode-update-check)). The same `UpdatesSection` serves both modes; the toast is desktop only.
+
 **Testing.** `electron/test/updatePolicy.test.ts` (the rules), the packaged-app tests (state over IPC, the feed override), and the upgrade test in the Release workflow, which installs an old build and updates it from a local feed ([testing.md](testing.md#upgrade-test)). `SCENE_ATLAS_UPDATE_FEED` replaces the GitHub feed with a generic one for those tests; `parseFeedOverride` only accepts plain http on `127.0.0.1`, so it can't point an install at another machine. The packaged-app launcher sets it to a closed port, so test runs never contact GitHub or install a real release.
 
 ## Config Storage
