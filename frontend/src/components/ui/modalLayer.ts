@@ -49,7 +49,7 @@ function inertOutside(layer: Element): Element[] {
  * Nested modals work as a stack: each one inerts what is beneath it and restores only
  * the attributes it set.
  */
-export function useModalLayer(ref: RefObject<HTMLElement>, active: boolean) {
+export function useModalLayer(ref: RefObject<HTMLElement | null>, active: boolean) {
   useEffect(() => {
     if (!active) return
     const el = ref.current

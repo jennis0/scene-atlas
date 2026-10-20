@@ -219,7 +219,7 @@ export function useGallerySearch(): UseGallerySearchReturn {
     localStorage.removeItem('gallery-relevance')
     return 0
   })
-  const relevanceSaveRef = useRef<ReturnType<typeof setTimeout>>()
+  const relevanceSaveRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const setMinScore = useCallback((value: number) => {
     setMinScoreState(value)
     clearTimeout(relevanceSaveRef.current)

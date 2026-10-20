@@ -13,9 +13,9 @@ See also:
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React 18 + TypeScript 6 |
+| Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 (dev server on :5173, proxies `/api` to :8000) |
-| Routing | React Router 7 (`react-router`) |
+| Routing | React Router 8 (`react-router`) |
 | Lint | ESLint 10 flat config (`eslint.config.js`) |
 | Styling | Tailwind CSS 3, tokens in `src/index.css` |
 | UI primitives | Own components in `components/ui/`; Radix only for checkbox, dropdown menu and popover |

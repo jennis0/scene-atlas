@@ -84,7 +84,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Bulk import of a local library | Local folder import (desktop app), then linked folders read in place, then a drop folder. [local-ingest.md](local-ingest.md) | High |
-| Framework majors | React 19 (with @types/react 19, then React Router 8, which needs it), Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Both React 19 and Tailwind 4 need a visual pass. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
+| Framework majors | Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Tailwind 4 needs a visual pass: v4 has no regex `safelist` (tag chip colours) or `<alpha-value>` (the `shade` colour), its CSS theme has no separate text-colour palette (the ink colours), it changes the default border, ring and shadow scales, and needs `tw-animate-css` in place of `tailwindcss-animate`. Dependabot ignores Tailwind 4 and tailwind-merge 3 until then. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
 
 ## Key design constraints
 

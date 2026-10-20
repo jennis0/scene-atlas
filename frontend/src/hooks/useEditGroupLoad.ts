@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react'
+import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { groupApi, tagApi, imageApi, getThumbnailUrlById, getImageUrlById } from '@/lib/api'
 import { toast } from 'sonner'
 import { getApiErrorMessage, isNotFoundError } from '@/lib/getErrorMessage'
@@ -150,7 +150,7 @@ type OnReviewBatch = (details: GroupDetail[], batch: number[], first: boolean) =
  */
 async function drainReviewQueue(
   ids: number[],
-  priorityRef: MutableRefObject<number | null>,
+  priorityRef: RefObject<number | null>,
   isCancelled: () => boolean,
   onBatch: OnReviewBatch,
 ): Promise<void> {
