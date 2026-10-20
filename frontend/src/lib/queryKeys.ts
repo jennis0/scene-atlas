@@ -16,6 +16,8 @@ export const QUERY_KEYS = {
   scenes: (id?: number) => (id != null ? (['scenes', id] as const) : (['scenes'] as const)),
   image: (id: number) => ['image', id] as const,
   groups: ['groups'] as const,
+  /** Every group picker search, to invalidate them all */
+  groupSearches: ['groupSearch'] as const,
   groupSearch: (query: string, excludeGroupId?: number | null, currentGroupName?: string) =>
     ['groupSearch', query, excludeGroupId, currentGroupName] as const,
   systemInfo: ['system-info'] as const,

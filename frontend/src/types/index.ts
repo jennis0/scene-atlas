@@ -246,9 +246,13 @@ export interface GroupMergeResponse {
   source_group_deleted: boolean
 }
 
+/** Where moved images go: an existing group, or a new one */
+export type MoveTarget = { groupId: number } | { newGroupName: string }
+
 export interface MoveImagesResponse {
   source_group_id: number
   target_group_id: number
+  target_group_name: string
   images_moved: number
   source_group_deleted: boolean
 }

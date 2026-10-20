@@ -69,9 +69,11 @@ Tests sit next to the code they cover (`*.test.ts(x)`).
 
 - **GalleryHeader** — search input, sort, view-mode toggle (individual / grouped), image-type toggle, relevance slider, filter button, import, tag management, library info, Edit All.
 - **GalleryFilterPanel / FilterMenuContent** — tag, author, colour, grid and media filters, fed by `GET /search/facets`.
-- **ImageGrid** (individual view) — virtualised grid of `SceneTile`s.
+- **ImageGrid** (individual view) — virtualised grid of `SceneTile`s. Each tile has a "..." menu (`ImageCardMenu`): Edit group, Move to group…, Download (the image), Delete.
 - **GroupGrid** (grouped view) — virtualised grid of `GroupCard`s with infinite scroll (an `IntersectionObserver` sentinel in Gallery calls `fetchNextPage`).
-- **ImageViewer** — full-screen viewer with metadata editing and a scene panel for the image's group.
+- **ImageViewer** — full-screen viewer with metadata editing and a scene panel for the image's group. Its toolbar puts group actions (Edit group, Download group) on the left and image actions (download, move, delete) as icons on the right.
+- **MoveImageDialog** — moves one image to another group or to a new group of its own, from the tile menu or the viewer. Groups are ranked by likeness to the image's name; the pinned "New group" row is named from the search text, else the image's name. No undo: moving back is the same action.
+- **CardActionsMenu** — the "..." menu shared by `GroupCard` and image tiles (their own items, then Download and Delete). The card root needs `group/card` for the hover reveal. Group pickers (merge and move) share `GroupPickerShell`, `GroupPickerResults` and `useGroupPickerSearch`.
 - **EditGroupDialog** — edit one group, or many via Edit All.
 - **ImportDialog**, **ActivityDock**, **TagManagementDialog**, **LibraryInfoDialog**, **EmptyLibraryWelcome**.
 

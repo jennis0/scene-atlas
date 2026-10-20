@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, Edit, FolderDown, Trash2, X } from 'lucide-react'
+import { Download, Edit, FolderDown, FolderInput, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { getGroupDownloadUrl, getImageUrl } from '@/lib/api'
 import { downloadFile, imageDownloadFilename } from '@/lib/download'
@@ -13,11 +13,19 @@ const ICON_ACTION = 'h-7 w-7 rounded flex items-center justify-center text-muted
 interface ViewerToolbarProps {
   image: Image
   onEditGroup?: (groupId: number) => void
+  /** Move the image to another group */
+  onMove: () => void
   onDelete: () => void
   onClose: () => void
 }
 
-export function ViewerToolbar({ image, onEditGroup, onDelete, onClose }: ViewerToolbarProps) {
+export function ViewerToolbar({
+  image,
+  onEditGroup,
+  onMove,
+  onDelete,
+  onClose,
+}: ViewerToolbarProps) {
   const [downloading, setDownloading] = useState(false)
   const [downloadingGroup, setDownloadingGroup] = useState(false)
 
@@ -80,6 +88,15 @@ export function ViewerToolbar({ image, onEditGroup, onDelete, onClose }: ViewerT
         >
           <Download className="h-4 w-4" />
         </button>
+        {image.group_id !== null && (
+          <button
+            onClick={onMove}
+            title="Move to another group"
+            className={`${ICON_ACTION} hover:text-foreground hover:bg-secondary transition-colors`}
+          >
+            <FolderInput className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={onDelete}
           title="Delete image"

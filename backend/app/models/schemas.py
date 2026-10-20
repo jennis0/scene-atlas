@@ -332,10 +332,22 @@ class GroupMergeResponse(BaseModel):
 
 
 class MoveImagesRequest(BaseModel):
-    """Move specific images from one group to another."""
+    """Move specific images from one group to another: an existing group
+    (``target_group_id``) or a new one (``new_group_name``), exactly one."""
 
-    target_group_id: int
-    image_ids: list[int]
+    target_group_id: int | None = None
+    new_group_name: str | None = Field(default=None, min_length=1, max_length=255)
+    image_ids: list[int] = Field(min_length=1, max_length=MAX_BULK_IMAGE_IDS)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "MoveImagesRequest":
+        if self.new_group_name is not None:
+            self.new_group_name = self.new_group_name.strip()
+            if not self.new_group_name:
+                raise ValueError("new_group_name is blank")
+        if (self.target_group_id is None) == (self.new_group_name is None):
+            raise ValueError("send exactly one of target_group_id and new_group_name")
+        return self
 
 
 class MoveImagesResponse(BaseModel):
@@ -343,6 +355,7 @@ class MoveImagesResponse(BaseModel):
 
     source_group_id: int
     target_group_id: int
+    target_group_name: str
     images_moved: int
     source_group_deleted: bool
 

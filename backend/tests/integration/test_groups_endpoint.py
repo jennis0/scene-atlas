@@ -875,6 +875,98 @@ class TestGroupMoveImages:
         assert resp.status_code == 400
 
 
+class TestReassignedImagesSearchText:
+    """Images take their new group's author, which is part of their search text: a
+    moved or merged image must be found by the new author, not the old one."""
+
+    @staticmethod
+    def _search_text(SessionLocal, image_id: int) -> str:
+        with SessionLocal() as db:
+            img = db.get(Image, image_id)
+            assert img is not None
+            return (img.search_text or "").lower()
+
+    def test_move_rebuilds_search_text(self, two_groups, tmp_db):
+        client, data = two_groups
+        _, SessionLocal = tmp_db
+        moved = data["source_img_ids"][0]
+        client.post(
+            f"/api/v1/groups/{data['source_id']}/move-images",
+            json={"target_group_id": data["target_id"], "image_ids": [moved]},
+        )
+        text = self._search_text(SessionLocal, moved)
+        assert "author b" in text  # CamelCase is split for FTS
+        assert "author a" not in text
+
+    def test_merge_rebuilds_search_text(self, two_groups, tmp_db):
+        client, data = two_groups
+        _, SessionLocal = tmp_db
+        client.post(
+            f"/api/v1/groups/{data['source_id']}/merge",
+            json={"target_group_id": data["target_id"]},
+        )
+        for img_id in data["source_img_ids"]:
+            text = self._search_text(SessionLocal, img_id)
+            assert "author b" in text
+            assert "author a" not in text
+
+
+class TestMoveImagesToNewGroup:
+    def test_creates_group_with_source_author(self, two_groups):
+        client, data = two_groups
+        moved = data["source_img_ids"][0]
+        resp = client.post(
+            f"/api/v1/groups/{data['source_id']}/move-images",
+            json={"new_group_name": "  Forest Path Day  ", "image_ids": [moved]},
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["target_group_name"] == "Forest Path Day"
+        assert result["source_group_deleted"] is False
+
+        new_group = client.get(f"/api/v1/groups/{result['target_group_id']}").json()
+        assert new_group["author"] == "AuthorA"
+        assert new_group["primary_image_id"] == moved
+        assert [img["id"] for img in new_group["images"]] == [moved]
+
+        source = client.get(f"/api/v1/groups/{data['source_id']}").json()
+        assert [img["id"] for img in source["images"]] == [data["source_img_ids"][1]]
+
+    def test_moving_every_image_deletes_source(self, two_groups):
+        client, data = two_groups
+        resp = client.post(
+            f"/api/v1/groups/{data['source_id']}/move-images",
+            json={"new_group_name": "Renamed", "image_ids": data["source_img_ids"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["source_group_deleted"] is True
+        assert client.get(f"/api/v1/groups/{data['source_id']}").status_code == 404
+
+    def test_unknown_image_creates_nothing(self, two_groups):
+        client, data = two_groups
+        before = client.get("/api/v1/groups/search").json()["total"]
+        resp = client.post(
+            f"/api/v1/groups/{data['source_id']}/move-images",
+            json={"new_group_name": "Orphan", "image_ids": [data["target_img_ids"][0]]},
+        )
+        assert resp.status_code == 400
+        assert client.get("/api/v1/groups/search").json()["total"] == before
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"image_ids": [1]},  # no target
+            {"target_group_id": 1, "new_group_name": "X", "image_ids": [1]},  # both
+            {"new_group_name": "   ", "image_ids": [1]},  # blank name
+            {"new_group_name": "X", "image_ids": []},  # nothing to move
+        ],
+    )
+    def test_rejects_bad_requests(self, two_groups, body):
+        client, data = two_groups
+        resp = client.post(f"/api/v1/groups/{data['source_id']}/move-images", json=body)
+        assert resp.status_code == 422
+
+
 def test_concurrent_identical_moves_succeed_once(two_groups):
     """Write endpoints take the SQLite write lock up front, so the ownership check
     and the move can't interleave between concurrent requests."""

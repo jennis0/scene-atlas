@@ -147,10 +147,10 @@ Shared parameters for `/` and `/groups`:
 | GET | `/{id}/download` | Stream group as ZIP |
 | PUT | `/{id}` | Update group metadata. `images` is the list to keep: images left out are deleted |
 | DELETE | `/{id}` | Delete group |
-| POST | `/{id}/move-images` | Move images between groups |
+| POST | `/{id}/move-images` | Move some of this group's images into another group (`target_group_id`) or a new one (`new_group_name`, taking this group's author); deletes this group if it empties |
 | POST | `/{id}/merge` | Merge this group into a target group |
 
-Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
+Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. Move and merge also give moved images the target group's author and rebuild their `search_text`. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
 | Method | Path | Purpose |

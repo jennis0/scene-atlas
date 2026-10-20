@@ -349,7 +349,7 @@ export function useEditGroupOperations({
       try {
         const result = await groupApi.moveImages(
           Number(drag.groupId),
-          Number(targetGroupId),
+          { groupId: Number(targetGroupId) },
           imageIds,
         )
 
