@@ -74,7 +74,7 @@ Search data      C:\Users\…\Scene Atlas\data        [Change]
                  Stores metadata and thumbnails. Best on a fast drive.
 ```
 
-Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics. Labels and messages say "images", not "maps", because the folder holds scenes too (user decision 2026-10-20). The explanatory paragraph still names maps and scenes, since that's what it adds.
+Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics. Labels and messages about the library's folders and their contents say "images", not "maps", here and in Settings, the gallery and the viewer, because the folder holds scenes too (user decision 2026-10-20). The explanatory paragraph still names maps and scenes, since that's what it adds.
 
 The paragraph under "Use a folder of images you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
 

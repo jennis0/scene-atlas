@@ -61,7 +61,7 @@ export function StopUsingFolder({ linked }: { linked: LinkedFolder }) {
         title="Stop using this folder?"
         description={
           <>
-            This removes the {plural(linked.image_count, 'map')} in <strong>{linked.name}</strong>{' '}
+            This removes the {plural(linked.image_count, 'image')} in <strong>{linked.name}</strong>{' '}
             from your library, with their names and tags. The files in the folder stay as they are.
             Scene Atlas then restarts.
           </>

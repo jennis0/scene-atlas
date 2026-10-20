@@ -84,7 +84,7 @@ function AddingMaps({ embeddingReady }: { embeddingReady: boolean }) {
     <div className="flex h-full items-center justify-center">
       <div role="status" className="w-full max-w-md text-center space-y-2 px-6">
         <h2 className="font-display text-2xl font-semibold text-foreground">
-          Adding your maps&hellip;
+          Adding your images&hellip;
         </h2>
         <p className="text-sm text-muted-foreground">
           They appear here as they&apos;re added. A large folder can take a few hours.

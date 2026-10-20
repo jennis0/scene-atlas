@@ -45,14 +45,14 @@ export function LinkedFolderSection({ open }: { open: boolean }) {
           <RemoveMissing linked={linked} />
         )}
         {linked.state === 'detached' ? (
-          <ActionRow title="Remove its maps" detail="Its maps can't be opened.">
+          <ActionRow title="Remove its images" detail="Its images can't be opened.">
             <RemoveDetachedMaps linked={linked} />
           </ActionRow>
         ) : (
           isApp && (
             <ActionRow
               title="Stop using this folder"
-              detail="Removes its maps from your library. The files stay."
+              detail="Removes its images from your library. The files stay."
             >
               <StopUsingFolder linked={linked} />
             </ActionRow>
@@ -72,10 +72,10 @@ function stateText(linked: LinkedFolder): string {
       return 'This folder is no longer used.'
     default:
       return linked.last_scan_at
-        ? `${plural(linked.image_count, 'map')}. Last checked ${new Date(
+        ? `${plural(linked.image_count, 'image')}. Last checked ${new Date(
             linked.last_scan_at,
           ).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.`
-        : plural(linked.image_count, 'map')
+        : plural(linked.image_count, 'image')
   }
 }
 
@@ -155,7 +155,7 @@ function useRemoveMaps(remove: () => Promise<{ removed: number }>, failure: stri
   return useMutation({
     mutationFn: remove,
     onSuccess: ({ removed }) => {
-      toast.success(`${plural(removed, 'map')} removed.`)
+      toast.success(`${plural(removed, 'image')} removed.`)
       invalidateRemovedMapsQueries(queryClient)
     },
     onError: (err) => toast.error(getApiErrorMessage(err, failure)),
@@ -164,9 +164,9 @@ function useRemoveMaps(remove: () => Promise<{ removed: number }>, failure: stri
 
 function RemoveMissing({ linked }: { linked: LinkedFolder }) {
   const [confirming, setConfirming] = useState(false)
-  const remove = useRemoveMaps(libraryApi.removeMissing, "Couldn't remove the missing maps.")
+  const remove = useRemoveMaps(libraryApi.removeMissing, "Couldn't remove the missing images.")
 
-  const count = plural(linked.missing_count, 'map')
+  const count = plural(linked.missing_count, 'image')
   return (
     <ActionRow
       title={`${count} ${linked.missing_count === 1 ? 'is' : 'are'} missing`}
@@ -178,14 +178,14 @@ function RemoveMissing({ linked }: { linked: LinkedFolder }) {
         className="h-7 text-xs shrink-0"
         onClick={() => setConfirming(true)}
       >
-        Remove missing maps
+        Remove missing images
       </Button>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Remove missing maps?"
+        title="Remove missing images?"
         description={`This removes the ${count} whose files are gone, with their names and tags. This can't be undone.`}
-        confirmLabel="Remove missing maps"
+        confirmLabel="Remove missing images"
         loadingLabel="Removing…"
         onConfirm={() => remove.mutate(undefined, { onSettled: () => setConfirming(false) })}
         isLoading={remove.isPending}
@@ -197,7 +197,7 @@ function RemoveMissing({ linked }: { linked: LinkedFolder }) {
 /** A detached folder (no longer configured): remove its maps, which can't be opened */
 function RemoveDetachedMaps({ linked }: { linked: LinkedFolder }) {
   const [confirming, setConfirming] = useState(false)
-  const remove = useRemoveMaps(libraryApi.removeLinked, "Couldn't remove the maps.")
+  const remove = useRemoveMaps(libraryApi.removeLinked, "Couldn't remove the images.")
 
   return (
     <>
@@ -207,19 +207,19 @@ function RemoveDetachedMaps({ linked }: { linked: LinkedFolder }) {
         className="h-7 text-xs shrink-0"
         onClick={() => setConfirming(true)}
       >
-        Remove its maps
+        Remove its images
       </Button>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Remove this folder's maps?"
+        title="Remove this folder's images?"
         description={
           <>
-            This removes the {plural(linked.image_count, 'map')} from <strong>{linked.name}</strong>
-            , with their names and tags. This can&apos;t be undone.
+            This removes the {plural(linked.image_count, 'image')} from{' '}
+            <strong>{linked.name}</strong>, with their names and tags. This can&apos;t be undone.
           </>
         }
-        confirmLabel="Remove maps"
+        confirmLabel="Remove images"
         loadingLabel="Removing…"
         onConfirm={() => remove.mutate(undefined, { onSuccess: () => setConfirming(false) })}
         isLoading={remove.isPending}
