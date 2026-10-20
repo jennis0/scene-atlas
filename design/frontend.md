@@ -13,9 +13,9 @@ See also:
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React 18 + TypeScript 6 |
+| Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 (dev server on :5173, proxies `/api` to :8000) |
-| Routing | React Router 7 (`react-router`) |
+| Routing | React Router 8 (`react-router`) |
 | Lint | ESLint 10 flat config (`eslint.config.js`) |
 | Styling | Tailwind CSS 3, tokens in `src/index.css` |
 | UI primitives | Own components in `components/ui/`; Radix only for checkbox, dropdown menu and popover |
@@ -188,6 +188,10 @@ The CSP in `index.html` allows fonts from `'self'` only, so `vite.config.ts` nev
 ## Dialogs
 
 `components/ui/dialog.tsx` is a custom modal rendered through `createPortal` (not Radix); `confirm-dialog.tsx` builds on it. Focus handling is described in [dialog-focus-management.md](dialog-focus-management.md).
+
+## Updates
+
+`settings/UpdatesSection.tsx` (Settings → Updates) serves both modes; `UpdateNotifier.tsx` (a toast once per version) is desktop only. In the desktop app they read `useAppUpdates` (Electron's updater over IPC: automatic-check toggle, Check now, install or download; [electron.md](electron.md#updates)). In a browser they read `useServerUpdates`, which fetches `GET /system/updates` hourly with React Query: the backend's cached daily check ([backend.md](backend.md#update-check)). Server mode is read-only: the version, a status line, and when a version is out, links to its release notes and to the upgrade guide (`SERVER_UPGRADE_DOCS_URL`). There is no toggle or Check now; the admin turns checks off with `CHECK_FOR_UPDATES`, and Settings then says so. A server has no toast: most people behind its proxy can't upgrade it, so the update waits in Settings. Release links are accepted only under the project's GitHub releases.
 
 ## API Client (`lib/api/`)
 

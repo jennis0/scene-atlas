@@ -95,6 +95,16 @@ export interface LaunchOptions {
   env?: Record<string, string>;
 }
 
+/**
+ * Without FUSE (WSL, containers), an AppImage runs with APPIMAGE_EXTRACT_AND_RUN=1, but
+ * then its runtime doesn't set APPIMAGE, so the app takes itself for an unpacked build
+ * and only notifies of updates. Set it as the FUSE runtime would.
+ */
+function appImageEnv(exe: string): Record<string, string> {
+  if (!exe.endsWith(".AppImage") || process.env.APPIMAGE_EXTRACT_AND_RUN !== "1") return {};
+  return { APPIMAGE: path.resolve(exe) };
+}
+
 /** Start the app on a profile; resolves once its DevTools endpoint accepts a connection. */
 export async function launch(
   profile: Profile,
@@ -102,10 +112,11 @@ export async function launch(
   options: LaunchOptions = {},
 ): Promise<RunningApp> {
   const cdpPort = await freePort();
+  const exe = options.exe ?? appExecutable();
   const child = spawn(
-    options.exe ?? appExecutable(),
+    exe,
     [`--user-data-dir=${profile.userData}`, `--remote-debugging-port=${cdpPort}`, ...extraArgs],
-    { stdio: "ignore", env: { ...process.env, ...NO_UPDATES, ...options.env } },
+    { stdio: "ignore", env: { ...process.env, ...NO_UPDATES, ...appImageEnv(exe), ...options.env } },
   );
   let exited = false;
   child.once("exit", () => (exited = true));

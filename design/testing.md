@@ -17,7 +17,7 @@ Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = 
 | Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
 | Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, Electron unit tests, jscpd duplication threshold |
 | Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
-| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform with a sidecar smoke test, [packaged-app tests](#packaged-app-tests) and the [upgrade test](#upgrade-test) on Windows, optional publish (one release, after every build passes and the [update metadata](#update-metadata-check) is checked) |
+| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform with a sidecar smoke test, [packaged-app tests](#packaged-app-tests) and the [upgrade test](#upgrade-test) on Windows, the Docker image with `smoke_docker.py`, optional publish (a draft release, after every build passes and the [update metadata](#update-metadata-check) is checked). A preflight job checks the version first ([releasing.md](releasing.md)) |
 
 CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on for those (skippable with `git push --no-verify`).
 
@@ -134,7 +134,11 @@ Semantic results get slack because a newer onnxruntime, or DirectML against CPU,
 
 The report, the snapshots and the updater and backend logs are uploaded as `upgrade-test-report` on every run. The test installs into the user's profile and registry, so outside CI it only runs with `SCENE_ATLAS_UPGRADE_TEST=1`; it needs `E2E_IMAGE_KEY` and the variables listed at the top of `upgrade.spec.ts`. The pure parts (`checks.ts`, the feed server) have unit tests run by `npm run test:electron`.
 
-Not covered yet: updating from the previous published release (which would also exercise migrations on a real older database, and the old version's own updater code), and Linux (AppImage) and macOS (notify only) in CI. Both are on the roadmap.
+**From the last release.** The workflow then runs the same test a second time from the latest published release: its installer and blockmap come from GitHub (`gh release download`), and the feed is the same with that blockmap instead of 0.0.0's. That covers the old version's own updater code and migrations on a database an older release made. It is skipped, with a notice, while no release is published; its report goes to `upgrade-report-previous/` in the same artifact.
+
+**From GitHub, after publishing.** `UPGRADE_FROM_GITHUB=1` in place of `UPGRADE_FEED_DIR` leaves the feed override empty, so the old install updates from the real GitHub releases: a check of a published release end to end (run by hand, e.g. on Linux with an older release's AppImage). Without FUSE (WSL without `libfuse2`), set `APPIMAGE_EXTRACT_AND_RUN=1`: the runtime then doesn't set `APPIMAGE`, so `launch()` sets it to the AppImage it starts, or the app would only notify.
+
+Not covered yet: Linux (AppImage) and macOS (notify only) in CI.
 
 ### Paths on Windows
 

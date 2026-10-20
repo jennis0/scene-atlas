@@ -30,3 +30,7 @@ export const SAVED_INDICATOR_DURATION_MS = 1_500
 export const MAX_AUTHOR_LENGTH = 256
 export const MAX_NAME_LENGTH = 512
 export const MAX_SEARCH_LENGTH = 2048
+
+// Updates (server mode): how an admin upgrades a self-hosted server
+export const SERVER_UPGRADE_DOCS_URL =
+  'https://jennis0.github.io/scene-atlas/deploy/server#updating'

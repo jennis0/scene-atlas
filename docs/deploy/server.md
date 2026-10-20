@@ -13,19 +13,27 @@ Server mode has no login and no access control: anyone who can reach the port ca
 
 ## Quick Start
 
-```bash
-git clone https://github.com/jennis0/scene-atlas.git
-cd scene-atlas
+Each release publishes an image, `ghcr.io/jennis0/scene-atlas`, and the Compose file that runs it:
 
-# CPU inference
+```bash
+mkdir scene-atlas && cd scene-atlas
+curl -fsSLO https://github.com/jennis0/scene-atlas/releases/latest/download/docker-compose.yml
+curl -fsSL -o .env https://github.com/jennis0/scene-atlas/releases/latest/download/env.example
+mkdir images
+
 docker compose --profile cpu up -d
 ```
 
-Open `http://localhost:8000` in your browser.
+Open `http://localhost:8000` in your browser. The container runs as user and group 1000, which must own `images`; see [Container user](#configuration) if yours differ.
 
 ### With GPU
 
+No GPU image is published, so the GPU profile builds one from the source. Check out the release you want to run:
+
 ```bash
+git clone https://github.com/jennis0/scene-atlas.git
+cd scene-atlas
+git checkout v<version>   # the latest release, from https://github.com/jennis0/scene-atlas/releases
 docker compose --profile gpu up -d
 ```
 
@@ -33,7 +41,7 @@ The GPU profile sets `INFERENCE_DEVICE=cuda` and reserves one NVIDIA GPU.
 
 ## Configuration
 
-Create a `.env` file in the project root:
+Settings go in a `.env` file next to `docker-compose.yml`:
 
 ```bash
 # Port for the web UI and API
@@ -46,6 +54,9 @@ IMAGE_DIR=./images
 APP_UID=1000
 APP_GID=1000
 
+# Release to run (e.g. 0.2.0); leave unset to follow the latest release
+SCENE_ATLAS_VERSION=
+
 # CORS origins (set to your domain if behind a reverse proxy)
 CORS_ORIGINS=["http://localhost:8000"]
 
@@ -57,6 +68,9 @@ EMBEDDING_MODEL=small
 
 # Enable debug logging
 DEBUG=false
+
+# Daily check for a newer release, shown in Settings (false: never contact GitHub)
+CHECK_FOR_UPDATES=true
 ```
 
 ::: warning
@@ -64,7 +78,7 @@ DEBUG=false
 :::
 
 ::: info Container user
-The container runs as an unprivileged user (UID/GID `APP_UID`/`APP_GID`, default 1000), not root. Create `IMAGE_DIR` before the first start and make sure that user owns it, e.g. `mkdir -p images && sudo chown 1000:1000 images`; if Docker creates the directory itself it is owned by root and imports fail with a permission error. Changing `APP_UID`/`APP_GID` needs `docker compose build`.
+The container runs as an unprivileged user (UID/GID `APP_UID`/`APP_GID`, default 1000), not root. Create `IMAGE_DIR` before the first start and make sure that user owns it, e.g. `mkdir -p images && sudo chown 1000:1000 images`; if Docker creates the directory itself it is owned by root and imports fail with a permission error. Set `APP_UID`/`APP_GID` before the first start: the data volume's files belong to that user, so changing it later means `chown -R` on the volume as well as `IMAGE_DIR`.
 
 Installs created before this change ran as root, so their `scene-atlas-data` volume is root-owned. Start from a fresh volume (`docker compose down -v`, after taking a backup) or `chown -R` the volume and `IMAGE_DIR` to the new user.
 :::
@@ -170,14 +184,26 @@ To restore: stop the container, copy `battlemap.db` from a backup into the data 
 
 ## Updating
 
-The image is built locally from the repository, so update by pulling the source and rebuilding:
+Pull the new image and restart:
 
 ```bash
-git pull
-docker compose --profile cpu up -d --build
+docker compose --profile cpu pull
+docker compose --profile cpu up -d
 ```
 
-Your data volume and images are preserved across updates.
+Both need `--profile cpu`: without it, `docker compose pull` skips the service and nothing changes.
+
+This follows the latest release unless `SCENE_ATLAS_VERSION` pins one; to move a pinned install, change it in `.env` first. Your data volume and images are kept, and the database is backed up before any schema change. Each release's notes say what changed, and a release can update `docker-compose.yml` too: download it again when its notes say so.
+
+**GPU profile**, or a server built from a checkout: check out the new release's tag and rebuild.
+
+```bash
+git fetch --tags
+git checkout v<version>   # the new release
+docker compose --profile gpu up -d --build
+```
+
+Run releases rather than `main`: `main` holds unreleased changes, and a database upgraded by a newer schema can't go back to an older release.
 
 ## Troubleshooting
 

@@ -40,12 +40,12 @@ Keep setup text short and plain. Say what each step is for and, where there is o
 
 ### Desktop: display choices and window colours
 
-Display choices (theme, palette, text size, contrast, compact header) are kept through `lib/prefsStorage.ts`, which uses localStorage. In the desktop app the UI's origin is the backend's, port included, so if port 47816 is taken at launch that localStorage is a different, empty one. So the app config keeps a copy too:
+Display choices (theme, palette, text size, zoom, contrast, compact header) are kept through `lib/prefsStorage.ts`, which uses localStorage. In the desktop app the UI's origin is the backend's, port included, so if port 47816 is taken at launch that localStorage is a different, empty one. So the app config keeps a copy too:
 
 - The preload reads `displayPrefs` from the config with one synchronous IPC call (`prefs:get-sync`) before the page runs, and exposes it as `electronAPI.displayPrefs`. At startup `syncPrefsWithDesktop()` (in `main.tsx`, before the first paint) copies those values into localStorage, which may be another port's or stale. Values only localStorage has, saved before the config kept them, are copied into the config, so an update resets nobody's choices.
 - Every change is written to both (`electronAPI.setDisplayPref` → `prefs:set`). The main process accepts only `scene-atlas-*` keys with short lower-case values, at most 32 (`electron/src/displayPrefs.ts`).
 - The main process sets `nativeTheme.themeSource` from the saved theme (System, Light or Dark) at startup and on every change. Chromium's `prefers-color-scheme` therefore follows the user's choice in every window, so the storage window, loading page, native dialogs and scrollbars match the app. With System, they follow the OS.
-- Whenever the theme, palette or effective contrast changes, `ThemeProvider` reports the body's computed background and text colours (`reportWindowColors`, `window:set-colors`). The main process sets the window background and, on Windows and Linux, the title-bar overlay (`setTitleBarOverlay`), and saves them as `windowColors`, so the next launch opens in them. Before the UI has reported any colours, windows use the navy palette for the current light/dark.
+- Whenever the theme, palette or effective contrast changes, `ThemeProvider` reports the body's computed background and text colours (`reportWindowColors`, `window:set-colors`). The main process sets the window background and, on Windows, the title-bar overlay (`setTitleBarOverlay`), and saves them as `windowColors`, so the next launch opens in them. Before the UI has reported any colours, windows use the navy palette for the current light/dark.
 
 Other per-device conveniences (tile size, sort, view mode, grid overlay, custom filter colours) still use localStorage directly and don't survive a port change. They can move to `prefsStorage` if that matters.
 

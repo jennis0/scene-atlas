@@ -210,6 +210,12 @@ async def lifespan(app: FastAPI):
         await scheduler.start()
         logger.info("Scheduler started")
 
+    # Server mode: check for a newer release shortly after startup, then daily.
+    from .services.update_check import get_update_checker
+
+    update_checker = get_update_checker()
+    update_checker.start()
+
     # Warn if server mode is using default localhost-only CORS origins — a common
     # misconfiguration when deploying behind a reverse proxy.
     _default_cors = {"http://localhost:3000", "http://localhost:5173", "http://localhost:8000"}
@@ -268,6 +274,7 @@ async def lifespan(app: FastAPI):
     try:
         # Long jobs and scheduler tasks stop at their next batch boundary.
         request_shutdown()
+        await update_checker.stop()
         await scheduler.stop()
         # Let the batch in progress commit; anything left is recovered next start.
         await asyncio.to_thread(ingest_worker.stop, 60.0)

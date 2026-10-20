@@ -18,7 +18,7 @@ function scrolledToTop(container: HTMLElement | null): boolean {
 
 interface Options {
   /** Holds the results grid, whichever view is showing */
-  containerRef: RefObject<HTMLElement>
+  containerRef: RefObject<HTMLElement | null>
   /** Files imported so far by the listed imports; when it grows the gallery is behind */
   importedTotal: number
   /** New maps land at the top of the results (newest first, no search text) */

@@ -2,7 +2,7 @@ import { useEffect, useState, type RefObject } from 'react'
 
 interface GridOverlayProps {
   /** The rendered image the grid is drawn over */
-  imageRef: RefObject<HTMLImageElement>
+  imageRef: RefObject<HTMLImageElement | null>
   /** Number of grid columns and rows across the whole image */
   columns: number
   rows: number

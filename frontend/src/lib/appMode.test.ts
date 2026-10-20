@@ -20,6 +20,24 @@ describe('appMode', () => {
     expect(isApp).toBe(true)
   })
 
+  it.each([
+    ['darwin', 'inset', true],
+    ['win32', 'overlay', true],
+    ['linux', 'native', false],
+  ])('on %s the title bar is %s', async (platform, chrome, frameless) => {
+    ;(window as any).electronAPI = { platform }
+    const { windowChrome, isFrameless } = await import('./appMode')
+    expect(windowChrome).toBe(chrome)
+    expect(isFrameless).toBe(frameless)
+  })
+
+  it('leaves the title bar to the browser', async () => {
+    delete (window as any).electronAPI
+    const { windowChrome, isFrameless } = await import('./appMode')
+    expect(windowChrome).toBe('native')
+    expect(isFrameless).toBe(false)
+  })
+
   it('returns "server" when electronAPI is explicitly undefined', async () => {
     ;(window as any).electronAPI = undefined
     const { appMode } = await import('./appMode')

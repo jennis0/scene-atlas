@@ -15,6 +15,14 @@ import { pickImportPaths, pickStorageDir } from './pickers'
 import { prepareStorageDirs } from './storageDirs'
 import { Updater } from './updater'
 import type { UpdateState } from './updatePolicy'
+import {
+  frameOptions,
+  mainWindowPlacement,
+  rememberWindowState,
+  removeMenu,
+  setMacMenu,
+  setTitleBarColors,
+} from './windowFrame'
 
 const isDev = !app.isPackaged
 const isMac = process.platform === 'darwin'
@@ -48,34 +56,6 @@ if (isWindows) app.setAppUserModelId('com.sceneatlas.app')
 const hasInstanceLock = app.requestSingleInstanceLock()
 if (!hasInstanceLock) {
   app.quit()
-}
-
-// Window helpers
-
-/** The colours a new window starts in: the UI's last reported ones, else the navy palette's
- * page background and text (frontend/src/index.css) for the current light/dark. */
-function windowColors(): { background: string; foreground: string } {
-  const saved = loadConfig()?.windowColors
-  if (saved) return saved
-  return nativeTheme.shouldUseDarkColors
-    ? { background: '#0e1118', foreground: '#ede8dc' }
-    : { background: '#eee9e2', foreground: '#2b2622' }
-}
-
-/** Borderless window config: hiddenInset on macOS, hidden + overlay on Win/Linux. */
-function borderlessOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
-  const { background, foreground } = windowColors()
-  return {
-    backgroundColor: background,
-    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(!isMac && {
-      titleBarOverlay: {
-        color: background,
-        symbolColor: foreground,
-        height: 32,
-      },
-    }),
-  }
 }
 
 const LOADING_PAGE = path.join(__dirname, '..', 'loading.html')
@@ -171,8 +151,7 @@ handleTrusted('window:set-colors', (event, raw) => {
   const colors = sanitizeWindowColors(raw)
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!colors || !win) return
-  win.setBackgroundColor(colors.background)
-  if (!isMac) win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.foreground })
+  setTitleBarColors(win, colors.background, colors.foreground)
   const saved = loadConfig()?.windowColors
   if (saved?.background !== colors.background || saved?.foreground !== colors.foreground) {
     updateConfig({ windowColors: colors })
@@ -291,7 +270,7 @@ function showSetupWindow(): void {
     resizable: true,
     minWidth: 520,
     minHeight: 560,
-    ...borderlessOptions(),
+    ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'setup.preload.js'),
       contextIsolation: true,
@@ -301,6 +280,7 @@ function showSetupWindow(): void {
   })
 
   hardenWindow(setupWindow)
+  removeMenu(setupWindow)
   setupWindow.loadFile(path.join(__dirname, '..', 'setup.html'))
 
   setupWindow.on('closed', () => {
@@ -310,12 +290,10 @@ function showSetupWindow(): void {
 }
 
 function createMainWindow(): BrowserWindow {
+  const placement = mainWindowPlacement()
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
-    ...borderlessOptions(),
+    ...placement.bounds,
+    ...frameOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -323,8 +301,11 @@ function createMainWindow(): BrowserWindow {
       sandbox: true,
     },
   })
+  if (placement.maximized) win.maximize()
 
   hardenWindow(win)
+  removeMenu(win)
+  rememberWindowState(win)
 
   win.webContents.on('did-finish-load', () => {
     if (backendError !== null) win.webContents.send('backend-error', backendError)
@@ -523,6 +504,7 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   if (!hasInstanceLock) return
+  setMacMenu()
   startUpdater()
   start()
 })

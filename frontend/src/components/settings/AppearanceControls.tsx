@@ -7,6 +7,14 @@ import { SettingsSection } from '@/components/settings/SettingsSection'
 import { THEME_OPTIONS } from '@/lib/theme'
 import { TEXT_SIZES } from '@/lib/textSize'
 import { CONTRAST_OPTIONS } from '@/lib/contrast'
+import { isApp } from '@/lib/appMode'
+import { setZoom, useZoom, ZOOM_LEVELS } from '@/lib/zoom'
+
+const ZOOM_OPTIONS = ZOOM_LEVELS.map((level) => ({
+  value: level as number,
+  label: `${level}%`,
+  title: level === 100 ? 'Actual size' : `Zoom to ${level}%`,
+}))
 
 /** Theme and accessibility choices, shared by Settings → Appearance and the setup wizard.
  * Each applies at once and is saved on this device. *children* adds rows to the
@@ -57,6 +65,8 @@ function AccessibilitySection({ children }: { children?: ReactNode }) {
           onChange={setTextSize}
         />
       </SettingRow>
+      {/* A browser has its own zoom */}
+      {isApp && <ZoomRow />}
       <SettingRow
         label="Contrast"
         description="Bolder text and outlines. Auto follows your system."
@@ -71,5 +81,19 @@ function AccessibilitySection({ children }: { children?: ReactNode }) {
       </SettingRow>
       {children}
     </SettingsSection>
+  )
+}
+
+function ZoomRow() {
+  const zoom = useZoom()
+  const shortcut = window.electronAPI?.platform === 'darwin' ? '⌘' : 'Ctrl'
+  return (
+    <SettingRow
+      label="Zoom"
+      description={`Makes everything bigger, images included. ${shortcut} + and ${shortcut} − also zoom.`}
+      stacked
+    >
+      <SegmentedControl label="Zoom" options={ZOOM_OPTIONS} value={zoom} onChange={setZoom} />
+    </SettingRow>
   )
 }

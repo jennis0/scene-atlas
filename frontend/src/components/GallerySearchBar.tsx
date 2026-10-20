@@ -12,7 +12,7 @@ export function GallerySearchBar({
 }: {
   search: UseGallerySearchReturn
   /** The field "/" focuses from anywhere on the page */
-  inputRef?: RefObject<HTMLInputElement>
+  inputRef?: RefObject<HTMLInputElement | null>
 }) {
   return (
     <form
