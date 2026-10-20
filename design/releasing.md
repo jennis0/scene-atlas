@@ -72,5 +72,5 @@ Each release also carries `docker-compose.yml` and `env.example` (renamed from `
 ## Not done yet
 
 - A GPU image, and arm64 images.
-- Updating from the previous published release in the upgrade test ([status-and-roadmap.md](status-and-roadmap.md)).
+- The upgrade test on Linux and macOS in CI ([status-and-roadmap.md](status-and-roadmap.md)).
 - A changelog beyond GitHub's generated notes.

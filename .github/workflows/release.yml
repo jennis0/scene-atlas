@@ -376,9 +376,10 @@ jobs:
           retention-days: 7
 
       # ── Upgrade test (design/testing.md#upgrade-test) ────────────────────
-      # The same code packaged as version 0.0.0 is installed, given a library, and
-      # updated to this build from a local feed. The library and its search results
-      # are compared before and after. Windows only for now.
+      # An older version is installed, given a library, and updated to this build from a
+      # local feed. The library and its search results are compared before and after.
+      # Twice: from the same code packaged as 0.0.0, and from the last published release
+      # (its own updater, and migrations on a database it made). Windows only for now.
       - name: Build the old version for the upgrade test
         if: matrix.platform == 'windows'
         shell: bash
@@ -417,6 +418,41 @@ jobs:
           SEARCH_CHANGE_REASON: ${{ inputs.search_change_reason }}
           E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
 
+      # The latest published release (not drafts or prereleases), if there is one.
+      - name: Download the last release for the upgrade test
+        id: previous
+        if: matrix.platform == 'windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -z "$tag" ]; then
+            echo "::notice::No published release yet, so no upgrade test from one"
+            exit 0
+          fi
+          previous="${tag#v}"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir dist-upgrade-previous \
+            --pattern "Scene-Atlas-Setup-$previous.exe" --pattern "Scene-Atlas-Setup-$previous.exe.blockmap"
+          mkdir dist-upgrade-feed-previous
+          cp dist-upgrade-feed/latest.yml "dist-upgrade-feed/Scene-Atlas-Setup-$UPGRADE_NEW_VERSION.exe" \
+            "dist-upgrade-feed/Scene-Atlas-Setup-$UPGRADE_NEW_VERSION.exe.blockmap" \
+            "dist-upgrade-previous/Scene-Atlas-Setup-$previous.exe.blockmap" dist-upgrade-feed-previous/
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Upgrade test from the last release
+        if: steps.previous.outputs.version != ''
+        run: npm run test:upgrade
+        env:
+          UPGRADE_OLD_INSTALLER: ${{ github.workspace }}\dist-upgrade-previous\Scene-Atlas-Setup-${{ steps.previous.outputs.version }}.exe
+          UPGRADE_FEED_DIR: ${{ github.workspace }}\dist-upgrade-feed-previous
+          UPGRADE_MODEL_CACHE: ${{ github.workspace }}\.upgrade-model-cache
+          UPGRADE_REPORT_DIR: ${{ github.workspace }}\e2e\upgrade-report-previous
+          UPGRADE_PLAYWRIGHT_REPORT: playwright-report-upgrade-previous
+          ACCEPT_SEARCH_CHANGES: ${{ inputs.accept_search_changes }}
+          SEARCH_CHANGE_REASON: ${{ inputs.search_change_reason }}
+          E2E_IMAGE_KEY: ${{ secrets.E2E_IMAGE_KEY }}
+
       - name: Upload upgrade test report
         if: always() && matrix.platform == 'windows'
         uses: actions/upload-artifact@v7
@@ -425,6 +461,8 @@ jobs:
           path: |
             e2e/upgrade-report/
             e2e/playwright-report-upgrade/
+            e2e/upgrade-report-previous/
+            e2e/playwright-report-upgrade-previous/
           if-no-files-found: ignore
           retention-days: 30
 

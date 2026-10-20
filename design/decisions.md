@@ -583,7 +583,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - macOS auto-install needs an Apple Developer account and a `zip` mac target.
 - The AppImage updater writes the new version under its own versioned name and deletes the old file, so a shortcut to the old file name stops working.
 - The packaged-app tests point the updater at a closed port, so test runs never update.
-- The upgrade test runs on Windows only, from a build of the same code. Upgrading from the previous published release (real migrations, the old updater's own code) and Linux are on the roadmap.
+- The upgrade test runs on Windows only, from a build of the same code and (since ADR-024) from the last published release. Linux is on the roadmap.
 
 ---
 

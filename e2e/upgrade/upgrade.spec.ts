@@ -4,11 +4,14 @@
  * and its search results came through.
  *
  * Windows (NSIS) and Linux (AppImage), the two installs that update themselves; the Release
- * workflow runs it on Windows. It provides:
+ * workflow runs it on Windows, from a 0.0.0 build and from the last published release. It
+ * provides:
  *   UPGRADE_OLD_INSTALLER  the older build's NSIS installer, or its AppImage
  *   UPGRADE_FEED_DIR       the new build's latest.yml (latest-linux.yml), installer and
  *                          blockmap, plus the old build's blockmap on Windows so the
  *                          download can be differential (an AppImage carries its own)
+ *   UPGRADE_FROM_GITHUB    "1" instead of UPGRADE_FEED_DIR: update from the real GitHub
+ *                          releases, to check a published release end to end
  *   UPGRADE_NEW_VERSION    the version the update must arrive at
  *   UPGRADE_MODEL_CACHE    optional: a folder that keeps the search model between runs
  *   ACCEPT_SEARCH_CHANGES  "true" to accept changed search results (never library problems)
@@ -92,7 +95,8 @@ test("an update keeps the library, its edits and its search results", async () =
   test.setTimeout(90 * 60_000);
 
   const oldInstaller = required("UPGRADE_OLD_INSTALLER");
-  const feedDir = required("UPGRADE_FEED_DIR");
+  const fromGitHub = process.env.UPGRADE_FROM_GITHUB === "1";
+  const feedDir = fromGitHub ? null : required("UPGRADE_FEED_DIR");
   const newVersion = required("UPGRADE_NEW_VERSION");
   const accept = process.env.ACCEPT_SEARCH_CHANGES === "true";
   const imageDir = ensureTestImages();
@@ -108,9 +112,10 @@ test("an update keeps the library, its edits and its search results", async () =
     fs.cpSync(path.join(modelCache, MODEL), modelDir, { recursive: true });
   }
 
-  feed = await serveFeed(feedDir);
+  feed = feedDir ? await serveFeed(feedDir) : undefined;
   // The updater's download cache lives in the profile, so no earlier run's download is reused.
-  const env = { ...isolatedEnv(profile.root), SCENE_ATLAS_UPDATE_FEED: feed.url };
+  // An empty feed override is ignored, so the app reads the GitHub releases.
+  const env = { ...isolatedEnv(profile.root), SCENE_ATLAS_UPDATE_FEED: feed?.url ?? "" };
 
   // ── The old version, with a library ──────────────────────────────────
   const oldApp = await launch(profile, [], { exe, env });
@@ -206,7 +211,7 @@ test("an update keeps the library, its edits and its search results", async () =
   fs.writeFileSync(path.join(REPORT_DIR, "report.md"), report);
   fs.writeFileSync(
     path.join(REPORT_DIR, "snapshots.json"),
-    JSON.stringify({ specs, before, after, comparison, feedRequests: feed.requests }, null, 2),
+    JSON.stringify({ specs, before, after, comparison, feedRequests: feed?.requests ?? "github" }, null, 2),
   );
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
   console.log(report);
