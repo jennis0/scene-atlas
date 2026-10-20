@@ -115,13 +115,13 @@ export async function removeProvisionalDirs(dirs: string[], defaults: DefaultDir
   if (dirs.length === 0) return
   for (const dir of dirs) {
     if (hasForeignEntries(dir)) {
-      console.log(`[electron] Keeping ${dir}: it holds other files`)
+      console.log('[electron] Keeping a folder that holds other files:', dir)
       continue
     }
     // Windows can hold the stopped backend's files open for a moment (EBUSY, EPERM).
     await fs.promises
       .rm(dir, { recursive: true, force: true, maxRetries: 4, retryDelay: 200 })
-      .catch((err) => console.warn(`[electron] Couldn't delete ${dir}:`, err))
+      .catch((err) => console.warn("[electron] Couldn't delete a folder:", dir, err))
   }
   // rmdir fails unless the folder is empty.
   await fs.promises.rmdir(path.dirname(defaults.appData)).catch(() => {})

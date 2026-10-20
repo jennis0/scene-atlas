@@ -76,19 +76,19 @@ _IMAGE_TRIGGERS = (
     END
     """,
 )
-_TRIGGER_NAMES = (
-    "image_fts_ai",
-    "image_fts_ad",
-    "image_fts_au",
-    "trg_images_group_count_insert",
-    "trg_images_group_count_delete",
-    "trg_images_group_count_update",
+_DROP_IMAGE_TRIGGERS = (
+    "DROP TRIGGER IF EXISTS image_fts_ai",
+    "DROP TRIGGER IF EXISTS image_fts_ad",
+    "DROP TRIGGER IF EXISTS image_fts_au",
+    "DROP TRIGGER IF EXISTS trg_images_group_count_insert",
+    "DROP TRIGGER IF EXISTS trg_images_group_count_delete",
+    "DROP TRIGGER IF EXISTS trg_images_group_count_update",
 )
 
 
 def _recreate_image_triggers() -> None:
-    for name in _TRIGGER_NAMES:
-        op.execute(f"DROP TRIGGER IF EXISTS {name}")
+    for statement in _DROP_IMAGE_TRIGGERS:
+        op.execute(statement)
     for trigger in _IMAGE_TRIGGERS:
         op.execute(trigger)
 
