@@ -2,9 +2,13 @@ import { describe, test } from 'node:test'
 import * as assert from 'node:assert/strict'
 import {
   canCheck,
+  DEFAULT_UPDATE_CHOICE,
   parseFeedOverride,
+  parseUpdateChoice,
   releasePageUrl,
+  savedUpdateChoice,
   updateModeFor,
+  updaterBehaviour,
   wholePercent,
   type UpdateStatus,
 } from '../src/updatePolicy.ts'
@@ -102,5 +106,77 @@ describe('wholePercent', () => {
 
   test('treats a missing value as 0', () => {
     for (const raw of [undefined, null, NaN, '50']) assert.equal(wholePercent(raw), 0)
+  })
+})
+
+describe('update choice', () => {
+  test('the default asks first', () => {
+    assert.equal(DEFAULT_UPDATE_CHOICE, 'ask')
+  })
+
+  test('parses only the three choices', () => {
+    for (const choice of ['automatic', 'ask', 'off'])
+      assert.equal(parseUpdateChoice(choice), choice)
+    for (const raw of [undefined, null, '', 'Automatic', 'on', true, 1]) {
+      assert.equal(parseUpdateChoice(raw), null, String(raw))
+    }
+  })
+
+  test('reads the saved choice, and keeps an off from a 0.1.x config', () => {
+    assert.equal(savedUpdateChoice({ updateChoice: 'automatic' }), 'automatic')
+    assert.equal(savedUpdateChoice({ updateChoice: 'ask', checkForUpdates: false }), 'ask')
+    assert.equal(savedUpdateChoice({ checkForUpdates: false }), 'off')
+    // 0.1.x checked by default, but that wasn't a choice to install automatically.
+    assert.equal(savedUpdateChoice({ checkForUpdates: true }), null)
+    assert.equal(savedUpdateChoice({}), null)
+    assert.equal(savedUpdateChoice({ updateChoice: 'sometimes' }), null)
+  })
+})
+
+describe('updaterBehaviour', () => {
+  test('does nothing until a choice is made', () => {
+    assert.deepEqual(updaterBehaviour(null, 'install'), {
+      checksAutomatically: false,
+      downloadsAutomatically: false,
+      installsOnQuit: false,
+    })
+  })
+
+  test('automatic downloads and installs on quit', () => {
+    assert.deepEqual(updaterBehaviour('automatic', 'install'), {
+      checksAutomatically: true,
+      downloadsAutomatically: true,
+      installsOnQuit: true,
+    })
+  })
+
+  test('ask checks but never downloads or installs by itself', () => {
+    assert.deepEqual(updaterBehaviour('ask', 'install'), {
+      checksAutomatically: true,
+      downloadsAutomatically: false,
+      installsOnQuit: false,
+    })
+  })
+
+  test('off makes no checks of its own', () => {
+    assert.equal(updaterBehaviour('off', 'install').checksAutomatically, false)
+    assert.equal(updaterBehaviour('off', 'install').downloadsAutomatically, false)
+  })
+
+  test('an update the user asked for installs on quit, whatever the choice', () => {
+    for (const choice of ['ask', 'off', null] as const) {
+      assert.equal(updaterBehaviour(choice, 'install', true).installsOnQuit, true, String(choice))
+      assert.equal(updaterBehaviour(choice, 'install', true).downloadsAutomatically, false)
+    }
+  })
+
+  test('a notify-only install never downloads or installs, and treats automatic as ask', () => {
+    for (const choice of ['automatic', 'ask'] as const) {
+      assert.deepEqual(updaterBehaviour(choice, 'notify', true), {
+        checksAutomatically: true,
+        downloadsAutomatically: false,
+        installsOnQuit: false,
+      })
+    }
   })
 })

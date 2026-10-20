@@ -8,6 +8,7 @@ import {
   type WindowColors,
 } from './displayPrefs'
 import { defaultStorageBase } from './storageDirs'
+import { savedUpdateChoice, type UpdateChoice } from './updatePolicy'
 import { sanitizeWindowState, type WindowState } from './windowState'
 
 interface AppConfig {
@@ -19,8 +20,8 @@ interface AppConfig {
   windowColors?: WindowColors
   /** The main window's last size, position and maximised state (windowState.ts) */
   windowState?: WindowState
-  /** False when the user turned update checks off in Settings; absent means on */
-  checkForUpdates?: boolean
+  /** How the app updates itself (updatePolicy.ts); absent until the user chooses */
+  updateChoice?: UpdateChoice
 }
 
 /** Legacy config shape written by older versions. */
@@ -63,15 +64,15 @@ export function loadConfig(): AppConfig | null {
     // is now chosen in the setup wizard and kept by the backend (design/first-run.md).
     const windowColors = sanitizeWindowColors(parsed.windowColors)
     const windowState = sanitizeWindowState(parsed.windowState)
+    // 0.1.x saved checkForUpdates instead; it is dropped the next time the config is saved.
+    const updateChoice = savedUpdateChoice(parsed)
     return {
       appDataDir: parsed.appDataDir,
       imageLibraryDir: parsed.imageLibraryDir,
       displayPrefs: sanitizeDisplayPrefs(parsed.displayPrefs),
       ...(windowColors ? { windowColors } : {}),
       ...(windowState ? { windowState } : {}),
-      ...(typeof parsed.checkForUpdates === 'boolean'
-        ? { checkForUpdates: parsed.checkForUpdates }
-        : {}),
+      ...(updateChoice ? { updateChoice } : {}),
     }
   } catch {
     return null

@@ -8,7 +8,7 @@ What a new user sees, in both deployment modes, and why. Decisions recorded 2026
 |---|---|---|
 | Storage window (`electron/setup.html`, before the backend exists) | App data folder and image library folder. Follows the system light/dark setting | — |
 | Loading page (`electron/loading.html`) | "Starting up…", or the startup error. Follows the system setting | — |
-| Setup wizard (React, `components/setup/SetupWizard.tsx`) | Appearance → Stored format → Tag packs → Search model | same |
+| Setup wizard (React, `components/setup/SetupWizard.tsx`) | Appearance (and how the app updates) → Stored format → Tag packs → Search model | same, without updates |
 | Gallery | Empty-library screen; the model downloads in the background | same |
 
 The wizard runs once per library, until `POST /models/setup-complete` records `setup_completed_at`. The server isn't a shared multi-user service yet, so the appearance step isn't repeated for each new browser. When it becomes one, appearance needs its own per-device "first visit" flag, because display choices are stored per device.
@@ -17,6 +17,7 @@ The wizard runs once per library, until `POST /models/setup-complete` records `s
 
 - **Storage folders stay in the Electron window.** The backend can't start without them, so they're chosen before React exists. On a server they're env vars (`APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`) and the UI never shows server paths.
 - **Appearance comes first**, so the rest of setup is already in the user's theme and text size. Every change applies at once and is saved per device (`ThemeContext`).
+- **The desktop app's update choice is on the first step**, so it's made before the app first contacts GitHub ([electron.md](electron.md#updates)). It starts on Ask first; leaving it there records Ask first when setup finishes. A server's checks are its admin's (`CHECK_FOR_UPDATES`), so the server wizard doesn't show it.
 - **Stored format is in the wizard, not the Electron window.** It's a library setting (`stored_format`), so both modes set it the same way via `PATCH /settings/`. On a server, `CONVERT_TO_WEBP=1` only changes the default the wizard starts with. This removed the Electron `pendingStoredFormat` handoff.
 - **Every tag pack is optional, Common included.** Common is installed when the library is created; the tag-pack step then installs exactly what the user picks (`PUT /tags/packs`, refused once setup is finished; see [tag-packs.md](tag-packs.md)).
 - **The server keeps the model and tag-pack steps.** They're choices about library content, not deployment config. `EMBEDDING_MODEL` still overrides the model; when a model is already set up, the model step is skipped.

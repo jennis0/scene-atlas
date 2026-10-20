@@ -139,7 +139,14 @@ test("an update keeps the library, its edits and its search results", async () =
   // ── Update ───────────────────────────────────────────────────────────
   await oldPage.evaluate(() => (window as any).electronAPI.checkForUpdates());
   await expect
-    .poll(async () => (await updateState(oldPage)).status, {
+    .poll(async () => {
+      const { status } = await updateState(oldPage);
+      // Ask first (the default after 0.1.1) waits for Update; 0.1.x downloads by itself.
+      if (status === "available") {
+        await oldPage.evaluate(() => (window as any).electronAPI.downloadUpdate?.());
+      }
+      return status;
+    }, {
       message: "the update to download",
       timeout: 15 * 60_000,
       intervals: [2000],

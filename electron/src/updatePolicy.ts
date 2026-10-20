@@ -2,9 +2,22 @@
 // UI (design/electron.md#updates). Node-only (no electron import) so it can be unit tested
 // with `node --test`.
 
-/** 'install' downloads in the background and installs on restart or quit; 'notify' only
- * says a new version is out and links to its download. */
+/** What this install can do: 'install' downloads and installs a new version; 'notify' only
+ * says one is out and links to its download. */
 export type UpdateMode = 'install' | 'notify'
+
+/**
+ * The user's choice, in Settings or the setup wizard:
+ * - automatic: check, download in the background, install on restart or quit
+ * - ask: check and say a version is out; download and install only when the user asks
+ * - off: no checks of its own; Check now still works, and then behaves like ask
+ */
+export type UpdateChoice = 'automatic' | 'ask' | 'off'
+
+const UPDATE_CHOICES: readonly UpdateChoice[] = ['automatic', 'ask', 'off']
+
+/** Until the user chooses, nothing checks; once setup is done, this is chosen for them. */
+export const DEFAULT_UPDATE_CHOICE: UpdateChoice = 'ask'
 
 export type UpdateStatus =
   | 'unsupported' // dev build: there is nothing to update
@@ -20,8 +33,10 @@ export interface UpdateState {
   status: UpdateStatus
   mode: UpdateMode
   currentVersion: string
-  /** Whether the app checks by itself; a check from Settings works either way */
-  checksEnabled: boolean
+  /** The user's choice, or the default while they haven't made one */
+  choice: UpdateChoice
+  /** False until the user (or the end of setup) has chosen: no automatic checks until then */
+  choiceMade: boolean
   /** The newer version, once one is found */
   version?: string
   /** 0–100 while downloading */
@@ -82,6 +97,50 @@ export function parseFeedOverride(raw: string | undefined): string | null {
  * a plain version, so text from the feed never ends up in the URL. */
 export function releasePageUrl(version: string | undefined): string {
   return version && isPlainVersion(version) ? `${RELEASES_URL}/tag/v${version}` : RELEASES_URL
+}
+
+export function parseUpdateChoice(raw: unknown): UpdateChoice | null {
+  return UPDATE_CHOICES.find((choice) => choice === raw) ?? null
+}
+
+/**
+ * The choice a saved config records, or null if none was made. Configs from 0.1.x have
+ * `checkForUpdates: false` when checks were turned off, and nothing otherwise: that wasn't
+ * a choice about installing, so only the off is kept.
+ */
+export function savedUpdateChoice(config: {
+  updateChoice?: unknown
+  checkForUpdates?: unknown
+}): UpdateChoice | null {
+  return parseUpdateChoice(config.updateChoice) ?? (config.checkForUpdates === false ? 'off' : null)
+}
+
+export interface UpdaterBehaviour {
+  /** Checks shortly after launch and every few hours */
+  checksAutomatically: boolean
+  /** A version found is downloaded without asking */
+  downloadsAutomatically: boolean
+  /** A downloaded version is installed when the app quits */
+  installsOnQuit: boolean
+}
+
+/**
+ * What the updater does by itself for *choice* (null: not made yet) on an install that
+ * can *mode*. Nothing installs unless the choice is automatic or the user asked for this
+ * update (`requested`, from Update in ask or off). A notify-only install treats automatic
+ * as ask: it has nothing to install.
+ */
+export function updaterBehaviour(
+  choice: UpdateChoice | null,
+  mode: UpdateMode,
+  requested = false,
+): UpdaterBehaviour {
+  const automatic = choice === 'automatic' && mode === 'install'
+  return {
+    checksAutomatically: choice === 'automatic' || choice === 'ask',
+    downloadsAutomatically: automatic,
+    installsOnQuit: mode === 'install' && (automatic || requested),
+  }
 }
 
 /** Whether a check may start now: not while one is running, nor once an update is found. */

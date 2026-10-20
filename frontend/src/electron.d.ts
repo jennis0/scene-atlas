@@ -3,6 +3,10 @@
  * preload script.  Only present when the app is running inside Electron.
  */
 
+/** How the desktop app updates itself: download and install on restart, say a version is
+ * out and wait for the user, or no checks of its own (electron/src/updatePolicy.ts) */
+export type UpdateChoice = 'automatic' | 'ask' | 'off'
+
 /** The desktop app's updater (electron/src/updatePolicy.ts, design/electron.md#updates) */
 export interface AppUpdateState {
   status:
@@ -17,7 +21,10 @@ export interface AppUpdateState {
   /** 'install' downloads and installs; 'notify' links to the download (macOS, .deb) */
   mode: 'install' | 'notify'
   currentVersion: string
-  checksEnabled: boolean
+  /** The user's choice, or the default ('ask') until they make one */
+  choice: UpdateChoice
+  /** False until a choice is made; the app makes no checks of its own until then */
+  choiceMade: boolean
   version?: string
   percent?: number
   error?: string
@@ -63,7 +70,9 @@ interface ElectronAPI {
   getUpdateState(): Promise<AppUpdateState | null>
   /** Check now, even when automatic checks are off */
   checkForUpdates(): Promise<AppUpdateState | null>
-  setUpdatesEnabled(enabled: boolean): Promise<AppUpdateState | null>
+  setUpdateChoice(choice: UpdateChoice): Promise<AppUpdateState | null>
+  /** Download the version found (install mode, when the choice isn't automatic) */
+  downloadUpdate(): Promise<AppUpdateState | null>
   /** Quit into the downloaded version's installer */
   installUpdate(): Promise<void>
   /** Open the new version's release page (notify mode) */

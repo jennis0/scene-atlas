@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AppUpdateState } from '@/electron'
+import type { AppUpdateState, UpdateChoice } from '@/electron'
 
 /**
  * The desktop app's update state, kept current (design/electron.md#updates). The state is
@@ -29,8 +29,13 @@ export function useAppUpdates() {
       if (next) setState(next)
     })
   }, [])
-  const setEnabled = useCallback((enabled: boolean) => {
-    void window.electronAPI?.setUpdatesEnabled(enabled).then((next) => {
+  const setChoice = useCallback((choice: UpdateChoice) => {
+    void window.electronAPI?.setUpdateChoice(choice).then((next) => {
+      if (next) setState(next)
+    })
+  }, [])
+  const download = useCallback(() => {
+    void window.electronAPI?.downloadUpdate().then((next) => {
       if (next) setState(next)
     })
   }, [])
@@ -44,7 +49,8 @@ export function useAppUpdates() {
   return {
     state: state?.status === 'unsupported' ? undefined : state,
     check,
-    setEnabled,
+    setChoice,
+    download,
     install,
     openDownload,
   }

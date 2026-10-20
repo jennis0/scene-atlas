@@ -16,17 +16,21 @@ import * as fs from 'fs'
 import {
   canCheck,
   CHECK_INTERVAL_MS,
+  DEFAULT_UPDATE_CHOICE,
   FIRST_CHECK_DELAY_MS,
   parseFeedOverride,
   releasePageUrl,
   updateModeFor,
+  updaterBehaviour,
   wholePercent,
+  type UpdateChoice,
   type UpdateMode,
   type UpdateState,
 } from './updatePolicy'
 
 export interface UpdaterOptions {
-  enabled: boolean
+  /** The saved choice, or null if the user hasn't made one: no automatic checks until then */
+  choice: UpdateChoice | null
   logPath: string
   /** Stops the backend before the installer runs, which would otherwise find its files in use. */
   stopBackend: () => Promise<void>
@@ -75,24 +79,28 @@ export class Updater {
   private interval: NodeJS.Timeout | null = null
   private readonly log: ReturnType<typeof fileLogger>
   private readonly updater?: AppUpdater
+  private choice: UpdateChoice | null
+  /** The user pressed Update for the version found, so it may install on quit */
+  private requested = false
 
   constructor(private readonly options: UpdaterOptions) {
     this.log = fileLogger(options.logPath)
     const mode = updateModeFor(process.platform, process.env)
     const currentVersion = app.getVersion()
-    const checksEnabled = options.enabled
+    this.choice = options.choice
+    const choice = options.choice ?? DEFAULT_UPDATE_CHOICE
+    const choiceMade = options.choice !== null
     const updater = app.isPackaged ? createAppUpdater(mode) : null
     // Inactive means a check would quietly do nothing, so say there's nothing to update.
     if (!updater?.isUpdaterActive()) {
-      this.state = { status: 'unsupported', mode, currentVersion, checksEnabled }
+      this.state = { status: 'unsupported', mode, currentVersion, choice, choiceMade }
       return
     }
-    this.state = { status: 'idle', mode, currentVersion, checksEnabled }
+    this.state = { status: 'idle', mode, currentVersion, choice, choiceMade }
     this.updater = updater
 
     updater.logger = this.log
-    updater.autoDownload = mode === 'install'
-    updater.autoInstallOnAppQuit = mode === 'install'
+    this.applyBehaviour()
 
     const feedOverride = process.env.SCENE_ATLAS_UPDATE_FEED
     const feed = parseFeedOverride(feedOverride)
@@ -110,8 +118,9 @@ export class Updater {
       this.set({ status: 'up-to-date' })
     })
     updater.on('update-available', (info: UpdateInfo) => {
+      // Only automatic downloads by itself; otherwise the user decides (download()).
       this.set(
-        mode === 'install'
+        updater.autoDownload
           ? { status: 'downloading', version: info.version, percent: 0 }
           : { status: 'available', version: info.version },
       )
@@ -136,10 +145,12 @@ export class Updater {
     return { ...this.state }
   }
 
-  /** Check after a short delay, then every few hours while the app runs. */
+  /** Check after a short delay, then every few hours while the app runs, if the user's
+   * choice is to check. */
   start(): void {
     this.stopTimers()
-    if (this.state.status === 'unsupported' || !this.state.checksEnabled) return
+    if (this.state.status === 'unsupported') return
+    if (!updaterBehaviour(this.choice, this.state.mode).checksAutomatically) return
     this.firstCheck = setTimeout(() => this.check(), FIRST_CHECK_DELAY_MS)
     this.interval = setInterval(() => this.check(), CHECK_INTERVAL_MS)
   }
@@ -155,14 +166,36 @@ export class Updater {
     return this.getState()
   }
 
-  /** Turn automatic checks on or off. An update already found stays on offer. */
-  setEnabled(enabled: boolean): UpdateState {
-    if (this.state.status === 'unsupported' || enabled === this.state.checksEnabled) {
+  /**
+   * Record the user's choice. Choosing one that checks starts checking now. An update
+   * already found stays on offer, but only automatic installs it on quit unless the user
+   * asked for it.
+   */
+  setChoice(choice: UpdateChoice): UpdateState {
+    if (this.state.status === 'unsupported') return this.getState()
+    if (this.state.choiceMade && choice === this.choice) return this.getState()
+    this.choice = choice
+    this.set({ choice, choiceMade: true })
+    this.applyBehaviour()
+    this.start()
+    return updaterBehaviour(choice, this.state.mode).checksAutomatically
+      ? this.check()
+      : this.getState()
+  }
+
+  /** Install mode, when a version was found but not downloaded (ask, off): download it,
+   * then offer Restart to update. Having asked for it, it also installs on quit. */
+  download(): UpdateState {
+    if (this.state.mode !== 'install' || this.state.status !== 'available') {
       return this.getState()
     }
-    this.set({ checksEnabled: enabled })
-    this.start()
-    return enabled ? this.check() : this.getState()
+    this.requested = true
+    this.applyBehaviour()
+    this.set({ status: 'downloading', percent: 0 })
+    this.updater?.downloadUpdate().catch(() => {
+      // Failures also arrive as an 'error' event, which sets the state.
+    })
+    return this.getState()
   }
 
   /**
@@ -186,6 +219,13 @@ export class Updater {
   /** Notify mode: open the new version's release page in the browser. */
   openDownload(): void {
     void shell.openExternal(releasePageUrl(this.state.version))
+  }
+
+  private applyBehaviour(): void {
+    if (!this.updater) return
+    const behaviour = updaterBehaviour(this.choice, this.state.mode, this.requested)
+    this.updater.autoDownload = behaviour.downloadsAutomatically
+    this.updater.autoInstallOnAppQuit = behaviour.installsOnQuit
   }
 
   private set(patch: Partial<UpdateState>): void {
