@@ -14,7 +14,7 @@ import {
 import { pickImportPaths, pickStorageDir } from './pickers'
 import { prepareStorageDirs } from './storageDirs'
 import { Updater } from './updater'
-import type { UpdateState } from './updatePolicy'
+import { parseUpdateChoice, type UpdateState } from './updatePolicy'
 import {
   frameOptions,
   mainWindowPlacement,
@@ -234,11 +234,13 @@ handleTrusted('system:change-storage-dirs', async (_event, newAppDataDir, newIma
 
 handleTrusted('updates:get-state', () => updater?.getState() ?? null)
 handleTrusted('updates:check', () => updater?.check() ?? null)
-handleTrusted('updates:set-enabled', (_event, enabled) => {
-  if (typeof enabled !== 'boolean' || !updater) return updater?.getState() ?? null
-  updateConfig({ checkForUpdates: enabled })
-  return updater.setEnabled(enabled)
+handleTrusted('updates:set-choice', (_event, raw) => {
+  const choice = parseUpdateChoice(raw)
+  if (!choice || !updater) return updater?.getState() ?? null
+  updateConfig({ updateChoice: choice })
+  return updater.setChoice(choice)
 })
+handleTrusted('updates:download', () => updater?.download() ?? null)
 // Doesn't resolve when the installer starts: the app quits.
 handleTrusted('updates:install', () => updater?.install())
 handleTrusted('updates:open-download', () => updater?.openDownload())
@@ -253,7 +255,7 @@ function startUpdater(): void {
   const logPath = path.join(app.getPath('userData'), 'updater.log')
   rotateLog(logPath)
   updater = new Updater({
-    enabled: loadConfig()?.checkForUpdates ?? true,
+    choice: loadConfig()?.updateChoice ?? null,
     logPath,
     stopBackend: () => stopSidecar(QUIT_GRACE_MS),
     onChange: broadcastUpdateState,

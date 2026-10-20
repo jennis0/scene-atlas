@@ -673,3 +673,30 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - Server installs without a clone: the release carries `docker-compose.yml` and `env.example`. The GPU profile still builds from a checkout of a release tag.
 - The GHCR package must be made public once, by hand, after the first push.
 - Changing `APP_UID` after the first start needs a `chown -R` of the data volume.
+
+## ADR-025: The user chooses how the desktop app updates
+
+**Date:** 2026-10-20
+**Status:** Implemented (branch `feature/update-choice`). Current behaviour: [electron.md](electron.md#updates).
+
+**Context:** ADR-021's only control was "Check for updates automatically". On Windows and the AppImage, a check that found a version downloaded it at once and installed it on quit, Check now included, so the choice was between not hearing about updates and having them installed. The first check also ran 15 s after first launch, before the user could reach Settings. The user asked that updating be easy to refuse: never forced.
+
+**Decision:**
+
+1. **Three choices**, in Settings → Updates and on the setup wizard's first step: Automatic (as before), Ask first (say a version is out; download and install only when the user presses Update) and Off (Check now only, then as Ask first). Saved as `updateChoice` in the app config.
+2. **Ask first is the default.** Nothing installs without a click.
+3. **No checks until a choice is made.** The wizard shows the choice before the app first contacts GitHub; finishing setup records the default if the user left it. Libraries set up before this get the default the next time the app opens past setup.
+4. **An update the user asked for installs on quit,** as Automatic's do: pressing Update is the decision, so Restart to update or quitting both install it. Moving away from Automatic after a download keeps Restart to update on offer but stops the install on quit.
+5. **Notify-only installs (macOS, .deb) have no Automatic.**
+
+**Alternatives considered:**
+
+- **Keep two states, but make Off never install.** Simpler, but no way to hear about a fix without either installing it automatically or checking by hand.
+- **Skip this version.** Not now: Ask first already never installs, and a skipped version would need its own state and UI.
+- **Default to Automatic.** More users on the latest version, but they'd have to find Settings to stop it; the user wants nothing installed without a click.
+
+**Consequences:**
+
+- Fewer users on the latest version, so fixes reach people more slowly and old versions linger. Release notes matter more.
+- The upgrade test presses Update when a build waits for it; 0.1.x builds (Automatic-only) download by themselves.
+- A 0.1.x config's default-on checks become Ask first, and an explicit off stays Off.

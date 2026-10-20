@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AppUpdateState } from '@/electron'
 import type { ServerUpdateStatus } from '@/lib/api/systemApi'
@@ -17,7 +17,8 @@ const BASE: AppUpdateState = {
   status: 'up-to-date',
   mode: 'install',
   currentVersion: '0.1.0',
-  checksEnabled: true,
+  choice: 'automatic',
+  choiceMade: true,
 }
 
 const RELEASES = 'https://github.com/jennis0/scene-atlas/releases'
@@ -44,9 +45,10 @@ function installUpdateApi(initial: AppUpdateState | null) {
   const api = {
     getUpdateState: vi.fn().mockResolvedValue(initial),
     checkForUpdates: vi.fn().mockResolvedValue({ ...initial, status: 'checking' }),
-    setUpdatesEnabled: vi.fn((enabled: boolean) =>
-      Promise.resolve({ ...initial, checksEnabled: enabled }),
+    setUpdateChoice: vi.fn((choice: string) =>
+      Promise.resolve({ ...initial, choice, choiceMade: true }),
     ),
+    downloadUpdate: vi.fn(() => Promise.resolve({ ...initial, status: 'downloading', percent: 0 })),
     installUpdate: vi.fn().mockResolvedValue(undefined),
     openUpdateDownload: vi.fn().mockResolvedValue(undefined),
     onUpdateState: vi.fn((callback: (state: AppUpdateState) => void) => {
@@ -102,14 +104,49 @@ describe('UpdatesSection', () => {
     expect(await screen.findByRole('button', { name: 'Check now' })).toBeDisabled()
   })
 
-  it('turns automatic checks off', async () => {
+  it('sets how the app updates', async () => {
     const { api } = installUpdateApi(BASE)
     render(<UpdatesSection />)
-    const toggle = await screen.findByRole('button', { name: 'Check for updates automatically' })
-    expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await userEvent.click(toggle)
-    expect(api.setUpdatesEnabled).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'false'))
+    const group = await screen.findByRole('radiogroup', { name: 'New versions' })
+    expect(
+      within(group)
+        .getAllByRole('radio')
+        .map((r) => r.textContent),
+    ).toEqual(['Automatic', 'Ask first', 'Off'])
+    expect(within(group).getByRole('radio', { name: 'Automatic' })).toBeChecked()
+    expect(screen.getByText(/installs them when you restart/)).toBeInTheDocument()
+
+    await userEvent.click(within(group).getByRole('radio', { name: 'Off' }))
+    expect(api.setUpdateChoice).toHaveBeenCalledWith('off')
+    expect(await screen.findByText('Only checks when you press Check now.')).toBeInTheDocument()
+  })
+
+  it('has no Automatic where the app can only notify', async () => {
+    installUpdateApi({ ...BASE, mode: 'notify', choice: 'ask' })
+    render(<UpdatesSection />)
+    const group = await screen.findByRole('radiogroup', { name: 'New versions' })
+    expect(
+      within(group)
+        .getAllByRole('radio')
+        .map((r) => r.textContent),
+    ).toEqual(['Ask first', 'Off'])
+  })
+
+  it('with Ask first, downloads a version found only when asked', async () => {
+    const { api } = installUpdateApi({
+      ...BASE,
+      choice: 'ask',
+      status: 'available',
+      version: '0.2.0',
+    })
+    render(<UpdatesSection />)
+    expect((await screen.findAllByText('Version 0.2.0 is out.')).length).toBeGreaterThan(0)
+    expect(api.downloadUpdate).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Update' }))
+    expect(api.downloadUpdate).toHaveBeenCalled()
+    expect(api.installUpdate).not.toHaveBeenCalled()
+    expect((await screen.findAllByText('Downloading version 0.2.0 (0%)')).length).toBeGreaterThan(0)
   })
 
   it('offers a restart once the update is downloaded', async () => {
@@ -189,6 +226,38 @@ describe('UpdatesSection on a server', () => {
 })
 
 describe('UpdateNotifier', () => {
+  it('records the default choice once setup is done, if none was made', async () => {
+    const { api } = installUpdateApi({ ...BASE, choice: 'ask', choiceMade: false })
+    render(<UpdateNotifier />)
+    await waitFor(() => expect(api.setUpdateChoice).toHaveBeenCalledWith('ask'))
+    expect(api.setUpdateChoice).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a choice the user made alone', async () => {
+    const { api } = installUpdateApi({ ...BASE, choice: 'off' })
+    render(<UpdateNotifier />)
+    await waitFor(() => expect(api.getUpdateState).toHaveBeenCalled())
+    expect(api.setUpdateChoice).not.toHaveBeenCalled()
+  })
+
+  it('with Ask first, offers to update a version found', async () => {
+    const { api } = installUpdateApi({
+      ...BASE,
+      choice: 'ask',
+      status: 'available',
+      version: '0.3.0',
+    })
+    render(<UpdateNotifier />)
+    await waitFor(() =>
+      expect(toastInfo).toHaveBeenCalledWith(
+        'Scene Atlas 0.3.0 is out',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Update' }) }),
+      ),
+    )
+    toastInfo.mock.calls[0][1].action.onClick()
+    expect(api.downloadUpdate).toHaveBeenCalled()
+  })
+
   it('announces a ready update once per version', async () => {
     const { push } = installUpdateApi(BASE)
     render(<UpdateNotifier />)

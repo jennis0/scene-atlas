@@ -4,7 +4,7 @@ import type { ServerUpdateStatus } from '@/lib/api/systemApi'
 import { SERVER_UPGRADE_DOCS_URL } from '@/lib/constants'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { SettingsSection } from '@/components/settings/SettingsSection'
-import { ToggleSwitch } from '@/components/settings/ToggleSwitch'
+import { UpdateChoiceRow } from '@/components/settings/UpdateChoiceRow'
 import { useAppUpdates } from '@/hooks/useAppUpdates'
 import { useServerUpdates } from '@/hooks/useServerUpdates'
 
@@ -19,7 +19,9 @@ function updateStatusText(state: AppUpdateState): string {
     case 'ready':
       return `Version ${state.version} is ready. It installs when you quit.`
     case 'available':
-      return `Version ${state.version} is out. Install it from the download page.`
+      return state.mode === 'install'
+        ? `Version ${state.version} is out.`
+        : `Version ${state.version} is out. Install it from the download page.`
     case 'error':
       return state.error ?? "Couldn't check for updates."
     default:
@@ -59,23 +61,21 @@ export function UpdatesSection() {
 
 type DesktopUpdatesProps = ReturnType<typeof useAppUpdates> & { state: AppUpdateState }
 
-/** Automatic checks, Check now, and installing or downloading the update. */
-function DesktopUpdates({ state, check, setEnabled, install, openDownload }: DesktopUpdatesProps) {
+/** The update choice, Check now, and getting the update once one is found. */
+function DesktopUpdates({
+  state,
+  check,
+  setChoice,
+  download,
+  install,
+  openDownload,
+}: DesktopUpdatesProps) {
   const status = updateStatusText(state)
   const busy = state.status === 'checking' || state.status === 'downloading'
 
   return (
     <SettingsSection title="Updates">
-      <SettingRow
-        label="Check for updates"
-        description="Looks for new versions on GitHub while the app is open."
-      >
-        <ToggleSwitch
-          label="Check for updates automatically"
-          checked={state.checksEnabled}
-          onChange={setEnabled}
-        />
-      </SettingRow>
+      <UpdateChoiceRow state={state} onChange={setChoice} />
 
       <SettingRow label={`Version ${state.currentVersion}`} description={status}>
         {/* The row's text isn't announced as it changes; this is */}
@@ -85,6 +85,10 @@ function DesktopUpdates({ state, check, setEnabled, install, openDownload }: Des
         {state.status === 'ready' ? (
           <button type="button" onClick={install} className={PRIMARY_BUTTON}>
             Restart to update
+          </button>
+        ) : state.status === 'available' && state.mode === 'install' ? (
+          <button type="button" onClick={download} className={PRIMARY_BUTTON}>
+            Update
           </button>
         ) : state.status === 'available' ? (
           <button type="button" onClick={openDownload} className={PRIMARY_BUTTON}>

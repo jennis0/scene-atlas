@@ -255,7 +255,18 @@ The app updates itself with electron-builder's **electron-updater**, not Electro
 
 Notify mode says a version is out and opens its release page (`releasePageUrl`; anything from the feed that isn't a plain version opens the releases list instead). `updater.ts` picks the updater itself (`createAppUpdater`) rather than leaving it to electron-updater, which on Linux reads `resources/package-type`: the `.deb` build writes that file into the unpacked app the AppImage is also built from, so an AppImage built after it would update itself as a `.deb`; and without the file it falls back to the AppImage updater, which doesn't check at all outside an AppImage. Linux notify mode uses the `.deb` updater, which checks anywhere and, with `autoDownload` off, never downloads. An updater that reports itself inactive puts the state at `unsupported`, so Settings hides the section instead of showing a check that never runs.
 
-**When.** 15 s after launch, then every 6 h, and whenever the user presses Check now (which works with automatic checks off). Settings → Updates turns automatic checks off (`checkForUpdates: false` in the config); the UI shows the version, the state and the action, and a toast says once per version that an update is ready (`UpdateNotifier`).
+**The user's choice** ([ADR-025](decisions.md#adr-025-the-user-chooses-how-the-desktop-app-updates)), `updateChoice` in the config, set in Settings → Updates and on the setup wizard's first step:
+
+| Choice | Checks | Downloads | Installs on quit |
+|---|---|---|---|
+| Automatic | yes | in the background | yes |
+| Ask first (default) | yes | when the user presses Update | only an update the user asked for |
+| Off | only Check now | when the user presses Update | only an update the user asked for |
+| none yet | no | — | — |
+
+`updaterBehaviour` in `updatePolicy.ts` is the table. A notify-only install has no Automatic (Settings hides it, and the policy treats it as Ask first). Until a choice is made the app makes no checks of its own, so a new install doesn't contact GitHub during setup unless the user picks a choice there; once setup is finished, `UpdateNotifier` records the default (`DEFAULT_UPDATE_CHOICE`, Ask first) for a library that was set up before the choice existed or a wizard left on it. A 0.1.x config's `checkForUpdates: false` becomes Off (`savedUpdateChoice`); its default-on wasn't a choice to install, so it becomes the default. Switching away from Automatic after a download leaves Restart to update on offer but stops it installing on quit.
+
+**When.** 15 s after launch, then every 6 h (Automatic and Ask first), and whenever the user presses Check now. The UI shows the version, the state and the action (Update, Restart to update, or Download in notify mode), and a toast says once per version that one is out (with Update) or ready (`UpdateNotifier`).
 
 **Installing.** *Restart to update* stops the backend (`stopSidecar`, up to `QUIT_GRACE_MS`) **before** calling the updater's `install(silent, runAfter)`, because the NSIS installer is spawned at that call, not at quit, and would find the backend's files in use; the installer runs silently into the existing install and starts the new version. If the installer can't start, the app relaunches on the current version so the backend comes back. Quitting with an update downloaded installs it (`autoInstallOnAppQuit`) from the `quit` event, which comes after `will-quit` has already stopped the backend. A storage change's `app.exit()` skips `quit`, so it never installs. A per-machine install asks for elevation (electron-updater runs the installer through `elevate.exe`).
 

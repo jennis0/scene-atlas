@@ -159,7 +159,8 @@ test("the updater reports its version and checks the feed it is given", async ()
   ).version;
 
   const state = await page.evaluate(() => (window as any).electronAPI.getUpdateState());
-  expect(state).toMatchObject({ currentVersion: version, checksEnabled: true });
+  // A new profile hasn't chosen how to update: the default is Ask first.
+  expect(state).toMatchObject({ currentVersion: version, choice: "ask" });
   // The unpacked build isn't an AppImage, so only Windows installs.
   expect(state.mode).toBe(process.platform === "win32" ? "install" : "notify");
 

@@ -74,8 +74,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Updates (design/electron.md#updates). The state is null before the updater exists.
   getUpdateState: (): Promise<unknown> => ipcRenderer.invoke('updates:get-state'),
   checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
-  setUpdatesEnabled: (enabled: boolean): Promise<unknown> =>
-    ipcRenderer.invoke('updates:set-enabled', enabled),
+  setUpdateChoice: (choice: string): Promise<unknown> =>
+    ipcRenderer.invoke('updates:set-choice', choice),
+  downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('updates:download'),
   // Quits into the installer; resolves only if there was nothing to install.
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
   openUpdateDownload: (): Promise<void> => ipcRenderer.invoke('updates:open-download'),
