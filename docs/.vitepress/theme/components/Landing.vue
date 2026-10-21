@@ -13,7 +13,7 @@ const examples = [
   { file: "IMG_2048.jpg", query: "flooded crypt" },
   { file: "final_v3_gridless.png", query: "market square at dusk" },
   { file: "Map 17 (Night).webp", query: "woodland path at night" },
-  { file: "pack-04-loop.mp4", query: "campfire in a forest clearing" },
+  { file: "forest-pack-04-loop.mp4", query: "campfire in a forest clearing" },
 ];
 
 const features = [
@@ -48,19 +48,19 @@ const NUMERALS = ["I", "II", "III", "IV", "V", "VI"];
 const ways = [
   {
     title: "Desktop app",
-    body: "Windows, macOS on Apple Silicon, and Linux. Install it and point it at your maps.",
+    body: "Windows, macOS on Apple Silicon, and Linux.",
     link: "/deploy/desktop",
     action: "Download",
   },
   {
     title: "Docker",
-    body: "For a home server or NAS, so your library is there wherever you play.",
+    body: "For a home server or NAS.",
     link: "/deploy/server",
     action: "Self-host with Docker",
   },
   {
     title: "Standalone server",
-    body: "Run the server with Python, without Docker.",
+    body: "Run the server without Docker.",
     link: "/deploy/standalone",
     action: "Set it up",
   },
@@ -99,8 +99,7 @@ const ways = [
       </div>
       <p class="meta">
         Free and open source <span aria-hidden="true">·</span> Windows, macOS,
-        Linux, and self-hosted <span aria-hidden="true">·</span> Your data stays
-        on your machine
+        Linux, and self-hosted <span aria-hidden="true">·</span> All data stays on your machine
       </p>
     </section>
 
@@ -124,7 +123,7 @@ const ways = [
 
     <section class="search">
       <div class="copy">
-        <h2>Search by content, not filename</h2>
+        <h2>Search by content</h2>
         <p>
           Scene Atlas looks at every image as it comes in, so you can find a map
           by describing it. Name, creator and tag searches still work, and you
@@ -153,7 +152,7 @@ const ways = [
     </section>
 
     <section class="features" aria-labelledby="features-heading">
-      <h2 id="features-heading">Built for the collection you already have</h2>
+      <h2 id="features-heading">Built for your maps</h2>
       <ol>
         <li v-for="(f, i) in features" :key="f.title">
           <span class="numeral" aria-hidden="true">{{ NUMERALS[i] }}</span>
@@ -166,8 +165,8 @@ const ways = [
     <section class="ways" aria-labelledby="ways-heading">
       <h2 id="ways-heading">Run it your way</h2>
       <p class="intro">
-        However you run it, your library, your searches and your settings stay
-        on your own machine.
+        However you run it, everything stays
+        on your machine.
       </p>
       <div class="cards">
         <a
