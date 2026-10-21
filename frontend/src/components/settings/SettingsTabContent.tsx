@@ -30,6 +30,14 @@ const GRID_RESOLUTION_OPTIONS = [
   { value: 4096, label: '4K', title: 'Reduce maps larger than 4096 px; misses thin grid lines' },
 ] as const
 
+/** CIE76 delta E between a searched colour and an image's dominant colour; 25 is the
+ * default, and 12 the benchmarked tighter value (design/search.md "Colour Search"). */
+const COLOR_MATCH_OPTIONS = [
+  { value: 12, label: 'Close', title: 'Only shades very like the chosen colour' },
+  { value: 25, label: 'Similar', title: 'Nearby shades of the chosen colour (default)' },
+  { value: 40, label: 'Broad', title: 'Anything in the same colour family' },
+] as const
+
 const STORED_FORMAT_OPTIONS = [
   { value: 'original', label: 'Original', title: 'Keep each file exactly as uploaded' },
   { value: 'webp', label: 'WebP', title: 'Smallest files; lossless for PNGs' },
@@ -394,6 +402,18 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
                   />
                 </SettingRow>
               )}
+
+              <SettingRow
+                label="Colour match"
+                description="How close an image's colours must be to a colour filter"
+              >
+                <SegmentedControl
+                  options={COLOR_MATCH_OPTIONS}
+                  value={(val('color_distance_threshold') as number) ?? 25}
+                  onChange={(v) => setField('color_distance_threshold', v)}
+                  label="Colour match"
+                />
+              </SettingRow>
             </SettingsSection>
 
             <TagPacksSection dialogOpen={dialogOpen} />

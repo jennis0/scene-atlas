@@ -1,50 +1,73 @@
 # Gallery & Image Viewer
 
-The gallery is the main interface for browsing your collection.
+The gallery is the main screen: your library, with search and filters on top.
 
-## View Modes
+## Browsing
 
-Toggle between views using the segmented control in the gallery header.
+- **All / Maps / Scenes** tabs show everything or one image type, with a count for each.
+- **Groups** shows each [group](/guide/groups) as one card: a large image with up to four of its variants beside it, and a count of the rest.
+- **Individual images** shows every image as its own tile.
 
-### Flat Grid
+The results bar under the search box shows how many results there are, any active filters, the sort order and a **tile size** slider.
 
-Shows every image as an individual card. Cards display a thumbnail, scene name, and author.
+| Sort | Order |
+|------|-------|
+| Newest first (default) | Most recently imported first |
+| Oldest first | Earliest imported first |
+| Name A–Z, Name Z–A | Alphabetical |
+| Relevance | Best match first; only with a search |
 
-Good for scanning your full library or finding a specific image.
+Your sort, view and tile size are remembered on this device.
 
-### Grouped (Hero + Mosaic)
+### Card and Tile Menus
 
-Shows each group as a card with a hero image alongside a mosaic of additional variants. Cards include group name, author, and scene count.
+Each card and tile has a **…** menu:
 
-Good for browsing by scene concept and quickly seeing what variants are available.
+| On | Actions |
+|----|---------|
+| A group card | Edit, Merge into…, Download (all its images as a ZIP), Delete |
+| An image tile | Edit group, Move to group…, Download, Delete |
 
-<!-- TODO: screenshot:flat vs grouped gallery comparison -->
-
-## Sorting and Type Tabs
-
-**Sort options:**
-- **Relevance**:only available when a search query is active
-- **Name**:alphabetical
-- **Date**:most recently imported first
-
-**Type tabs** let you filter the entire gallery to show all images, battlemaps only, or scenes only.
+**Edit all** in the results bar edits every image in the current results at once. See [Bulk editing](/guide/groups#bulk-editing).
 
 ## Image Viewer
 
-Click any image or group card to open the full-screen viewer.
+Click an image or a group card to open it in the viewer.
 
-The viewer shows the full-resolution image with a sidebar containing:
+**Beside the image** you can see and change:
 
-- Group name and author (editable inline)
-- Subgroup label (editable)
-- Grid settings: Gridded / Gridless / Unknown, with dimensions for gridded images
-- Dominant colours, image dimensions, and file size
-- Tag pills with a + Tag picker for adding new tags
-- All other variants in the group, partitioned by subgroup, with click-to-navigate
+- the image's name (click it to rename), the group and its author;
+- its subgroup;
+- its type, Map or Scene;
+- its grid: square, hex, none or unknown, and for gridded maps the size in squares;
+- its tags (**+ Tag** to add one);
+- its main colours, size in pixels, file size and filename.
 
-### Keyboard Navigation
+**The scene panel** lists the other images in the group by subgroup. Filter it by name or by type to find a variant quickly, and click one to switch to it.
 
-| Key | Action |
-|-----|--------|
-| `←` / `→` | Previous / next image in group |
-| `Escape` | Close the viewer |
+**The toolbar** has Edit group, Download group, Download image, Move to another group, Delete image and Close.
+
+### Grid Overlay
+
+On a square-gridded map, press **G** (or use the grid button) to draw the detected grid over the image. It's a quick way to check that the grid size is right. Correct it in the Grid row if it isn't.
+
+### Videos
+
+Animated maps play in the viewer, looped. Tiles for videos carry a small video mark.
+
+### Missing Files
+
+If an image's file has gone from [your own folder](/guide/library#keeping-up-with-changes), its tile shows **File missing**. The viewer still shows its thumbnail and details, but it can't be downloaded.
+
+## Keyboard Shortcuts
+
+| Key | Where | Action |
+|-----|-------|--------|
+| `/` | Gallery | Jump to the search box |
+| `←` / `→` | Viewer | Previous / next image in the group |
+| `G` | Viewer | Show or hide the grid overlay |
+| `Esc` | Viewer, dialogs | Close |
+| `Enter` / `Esc` | When renaming | Save / cancel |
+| Right-click | Filter menu | Exclude a filter |
+| `Ctrl`/`Cmd`-click, `Shift`-click | Group editor | Select several groups, or a range |
+| `Ctrl`/`Cmd` `+`, `-`, `0` | Desktop app | Zoom in, out, back to 100% |

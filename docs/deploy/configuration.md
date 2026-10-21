@@ -66,7 +66,8 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP, the setup wizard's starting choice; used only when settings are first seeded |
-| `MAX_IMPORT_ITEMS` | `50000` | Most files a single import job may contain |
+| `MAX_IMPORT_ITEMS` | `50000` | Most files a single uploaded import may contain |
+| `MAX_LOCAL_IMPORT_ITEMS` | `250000` | Most files a desktop import read from disk may contain, and most new files one scan of `LINKED_LIBRARY_DIR` adds |
 | `MAX_IMAGE_PIXELS` | `1000000000` | Largest image (in pixels) that will be decoded; larger files are rejected |
 | `PIXEL_HASH_MAX_PIXELS` | `100000000` | JPEGs above this size are decoded at reduced scale and skip the decoded-pixel duplicate check |
 | `INGEST_MEMORY_BUDGET_MB` | *(automatic)* | Memory reserved for concurrent image preparation. Automatic: half of RAM beyond a 2 GiB reserve |
@@ -98,7 +99,7 @@ Runtime settings are stored in the database and seeded with the defaults below o
 
 Stored format is Original, WebP, JPEG or PNG and applies to new imports only (see [Importing](/guide/importing#stored-format)). Quality applies to WebP and JPEG (1-100); JPEG sources always use it.
 
-`max_import_files` and `max_import_total_size` apply to each uploaded ZIP archive. The per-import file limit is the `MAX_IMPORT_ITEMS` environment variable.
+Despite their names, `max_import_files` and `max_import_total_size` apply to each ZIP archive, not to a whole import. The per-import file limits are the `MAX_IMPORT_ITEMS` and `MAX_LOCAL_IMPORT_ITEMS` environment variables.
 
 ### Linked folder
 
@@ -122,7 +123,7 @@ Image grid detection runs on battlemaps only, in addition to filename-based dete
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Dominant colours | `num_dominant_colors` | 5 | API |
-| Colour distance threshold | `color_distance_threshold` | 25 (delta E) | API |
+| Colour match | `color_distance_threshold` | 25 (delta E) | UI (Close 12, Similar 25, Broad 40); any value through the API |
 | Clustering samples | `color_clustering_samples` | 5,000 | API |
 | Clustering restarts | `color_kmeans_n_init` | 3 | API |
 
@@ -152,9 +153,7 @@ The active model is chosen in **Settings** (or forced with `EMBEDDING_MODEL`). T
 
 Changing the active model triggers automatic re-embedding of all images. This runs in the background and can take time for large libraries.
 
-## How Hybrid Search Ranking Works
-
-When a hybrid search runs, three independent result sets (keyword, semantic, alias) are merged using Reciprocal Rank Fusion (RRF). Each result gets `weight / (k + rank)` from each strategy it appeared in (k = 60; weights: keyword 1.1, semantic 1.0, alias 0.5, so synonyms never outrank the words you typed), and the scores are summed. An image that ranks well across several strategies rises to the top without any single strategy dominating.
+For how search ranks results and matches colours, see [How Search Works](/reference/search).
 
 ## Inference Device
 

@@ -24,7 +24,7 @@ Free and open source. Runs as a desktop app on Windows, macOS and Linux, or self
 ## Features
 
 - **Search by content, not filename:** describe what you're looking for and get the maps that match. You can also search by name, creator or tag.
-- **Import whole collections:** folders and zip files straight from your downloads, with duplicates skipped.
+- **Bring your whole collection:** use the folder you already keep your maps in, without copying it, or import folders and zip files with duplicates skipped.
 - **Variants together:** the day, night, winter and gridless versions of a map stay grouped as one.
 - **Animated maps:** MP4 and WebM maps are imported, searched and played alongside the rest.
 - **Grid detection:** square and hex grids found on battlemaps, so you know the grid before it goes into your VTT.
@@ -60,7 +60,7 @@ Then open <http://localhost:8000>. Update with `docker compose --profile cpu pul
 
 ## Documentation
 
-- **Using it:** [getting started](https://jennis0.github.io/scene-atlas/guide/getting-started), [importing](https://jennis0.github.io/scene-atlas/guide/importing), [searching](https://jennis0.github.io/scene-atlas/guide/searching), [groups](https://jennis0.github.io/scene-atlas/guide/groups), [tags](https://jennis0.github.io/scene-atlas/guide/tags)
+- **Using it:** [getting started](https://jennis0.github.io/scene-atlas/guide/getting-started), [your library](https://jennis0.github.io/scene-atlas/guide/library), [importing](https://jennis0.github.io/scene-atlas/guide/importing), [searching](https://jennis0.github.io/scene-atlas/guide/searching), [groups](https://jennis0.github.io/scene-atlas/guide/groups), [tags](https://jennis0.github.io/scene-atlas/guide/tags)
 - **Installing it:** [desktop app](https://jennis0.github.io/scene-atlas/deploy/desktop), [Docker server](https://jennis0.github.io/scene-atlas/deploy/server), [standalone server](https://jennis0.github.io/scene-atlas/deploy/standalone), [configuration](https://jennis0.github.io/scene-atlas/deploy/configuration)
 
 ## Contributing

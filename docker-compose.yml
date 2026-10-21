@@ -32,6 +32,8 @@ x-common: &common
   volumes:
     - scene-atlas-data:/app/data
     - ${IMAGE_DIR:-./images}:/app/images
+    # Your own maps folder (LINKED_LIBRARY_DIR, a read-only mount) goes in a
+    # docker-compose.override.yml, so updating this file keeps it (docs/deploy/server.md).
   environment: &common-env
     APP_DATA_DIR: /app/data
     IMAGE_LIBRARY_DIR: /app/images

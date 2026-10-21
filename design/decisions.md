@@ -706,7 +706,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 ## ADR-026: Library setup in the wizard, and the linked library
 
 **Date:** 2026-10-19
-**Status:** Accepted (plan). Design: [library-setup.md](library-setup.md).
+**Status:** Accepted (built, PR #51). Design: [library-setup.md](library-setup.md).
 
 **Context:** Most new desktop users already have a maps folder, often a large one (the target library is 56k images, 216 GB). Today they have two options, and both are wrong for them. The Electron storage window asks for two folders before the app exists and warns them off their maps folder. Local folder import then copies everything, which doubles the disk use. Storage is also chosen in a separate window from the rest of setup. The library has no identity, so a folder from an earlier install can't be recognised.
 

@@ -18,8 +18,8 @@ const examples = [
 
 const features = [
   {
-    title: "Import whole collections",
-    body: "Folders and zip files straight from your downloads, with duplicates skipped.",
+    title: "Bring your whole collection",
+    body: "Use the folder you already keep your maps in, without copying it, or import folders and zip files with duplicates skipped.",
   },
   {
     title: "Variants together",

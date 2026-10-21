@@ -1,6 +1,6 @@
 # Stress Testing the Import Pipeline
 
-The stress suite (`stress_tests/`) runs the ingest pipeline ([ADR-018](../../design/decisions.md#adr-018-durable-per-item-ingest-pipeline), [design/ingestion.md](../../design/ingestion.md)) against a **real server process**: the live `IngestWorker` thread, SQLite with its single writer, LanceDB and the prepare pool. It covers what the integration tests (which drive the worker synchronously with `drain()`) can't: concurrency at volume, crashes and restarts, and scheduled maintenance running alongside imports.
+The stress suite (`stress_tests/`) runs the ingest pipeline ([ADR-018](https://github.com/jennis0/scene-atlas/blob/main/design/decisions.md#adr-018-durable-per-item-ingest-pipeline), [design/ingestion.md](https://github.com/jennis0/scene-atlas/blob/main/design/ingestion.md)) against a **real server process**: the live `IngestWorker` thread, SQLite with its single writer, LanceDB and the prepare pool. It covers what the integration tests (which drive the worker synchronously with `drain()`) can't: concurrency at volume, crashes and restarts, and scheduled maintenance running alongside imports.
 
 ## Quick start
 

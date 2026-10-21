@@ -1,72 +1,58 @@
-# Tags & Filtering
+# Tags
 
-Tags are organised into colour-coded categories. Each category represents a different aspect of a scene (lighting, season, weather, environment, etc.) and powers both visual organisation and search expansion. The entire tag system is customisable: you can create your own categories, define your own values, and set up aliases that fit your collection.
+Tags describe what's in an image: its lighting, season, setting and so on. They make [filters](/guide/searching#filters) useful and widen searches through aliases. The whole tag system is yours to change.
 
 ## Categories
 
-Each tag belongs to a category with a distinctive colour. Tag pills show only the value; hover to see the category name.
+Every tag belongs to a category with its own colour. Tag chips show only the value; hover to see the category.
 
 | Category | Colour | Examples |
 |----------|--------|----------|
-| Lighting | Amber | dawn, twilight, torchlit, moonlit |
+| Lighting | Amber | day, night, dusk, dawn, dark |
 | Season | Orange | spring, summer, autumn, winter |
-| Weather | Sky | rain, snow, fog, storm, clear |
-| Environment | Emerald | forest, cave, ocean, mountain, desert |
-| Features | Stone | bridge, river, ruins, campfire, altar |
-| State | Red | abandoned, destroyed, flooded, overgrown |
-| Theme | Purple | horror, magical, peaceful, ominous |
-| Population | Cyan | empty, crowded, sparse |
+| Weather | Sky | rain, snow, fog, storm |
+| Environment | Emerald | forest, desert, ocean, cave, mountain |
+| Features | Stone | temple, bridge, tavern, castle, dungeon |
+| State | Red | ruined, abandoned, overgrown, flooded |
+| Theme | Purple | fey, shadow, underdark, infernal |
+| Population | Cyan | empty, furnished, populated |
 | Perspective | Violet | top-down, isometric, side-view |
-| Style | Rose | realistic, painterly, hand-drawn |
+| Style | Rose | line-art, painted, sketch, pixel-art |
 
 ## Tag Packs
 
-Tag packs are genre-specific vocabularies that pre-populate categories with common values and aliases:
+Tag packs are ready-made sets of tags and aliases for a genre:
 
-- **Common**:universal terms (lighting, seasons, weather)
-- **Fantasy**:dungeons, taverns, enchanted forests, castles
-- **Sci-Fi**:space stations, cyberpunk streets, alien landscapes
-- **Cyberpunk**:neon, corporate, street-level
-- **Horror**:crypts, haunted, blood, decay
-- **Historical**:medieval, roman, victorian
+- **Common**: lighting, seasons, weather and other tags for any genre
+- **Fantasy**: medieval fantasy settings
+- **Sci-Fi**: science fiction settings
+- **Cyberpunk**: dystopian, neon-lit settings
+- **Horror**: dark and unsettling settings
+- **Historical**: real-world historical periods
 
-A new library starts with only the Common pack. The first-run setup lets you pick genre packs (all are selected by default), and you can add more later from **Settings > Tag Packs**. Importing a pack merges new values into existing categories without overwriting your custom tags. Packs can't be removed once added, and resetting tags returns the library to just the Common pack.
+Choose packs during setup (all are selected to start with) and add more later in **Settings → Tag Packs**. Adding a pack merges its tags into your categories without touching tags you've made. Packs can't be removed once added, but you can delete any tag or category yourself.
+
+## How Images Get Tags
+
+**From names.** At import, words in folder and file names that match a tag or alias become tags: `ForestClearing_Night.jpg` gets *forest* and *night*.
+
+**By hand.** In the [viewer](/guide/gallery#image-viewer), click **+ Tag**, pick a category, then choose or type a value. Remove a tag with the × on its chip. To tag many images at once, use [bulk editing](/guide/groups#bulk-editing).
+
+After adding tags or aliases, **Regenerate auto-tags** in Manage Tags re-reads every image's names with the new vocabulary. Tags you added by hand are kept.
 
 ## Aliases
 
-Aliases are synonyms that expand searches automatically. If "rainy" is an alias for "rain", searching for "rainy" also finds images tagged "rain".
-
-Aliases are defined per tag value within a category. Tag packs include sensible defaults, and you can add your own through the tag management UI.
-
-## Auto-Tagging
-
-During import, Scene Atlas extracts tags from filenames where possible:
-
-- `ForestClearing_Night.jpg` → tags: "forest", "night"
-- `Tavern_Snowy_Grid.jpg` → tags: "tavern", "snowy", grid detected
-
-You can review and adjust these in the image viewer after import.
-
-## Manual Tagging
-
-In the image viewer, click **+ Tag** to add tags. The picker is a two-level dropdown: select a category, then choose or type a value. Remove tags by clicking the x on any tag pill.
-
-## Filtering by Tags
-
-The gallery filter panel lets you filter by tags:
-
-- **Within a category** selections are combined with OR. Selecting "forest" and "cave" in **environment** shows images tagged with either.
-- **Across categories** selections are combined with AND. Selecting "forest" in **environment** and "night" in **lighting** shows only images with both.
-- **Excluding tags:** click a tag twice to exclude it. Excluded tags are shown in red.
-
-The filter panel shows categories with coloured indicators on the left. Active categories display a count badge. The right side shows pill-style options for the selected category, with a search bar for large vocabularies.
+Aliases are other words for a tag. If *rainy* is an alias of *rain*, searching for "rainy" finds images tagged *rain*, and a file named `Rainy_Market.jpg` is tagged *rain* on import.
 
 ## Managing Tags
 
-From **Settings > Tag Categories**, you can:
+Open **Manage Tags** in the top bar. You can:
 
-- Create custom categories with a colour and icon
-- Add, rename, or delete tag values
-- Define aliases for tag values
-- Set display order for categories
-- Import or remove tag packs
+- create, rename and delete categories, and give each a description, colour and icon;
+- add, rename and delete tag values;
+- add and remove aliases for each value;
+- **Regenerate auto-tags** for the whole library.
+
+Deleting a category or value removes it from every image.
+
+To start again, **Settings → Library → Reset tags** removes every tag from every image and resets the categories to the Common pack. It can't be undone.

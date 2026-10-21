@@ -50,9 +50,11 @@ Set environment variables or create a `.env` file:
 APP_DATA_DIR=./data
 IMAGE_LIBRARY_DIR=./images
 CORS_ORIGINS=["http://localhost:8000"]
+# Optional: your own maps folder, read in place and never written to
+# LINKED_LIBRARY_DIR=/srv/maps
 ```
 
-`IMAGE_LIBRARY_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing collection.
+`IMAGE_LIBRARY_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing collection: use `LINKED_LIBRARY_DIR` for that, and keep `IMAGE_LIBRARY_DIR` outside it. See [Your Library](/guide/library).
 
 See the [Configuration Reference](/deploy/configuration) for all settings.
 
