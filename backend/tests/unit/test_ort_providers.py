@@ -1,8 +1,100 @@
 """Unit tests for ONNX Runtime execution provider resolution."""
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from backend.app.services import ort_providers
+from backend.app.services.ort_providers import CudaLibs
+
+# Before child_runs replaces it (ort_providers.subprocess is this same module)
+_REAL_RUN = subprocess.run
+
+
+@pytest.fixture(autouse=True)
+def child_runs(monkeypatch):
+    """No test here loads the host's CUDA libraries: with a broken driver, loading one
+    crashes the dynamic loader and the whole test run with it. Every probe child reports
+    its library as loaded unless a test says otherwise."""
+    ort_providers.check_cuda_libs.cache_clear()
+    run = MagicMock(return_value=MagicMock(returncode=0))
+    monkeypatch.setattr(ort_providers.subprocess, "run", run)
+    yield run
+    ort_providers.check_cuda_libs.cache_clear()
+
+
+# ── check_cuda_libs ──────────────────────────────────────────────────────────
+
+
+class TestCheckCudaLibs:
+    """Each CUDA library is loaded in a child, so a crash can't take the backend down."""
+
+    @pytest.fixture(autouse=True)
+    def on_linux(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.delattr(sys, "frozen", raising=False)
+
+    def test_sorts_children_by_how_they_ended(self, child_runs, monkeypatch):
+        monkeypatch.setattr(ort_providers, "_CUDA_REQUIRED_LIBS", ["ok", "gone", "abort", "hang"])
+        child_runs.side_effect = [
+            MagicMock(returncode=0),
+            MagicMock(returncode=ort_providers._LIB_MISSING),
+            MagicMock(returncode=127),  # the ld.so assertion
+            subprocess.TimeoutExpired("python", 60),
+        ]
+        assert ort_providers.check_cuda_libs() == CudaLibs(
+            missing=("gone",), crashed=("abort", "hang")
+        )
+
+    def test_children_run_this_interpreter_once_per_backend(self, child_runs):
+        ort_providers.check_cuda_libs()
+        ort_providers.check_cuda_libs()
+        assert child_runs.call_count == len(ort_providers._CUDA_REQUIRED_LIBS)
+        assert all(c.args[0][0] == sys.executable for c in child_runs.call_args_list)
+
+    @pytest.mark.parametrize("frozen,platform", [(True, "linux"), (False, "win32")])
+    def test_frozen_builds_and_other_platforms_check_nothing(
+        self, child_runs, monkeypatch, frozen, platform
+    ):
+        monkeypatch.setattr(sys, "platform", platform)
+        if frozen:
+            monkeypatch.setattr(sys, "frozen", True, raising=False)
+        assert ort_providers.check_cuda_libs() == CudaLibs()
+        child_runs.assert_not_called()
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux sonames")
+    def test_real_child_reports_a_missing_library(self, monkeypatch):
+        """The child script itself, with libraries that are safe to load."""
+        monkeypatch.setattr(ort_providers.subprocess, "run", _REAL_RUN)
+        monkeypatch.setattr(
+            ort_providers, "_CUDA_REQUIRED_LIBS", ["libc.so.6", "libscene-atlas-none.so.1"]
+        )
+        assert ort_providers.check_cuda_libs() == CudaLibs(missing=("libscene-atlas-none.so.1",))
+
+
+class TestCudaProviderAvailable:
+    @patch("onnxruntime.get_available_providers", return_value=["CUDAExecutionProvider"])
+    @patch.object(ort_providers, "check_cuda_libs", return_value=CudaLibs())
+    def test_listed_and_loads(self, _libs, _avail):
+        assert ort_providers._cuda_provider_available() is True
+
+    @patch("onnxruntime.get_available_providers", return_value=["CPUExecutionProvider"])
+    @patch.object(ort_providers, "check_cuda_libs")
+    def test_not_listed_needs_no_probe(self, libs, _avail):
+        assert ort_providers._cuda_provider_available() is False
+        libs.assert_not_called()
+
+    @patch("onnxruntime.get_available_providers", return_value=["CUDAExecutionProvider"])
+    @patch.object(
+        ort_providers, "check_cuda_libs", return_value=CudaLibs(crashed=("libcublas.so.12",))
+    )
+    def test_a_crashing_library_means_cpu(self, _libs, _avail, caplog):
+        assert ort_providers._cuda_provider_available() is False
+        assert "libcublas.so.12" in caplog.text
+        assert "wsl --shutdown" in caplog.text
+
 
 # ── resolve_providers ────────────────────────────────────────────────────────
 
@@ -227,6 +319,18 @@ class TestCreateSessionWithFallback:
 
         assert session is mock_cpu_session
         assert actual == ["CPUExecutionProvider"]
+
+    @patch("onnxruntime.InferenceSession")
+    @patch.object(
+        ort_providers, "check_cuda_libs", return_value=CudaLibs(missing=("libcudnn.so.9",))
+    )
+    def test_gpu_failure_names_missing_libraries(self, _libs, mock_session_cls, caplog):
+        mock_session_cls.side_effect = [RuntimeError("CUDA not available"), MagicMock()]
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        opts = ort_providers.get_session_options(providers)
+        ort_providers.create_session_with_fallback("model.onnx", providers, opts)
+        assert "libcudnn.so.9" in caplog.text
+        assert "cuDNN 9 is required" in caplog.text
 
     @patch("onnxruntime.InferenceSession")
     def test_cpu_failure_raises(self, mock_session_cls):

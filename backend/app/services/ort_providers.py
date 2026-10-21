@@ -15,9 +15,12 @@ See ``design/gpu-acceleration.md`` for rationale.
 
 from __future__ import annotations
 
-import ctypes
+import functools
 import logging
 import os
+import subprocess
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,30 +39,84 @@ _CUDA_REQUIRED_LIBS = [
 ]
 
 
-def _check_cuda_libs() -> list[str]:
-    """Return names of CUDA shared libraries that cannot be loaded."""
-    missing = []
+# Each CUDA library is first loaded in a child process. With a broken GPU driver, loading
+# one can crash the dynamic loader itself (seen with WSL's libcuda.so.1 after a GPU reset:
+# an ld.so assertion), which ends the process with no exception to catch. The child exits
+# 0 when the library loads and _LIB_MISSING when it can't be found.
+_LIB_MISSING = 3
+_LOAD_LIB = (
+    "import ctypes, sys\n"
+    "try:\n"
+    "    ctypes.CDLL(sys.argv[1])\n"
+    "except OSError:\n"
+    f"    sys.exit({_LIB_MISSING})\n"
+)
+_LOAD_TIMEOUT_S = 60
+
+
+@dataclass(frozen=True)
+class CudaLibs:
+    """The required CUDA libraries that can't be found, and those that crash on loading."""
+
+    missing: tuple[str, ...] = ()
+    crashed: tuple[str, ...] = ()
+
+
+@functools.cache
+def check_cuda_libs() -> CudaLibs:
+    """Load each required CUDA library in a child process and report what failed.
+
+    Cached: the answer holds until the backend restarts. Linux only, since the names are
+    Linux sonames; frozen builds can't start a Python child and never ship onnxruntime-gpu,
+    so they report nothing.
+    """
+    if sys.platform != "linux" or getattr(sys, "frozen", False):
+        return CudaLibs()
+    missing: list[str] = []
+    crashed: list[str] = []
     for lib in _CUDA_REQUIRED_LIBS:
+        # Every argument is fixed by this module: our interpreter, a constant script and a
+        # name from _CUDA_REQUIRED_LIBS; no shell (design/security.md, accepted findings)
         try:
-            ctypes.CDLL(lib)
-        except OSError:
+            code = subprocess.run(  # noqa: S603  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+                [sys.executable, "-c", _LOAD_LIB, lib],
+                capture_output=True,
+                timeout=_LOAD_TIMEOUT_S,
+                check=False,
+            ).returncode
+        except subprocess.TimeoutExpired:
+            code = None
+        if code == _LIB_MISSING:
             missing.append(lib)
-    return missing
+        elif code != 0:
+            crashed.append(lib)
+    return CudaLibs(tuple(missing), tuple(crashed))
 
 
 def _cuda_provider_available() -> bool:
-    """Return True if CUDAExecutionProvider is usable according to ORT itself.
+    """Return True if CUDAExecutionProvider is usable.
 
-    We trust ``ort.get_available_providers()`` as the authoritative check.
-    If it doesn't list CUDAExecutionProvider, ORT cannot initialise it and any
-    session request will silently fall back to CPU — so we should not claim GPU
-    is available even if the provider .so file exists on disk.
+    ``ort.get_available_providers()`` must list it: if it doesn't, ORT can't initialise
+    it and any session request silently falls back to CPU, even if the provider .so file
+    exists on disk. And loading the CUDA libraries must not crash (``check_cuda_libs``):
+    if it does, creating a CUDA session would take the whole backend down, so CPU is used.
     """
     try:
         import onnxruntime as ort
     except ImportError:
         return False
-    return "CUDAExecutionProvider" in ort.get_available_providers()
+    if "CUDAExecutionProvider" not in ort.get_available_providers():
+        return False
+    crashed = check_cuda_libs().crashed
+    if crashed:
+        logger.warning(
+            "Loading %s crashed the test process, so the NVIDIA driver is probably in a bad "
+            "state. Using the CPU instead. Restarting the machine (on WSL: wsl --shutdown) "
+            "usually fixes it.",
+            ", ".join(crashed),
+        )
+        return False
+    return True
 
 
 # Provider name → friendly label for log messages
@@ -232,7 +289,7 @@ def create_session_with_fallback(
         )
 
         if primary == "CUDAExecutionProvider":
-            missing = _check_cuda_libs()
+            missing = check_cuda_libs().missing
             if missing:
                 hints = ["Missing CUDA libraries: %s."]
                 if any("cudnn" in lib for lib in missing):

@@ -55,3 +55,5 @@ Startup refusals start with `STARTUP ERROR:` and say what's wrong.
 **High memory use**: the Large model can use 2–4 GB of RAM. Switch to Small in **Settings → Search Model**, or lower *Parallel image processing*.
 
 **Model download fails**: check your internet connection, then try again from **Settings → Search Model**.
+
+**An NVIDIA GPU isn't used, and the log says loading a CUDA library "crashed the test process"**: the GPU driver is in a bad state, so Scene Atlas uses the CPU rather than crash. Restart the machine (on WSL, run `wsl --shutdown` from Windows), then restart Scene Atlas. If `nvidia-smi` fails too, the problem is the driver, not Scene Atlas.
