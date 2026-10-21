@@ -4,7 +4,7 @@ How a version is set, built, checked and published, and how each kind of install
 
 ## Making a release
 
-1. **Bump the version in a PR.** `python scripts/release/release_version.py bump 0.2.0` sets it in every file that records it; commit, open a PR, merge.
+1. **Bump the version in a PR.** `python scripts/release/release_version.py bump 0.2.0` sets it in every file that records it; commit, open a PR, merge. If the UI changed since the last release, re-take the docs screenshots in the same PR ([brand.md](brand.md#docs-screenshots)).
 2. **Run the Release workflow** against `main` with `publish` ticked. Leave `accept_search_changes` off unless search results change on purpose ([testing.md](testing.md#upgrade-test)).
 3. **Check the draft.** The run ends with a draft release `v0.2.0` holding its own installers, update metadata and Compose files; its summary links to it. Installed apps and the Docker `latest` tag ignore drafts.
 4. **Publish the draft** on GitHub. Installed desktop apps find it within hours, and `release-published.yml` tags the Docker image `0.2.0` and `latest`.

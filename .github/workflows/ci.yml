@@ -160,3 +160,9 @@ jobs:
         run: npm run knip
       - name: jscpd (duplication threshold in .jscpd.json)
         run: npx --yes jscpd@4.0.5 --silent
+      - name: Install root dependencies (Playwright types for e2e/)
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - name: E2E type check (includes the docs screenshots' desktop stand-in)
+        run: npx tsc -p e2e/tsconfig.json --noEmit

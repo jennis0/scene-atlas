@@ -22,7 +22,11 @@ From an image tile's **…** menu or the viewer:
 
 ### The Group Editor
 
-Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review in editor** from an import report. The list on the left holds the groups you opened; the right side shows the selected group's images.
+Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review in editor** from an import report. When you open several groups, the list on the left holds them and the right side shows the selected group's images.
+
+![The group editor for one group: its author and name, and each variant with its subgroup, type, grid and tags](/screenshots/group-editor.webp)
+
+<sub>*Campfire Stories* by [Fantasy Atlas](https://www.patreon.com/fantasy_atlas), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), shown in the Scene Atlas group editor.</sub>
 
 In the editor you can:
 

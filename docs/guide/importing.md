@@ -4,6 +4,8 @@ Click **Import** in the top bar, choose what the images are, then drop files, fo
 
 Importing copies images into Scene Atlas. To use a folder of images where it is, without copying, see [Your own folder](/guide/library#importing-vs-using-your-own-folder).
 
+![The import dialog: Import these as Auto, Battlemaps or Scenes, above a drop area with Choose a folder and Choose files](/screenshots/import-dialog.webp)
+
 ## Supported Files
 
 | Type | Formats |
@@ -48,6 +50,8 @@ There's no review step before the import starts. Fix anything afterwards with **
 
 The import dialog shows how many files are done, a list of groups with their progress, and roughly how long is left. Images appear in the gallery as they finish.
 
+![An import part-way through: files processed so far, and progress for each group](/screenshots/import-progress.webp)
+
 - **Pause** / **Resume** stop and restart processing.
 - **Cancel import** stops it. Everything already imported is kept.
 - **Close** hides the dialog. The import carries on.
@@ -74,7 +78,13 @@ If the tab was closed or the connection was lost, the import shows **Upload inte
 
 ## The Import Report
 
-Open the report from the import's notification or from Activity. It has up to four sections:
+Open the report from the import's notification or from Activity.
+
+![An import report on its Skipped section: link files that aren't images, and tokens that Auto skipped, each with Include](/screenshots/import-report.webp)
+
+<sub>Token thumbnails by [2-Minute Tabletop](https://2minutetabletop.com), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).</sub>
+
+It has up to four sections:
 
 - **Groups**: every group the import created or added to. Click one to open it, or **Review in editor** to go through them all.
 - **Problems**: files that couldn't be imported, by reason. **Retry** tries them again.

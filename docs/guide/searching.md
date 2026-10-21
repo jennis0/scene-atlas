@@ -25,11 +25,13 @@ The address of the page holds the search and filters, so you can bookmark a sear
 
 Open **Filters** next to the search box. Filters narrow the results with or without a search.
 
+![The filter menu open on the Environment category, with each tag and how many images have it](/screenshots/filters.webp)
+
 | Filter | Options |
 |--------|---------|
 | **Each tag category** | That category's tags, such as Lighting or Environment |
 | **Author** | Every author in the library |
-| **Grid** | Square grid, Hex grid, Any gridded, Gridless, Unknown |
+| **Grid** | Square, Hex, Any Grid, No Grid, Unknown |
 | **Media** | Images or Videos |
 | **Color** | A palette of common colours, or any colour you pick |
 
