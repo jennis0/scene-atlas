@@ -75,8 +75,10 @@ def check_cuda_libs() -> CudaLibs:
     missing: list[str] = []
     crashed: list[str] = []
     for lib in _CUDA_REQUIRED_LIBS:
+        # Every argument is fixed by this module: our interpreter, a constant script and a
+        # name from _CUDA_REQUIRED_LIBS; no shell (design/security.md, accepted findings)
         try:
-            code = subprocess.run(  # noqa: S603  # nosec B603: our interpreter, a fixed script
+            code = subprocess.run(  # noqa: S603  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
                 [sys.executable, "-c", _LOAD_LIB, lib],
                 capture_output=True,
                 timeout=_LOAD_TIMEOUT_S,
