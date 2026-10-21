@@ -204,10 +204,25 @@ test("import: dialog, progress and report", async ({ page }) => {
   await settle(page);
   await shot(dialog, "import-report");
 
-  // Leave the library as it was, so the run can be repeated
-  await dialog.getByRole("button", { name: "Undo import" }).click();
+  // Every group the import made, in the editor's group list
+  await dialog.getByRole("button", { name: "Review in editor" }).click();
+  const editor = page.getByTestId("edit-group-dialog");
+  await expect(editor).toBeVisible();
+  await settle(page);
+  await shot(editor, "import-review");
+  await page.keyboard.press("Escape");
+  await expect(editor).toBeHidden();
+
+  // Leave the library as it was, so the run can be repeated. The report closed with the
+  // editor, so undo from Activity.
+  await page.getByTestId("activity-dock-pill").click();
   await page
-    .getByRole("alertdialog", { name: "Undo this import?" })
+    .getByTestId("import-job-card")
+    .filter({ hasText: "2 Minute Tabletop" })
+    .getByRole("button", { name: "Undo import" })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Undo this import?" })
     .getByRole("button", { name: "Delete imported images" })
     .click();
   await expect(page.getByText(/Import undone/)).toBeVisible({

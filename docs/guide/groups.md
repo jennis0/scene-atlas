@@ -22,7 +22,7 @@ From an image tile's **…** menu or the viewer:
 
 ### The Group Editor
 
-Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review in editor** from an import report. When you open several groups, the list on the left holds them and the right side shows the selected group's images.
+Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review in editor** from an import report (see [Reviewing an Import](/guide/importing#reviewing-an-import)). When you open several groups, the list on the left holds them and the right side shows the selected group's images.
 
 ![The group editor for one group: its author and name, and each variant with its subgroup, type, grid and tags](/screenshots/group-editor.webp)
 
@@ -31,6 +31,7 @@ Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review
 In the editor you can:
 
 - rename the group and change its author;
+- rename an image by clicking its name;
 - **drag images** onto another group in the list, or onto a subgroup;
 - select images and use **Move selected to new group** to split them off;
 - select images and set their type, grid, subgroup or tags all at once;
@@ -38,6 +39,10 @@ In the editor you can:
 - filter the images by name, type, grid or media to find the ones to change.
 
 In the group list, `Ctrl`/`Cmd`-click selects several groups and `Shift`-click a range. With several selected you can **Merge Selected** into one, or delete them. **Merge All** combines every group in the list.
+
+![The group editor with several groups: the list on the left, and the images of all of them on the right](/screenshots/import-review.webp)
+
+*Map thumbnails by [2-Minute Tabletop](https://2minutetabletop.com), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).*
 
 ### Merging
 

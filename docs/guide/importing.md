@@ -44,7 +44,7 @@ Scene Atlas sorts files into [groups](/guide/groups) as the import starts:
 - **Grid sizes and tags** are read from folder and file names where possible.
 - A group whose name and author match an existing one is added to it.
 
-There's no review step before the import starts. Fix anything afterwards with **Review in editor** in the report, or in the [group editor](/guide/groups#editing-groups).
+There's no review step before the import starts. Check and correct the result in the editor instead: see [Reviewing an Import](#reviewing-an-import).
 
 ## Following an Import
 
@@ -86,7 +86,7 @@ Open the report from the import's notification or from Activity.
 
 It has up to four sections:
 
-- **Groups**: every group the import created or added to. Click one to open it, or **Review in editor** to go through them all.
+- **Groups**: every group the import created or added to. Click one to open it, or [**Review in editor**](#reviewing-an-import) to go through them all.
 - **Problems**: files that couldn't be imported, by reason. **Retry** tries them again.
 - **Already in library**: duplicates that were skipped.
 - **Skipped**: unsupported files, files never uploaded, and images [Auto skipped](#images-auto-skipped).
@@ -101,6 +101,25 @@ A file is skipped only when it is certainly already in your library:
 - **Same picture**: the same image saved differently, for example re-saved with different compression.
 
 Variants that only look alike, such as gridded and gridless or day and night, are always imported. If a match is wrong, or you want a second copy, choose **Import as new copies** under *Already in library*.
+
+## Reviewing an Import
+
+**Review in editor** in the report opens every group the import made in the [group editor](/guide/groups#the-group-editor), with the groups listed on the left. While an import is still running, **Review N groups** in the import dialog does the same for the groups finished so far; **Add them** at the top of the editor brings in groups that finish later.
+
+![Reviewing an import: the groups it made listed on the left, and their images on the right, each with its name, subgroup, type, grid and tags](/screenshots/import-review.webp)
+
+*Map thumbnails by [2-Minute Tabletop](https://2minutetabletop.com), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).*
+
+The images are already in your library, so this is where you fix what the import guessed wrong. You can:
+
+- rename a group or change its author;
+- rename an image by clicking its name;
+- drag images onto another group, or select some and use **Move selected to new group** to split them off;
+- select several groups and **Merge Selected**, or **Merge All**;
+- set the type, grid, subgroup or tags of many images at once;
+- **Include** images [Auto skipped](#images-auto-skipped), shown with the group they would have joined.
+
+See [The Group Editor](/guide/groups#the-group-editor) for everything it does.
 
 ## Stored Format
 
