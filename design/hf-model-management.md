@@ -26,7 +26,7 @@ and publish scripts.
 |--------|--------------------------------|---------------------------------|-------|-----------------|
 | small  | jennis0/scene-atlas-small      | CLIP ViT-B/32 (LAION-2B) fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~100 MB | CPU-only machines |
 | medium | jennis0/scene-atlas-medium     | SigLIP2-base-patch16-384 fine-tuned for TTRPG art (scene-atlas-learning), 4-bit GPTQ weights, fp16 activations | ~150 MB | Any hardware (default with GPU) |
-| large  | jennis0/scene-atlas-large      | SigLIP2-so400m-patch14-384, vision fp16/fp16 | ~1 GB   | GPU strongly recommended |
+| large  | jennis0/scene-atlas-large      | SigLIP2-large-patch16-384 fine-tuned for TTRPG art (scene-atlas-learning), 8-bit weights, fp16 activations | ~680 MB | GPU strongly recommended |
 
 `get_default_model(has_gpu)` returns `"medium"` when a GPU is detected, otherwise
 `"small"`. The large model is not auto-recommended; it must be selected explicitly.
@@ -35,7 +35,7 @@ Both ONNX files use fixed filenames (`clip_vision_encoder.onnx`,
 `clip_text_encoder.onnx`) across all models. `manifest.json` is the HF-side metadata
 file written by the publish script.
 
-**Externally released models.** `small` and `medium` are fine-tuned, quantised, evaluated
+**Externally released models.** All three models are fine-tuned, quantised, evaluated
 and published by the release pipeline in scene-atlas-learning (`uv run release ...
 --release <name>`), marked by `release_source` in the registry. Its repo holds the full
 `transformers` checkpoint at the root and the ONNX bundle (manifest, encoders,
@@ -43,10 +43,9 @@ and published by the release pipeline in scene-atlas-learning (`uv run release .
 downloader fetch only `onnx/*` at the release tag, so later pushes to `main` never change
 an installed model. `export_model_onnx.py` and `publish_models_hf.py` refuse these
 entries and skip them under `--all`, since re-exporting from the base model would
-overwrite the fine-tune. That leaves `large` (fp16 vision + fp16 text) as the only model
-the export script builds; it has no int8 path. Its optional `--image-dir` quality
-evaluation needs the gitignored `scripts/quantisation` package, and the script exits with
-an error before exporting when that package is missing (see
+overwrite the fine-tune. Since `large` moved to the fine-tuned release (2026-10-21,
+`siglip2-l-384-rc4`), no shipped model is built by these scripts; they remain only for
+exporting zero-shot base models locally (see
 [onnx-int8-quantisation.md](onnx-int8-quantisation.md)).
 
 `CLIPService` casts every input to the dtype the graph declares (`_cast_feed_to_inputs`):
@@ -56,7 +55,7 @@ mismatch. The first medium release takes float16.
 The fine-tuned SigLIP2 bundle handles two SigLIP2 input pitfalls itself: its text graph
 ignores `attention_mask` (SigLIP2 pools the last, padding, position and is trained
 without a mask; a padding mask collapses retrieval), and its `tokenizer.json` lowercases
-(training text is lowercase). Requires ONNX Runtime >= 1.24 (4-bit `MatMulNBits`).
+(training text is lowercase). Requires ONNX Runtime >= 1.24 (4-bit and 8-bit `MatMulNBits`).
 
 ---
 

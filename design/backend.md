@@ -293,7 +293,7 @@ The source interface: `original_path(image)` reads any original, from the store 
 
 ### CLIPService
 
-Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-so400m via ONNX Runtime. Loaded in a background thread at startup. `encode_image(path)`, `encode_text(query)` (LRU-cached), `batch_encode_images(paths)`.
+Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-large via ONNX Runtime. Loaded in a background thread at startup. `encode_image(path)`, `encode_text(query)` (LRU-cached), `batch_encode_images(paths)`.
 
 ### Model registry and downloads
 

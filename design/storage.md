@@ -197,7 +197,7 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 
 - **Mode:** embedded, `lancedb.connect("{APP_DATA_DIR}/lancedb")`; memory-mapped from disk, no server process.
 - **Table:** `embeddings_{model_name}` — one table per model; switching models uses a new table.
-- **Vector size:** depends on the model — 512 (small, CLIP ViT-B/32), 768 (medium, SigLIP2-base), 1152 (large, SigLIP2-so400m). `settings.vector_size` is set from the model manifest at startup.
+- **Vector size:** depends on the model — 512 (small, CLIP ViT-B/32), 768 (medium, SigLIP2-base), 1024 (large, SigLIP2-large). `settings.vector_size` is set from the model manifest at startup.
 - **Distance:** cosine; the service returns `1 - distance` as similarity.
 
 Row schema: `id` (int64), `vector` (fixed-size float32 list, normalised), `image_id`, `filename`, `author`, `base_name`.

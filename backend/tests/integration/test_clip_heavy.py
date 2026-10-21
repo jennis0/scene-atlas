@@ -9,11 +9,11 @@ Or run everything including heavy:
 
     uv run python -m pytest -m '' -v
 
-Requires ONNX models to be exported first:
+Requires the models to be downloaded first:
 
-    uv run python -m scripts.models.export_model_onnx small
-    uv run python -m scripts.models.export_model_onnx medium
-    uv run python -m scripts.models.export_model_onnx large
+    uv run python scripts/models/setup_models.py small
+    uv run python scripts/models/setup_models.py medium
+    uv run python scripts/models/setup_models.py large
 """
 
 import os
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.heavy
 _MODEL_SPECS = {
     "small": {"embedding_dim": 512, "vision_quant": "w4a16", "text_quant": "w4a16"},
     "medium": {"embedding_dim": 768, "vision_quant": "w4a16", "text_quant": "w4a16"},
-    "large": {"embedding_dim": 1152, "vision_quant": "fp16", "text_quant": "fp16"},
+    "large": {"embedding_dim": 1024, "vision_quant": "w8a16", "text_quant": "w8a16"},
 }
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]

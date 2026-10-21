@@ -147,9 +147,9 @@ The active model is chosen in **Settings** (or forced with `EMBEDDING_MODEL`). T
 
 | Value | Architecture | Embedding dimensions | Download size | Notes |
 |-------|-------------|---------------------|---------------|-------|
-| `small` | CLIP ViT-B/32 | 512 | ~250 MB | CPU-friendly. Good baseline quality |
-| `medium` | SigLIP2-base | 768 | ~500 MB | Better accuracy. Works on CPU, faster with GPU |
-| `large` | SigLIP2-so400m | 1152 | ~1 GB | Best accuracy. GPU strongly recommended |
+| `small` | CLIP ViT-B/32 | 512 | ~100 MB | CPU-friendly. Good baseline quality |
+| `medium` | SigLIP2-base | 768 | ~150 MB | Better accuracy. Works on CPU, faster with GPU |
+| `large` | SigLIP2-large | 1024 | ~680 MB | Best accuracy. GPU strongly recommended |
 
 Changing the active model triggers automatic re-embedding of all images. This runs in the background and can take time for large libraries.
 
