@@ -9,6 +9,7 @@ from backend.app.data.vocabulary import (
     get_tags_for_packs,
     load_vocabulary,
 )
+from backend.app.services.image_parser import ImageParser
 
 
 class TestLoadVocabulary:
@@ -79,6 +80,47 @@ class TestLoadVocabulary:
                             f"conflicts with {all_terms[alias]}"
                         )
                     all_terms[alias] = f"alias of {val}"
+
+    def test_no_term_in_two_categories(self):
+        """The parser and search map each word to one tag, so a word used in two
+        categories would silently lose one of them."""
+        vocab = load_vocabulary()
+        owner: dict[str, str] = {}
+        for cat in vocab["categories"]:
+            for tag in cat["tags"]:
+                for term in [tag["value"], *tag["aliases"]]:
+                    where = f"{cat['name']}/{tag['value']}"
+                    assert term not in owner or owner[term] == where, (
+                        f"'{term}' is in both {owner[term]} and {where}"
+                    )
+                    owner[term] = where
+
+    def test_terms_are_lowercase(self):
+        vocab = load_vocabulary()
+        for cat in vocab["categories"]:
+            for tag in cat["tags"]:
+                for term in [tag["value"], *tag["aliases"]]:
+                    assert term == term.lower(), f"'{term}' in '{cat['name']}' is not lowercase"
+
+    def test_every_tag_matches_some_file_name(self):
+        """A value like "wild-west" or "1920s" never matches a file name on its own
+        (the parser splits on hyphens and digits), so it needs a one-word alias."""
+        categories = get_tags_for_packs(get_available_packs())
+        parser = ImageParser(
+            tag_categories=[
+                {"name": cat["name"], "common_values": build_common_values_json(cat["tags"])}
+                for cat in categories
+            ]
+        )
+        for cat in categories:
+            for tag in cat["tags"]:
+                expected = {"category": cat["name"], "value": tag["value"]}
+                matched = any(
+                    expected in [{"category": t["category"], "value": t["value"]} for t in tags]
+                    for term in [tag["value"], *tag["aliases"]]
+                    for tags in [parser.parse(f"{term}.jpg")["tags"]]
+                )
+                assert matched, f"No file name can get the tag '{cat['name']}/{tag['value']}'"
 
 
 class TestGetPackMetadata:

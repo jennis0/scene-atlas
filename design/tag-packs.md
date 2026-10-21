@@ -45,6 +45,34 @@ Each tag entry has:
 
 Categories define the grouping axis (lighting, season, weather, environment, etc.) with display metadata (color, icon, order).
 
+### Vocabulary Rules
+
+Enforced by `backend/tests/unit/test_vocabulary.py`:
+
+- **One word, one tag.** The parser (`ImageParser._vocabulary`) and search alias expansion (`fts_service`) map each word to a single tag across *all* categories, so a value or alias may appear only once in the whole file. A word used twice would silently lose one of its tags.
+- **Every tag matchable from a file name.** The parser splits names on `_`, `-`, CamelCase and letter/digit boundaries and drops words under 3 characters, so a value like `standing-stones`, `1920s` or `ww2` never matches by itself. Such tags need a one-word, lowercase, 3+ letter alias (`stonecircle`, `twenties`, `wwii`).
+- **No new hyphenated aliases.** They match neither file names (split on hyphens) nor searches (`_sanitize_fts_query` strips punctuation from the query). Older entries still have some.
+- **Lowercase** values and aliases.
+
+Choosing words:
+
+- **The test for every value and alias: is there a high chance that a map with this word in its name refers to this tag?** "Mayan" almost always means mesoamerican; "gunslinger" is as likely a fantasy class as the Wild West, "detective" Victorian as noir, "palisade" a village wall as a fort. When the chance is only middling, leave the word out: search still finds it in the name.
+- Leave moods and loose genres (gangland, heist) to semantic search; tags are for what a map is or is set in.
+- Avoid words that turn up in file and folder names for other reasons: `native` (native resolution), `flat` (flat hexes), `virtual` (virtual tabletop), `digital`, `vault`, `headquarters`, `frontier`, `colony`. Being in a genre pack is no protection: the setup wizard selects every pack by default, so a cyberpunk alias also tags fantasy libraries.
+- Every tag should be something a GM would filter a map library by. Rare proper names (individual peoples, dynasties) earn their place only when map makers actually use them in file names.
+- **Nothing offensive or careless about real cultures.** Don't lump distinct peoples or structures under one tag (`persian` is not an alias of `arabian`, `wigwam` not of `tipi`), and don't use names that are contested or easily misapplied (`first-nations` or tribe names under `native-american`; `indian`, which Wild West packs use for Native American camps, so South Asia is `south-asian`). Don't use stereotype or kitsch as a culture's alias (`tiki`) or stigmatising labels (`favela` as a slum). Keep out: plantation, harem, asylum, slave, voodoo, nazi, ghetto, gypsy, eskimo, oriental, tribal, savage, primitive, colonial, conquistador. Use the spelling the people themselves prefer (`tipi`).
+- Architecture (tipi, pueblo, longhouse) is usually what a map is named for, and is safer and more useful than a people's name.
+- Prefer one canonical value per culture or period with the specific names as aliases (`mesoamerican` ← aztec, mayan, olmec). Filters show canonical values, so the list stays short, and search still finds each alias.
+- Buildings found in any genre (fort, monastery, mill, hospital, slum) go in `common`. Real-world buildings that fantasy maps borrow (pyramid, longhouse, pagoda) go in both `fantasy` and `historical`, and fantasy staples with real counterparts (castle, crypt) are in `historical` too, since users may install one genre pack without the other.
+
+### Changing the Vocabulary for Existing Libraries
+
+Imports only add: a value or alias already in a library is never removed or moved. So:
+
+- **Never move an alias between tags.** Existing libraries keep the old mapping, and the new one then collides with it.
+- New values reach an existing library when the user imports the pack again: `get_pack_status()` counts them as `new_tags`, so the pack shows as not imported. That re-import also merges new aliases into the pack's existing tags.
+- New aliases on tags of a pack with no new values (e.g. `common`) reach only new libraries, or libraries reset with **Reset tags**, because the pack still shows as imported.
+
 ## Available Packs
 
 | Pack | Label | Description |

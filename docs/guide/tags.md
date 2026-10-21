@@ -56,11 +56,11 @@ Tag packs are ready-made sets of tags and aliases for a genre. Choose them durin
 
 | Pack | Tags | Adds, for example |
 |------|------|-------------------|
-| **Common** | 98 | The ten categories above, with tags for any genre |
-| **Fantasy** | 22 | fey, underdark, infernal, castle, dungeon, portal, cursed |
-| **Sci-Fi** | 16 | starship, station, airlock, alien, steampunk, derelict |
-| **Cyberpunk** | 4 | neon, rooftop, terminal, cyberpunk |
+| **Common** | 103 | The ten categories above, with tags for any genre |
+| **Fantasy** | 32 | fey, underdark, infernal, castle, dungeon, portal, cursed, standing-stones |
+| **Sci-Fi** | 29 | starship, station, airlock, alien, steampunk, derelict, megacity |
+| **Cyberpunk** | 36 | neon, megacity, nightclub, skyscraper, corporate, dystopian, noir, smog |
 | **Horror** | 18 | gothic, eldritch, undead, graveyard, haunted, infested |
-| **Historical** | 8 | norse, egyptian, classical, japanese, arabian, western |
+| **Historical** | 61 | mesoamerican, inca, greek, roman, celtic, victorian, 1920s, ww2, pyramid, longhouse |
 
 Adding a pack merges its tags into your categories without touching tags you've made. A pack can't be removed once added, but you can delete any of its tags yourself.
