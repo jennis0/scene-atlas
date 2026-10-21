@@ -4,7 +4,7 @@ Open Settings with the gear icon in the top bar. It has three tabs: **Library**,
 
 On a shared server, Library and Settings apply to everyone; Appearance is per device.
 
-## Library
+## Library Tab
 
 ![The Library tab: image, group and storage totals, the linked Images folder with Check for changes and How often to check, Export library, and Delete library and Reset tags](/screenshots/settings-library.webp)
 
@@ -14,7 +14,7 @@ On a shared server, Library and Settings apply to everyone; Appearance is per de
 - **Delete library**: remove every image, tag and search entry. It can't be undone.
 - **Reset tags**: remove every tag from every image and go back to the Common tag pack. It can't be undone.
 
-## Appearance
+## Appearance Tab
 
 These choices affect only this device.
 
@@ -27,7 +27,7 @@ These choices affect only this device.
 | Zoom (desktop app) | 80–200%. Makes everything bigger, images included. `Ctrl`/`Cmd` `+` and `-` also zoom |
 | Compact header | Auto, On, Off. Fits the header into two rows; Auto does this on small windows |
 
-## Settings
+## Settings Tab
 
 ### Storage locations (desktop app)
 

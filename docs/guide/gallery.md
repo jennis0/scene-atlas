@@ -6,7 +6,7 @@ The gallery is the main screen: your library, with search and filters on top.
 
 ![The gallery's Maps tab in the Groups view: each card shows a map with its variants beside it](/screenshots/gallery.webp)
 
-<sub>Maps by [Moonlight Maps](https://www.moonlight-maps.com), [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). This screenshot is shared under CC BY-NC-SA 4.0.</sub>
+*Maps by [Moonlight Maps](https://www.moonlight-maps.com), [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). This screenshot is shared under CC BY-NC-SA 4.0.*
 
 - **All / Maps / Scenes** tabs show everything or one image type, with a count for each.
 - **Groups** shows each [group](/guide/groups) as one card: a large image with up to four of its variants beside it, and a count of the rest.
@@ -40,7 +40,7 @@ Click an image or a group card to open it in the viewer.
 
 ![The viewer with the grid overlay on, the image's details beside it and the group's other variants below](/screenshots/viewer.webp)
 
-<sub>*Campfire Stories* by [Fantasy Atlas](https://www.patreon.com/fantasy_atlas), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), shown in the Scene Atlas viewer with the grid overlay.</sub>
+*"Campfire Stories" by [Fantasy Atlas](https://www.patreon.com/fantasy_atlas), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), shown in the Scene Atlas viewer with the grid overlay.*
 
 **Beside the image** you can see and change:
 

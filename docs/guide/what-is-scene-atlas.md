@@ -4,7 +4,7 @@ Scene Atlas is a library for tabletop RPG art you already own: battlemaps, vista
 
 ![Searching for "woodland path at night": groups of battlemap variants, each led by its night-time version](/screenshots/search.webp)
 
-<sub>Maps by [Moonlight Maps](https://www.moonlight-maps.com) (CC BY-NC-SA 4.0), [2-Minute Tabletop](https://2minutetabletop.com) (CC BY-NC 4.0) and [Fantasy Atlas](https://www.patreon.com/fantasy_atlas) (CC BY-NC 4.0). This screenshot is shared under CC BY-NC-SA 4.0.</sub>
+*Maps by [Moonlight Maps](https://www.moonlight-maps.com) (CC BY-NC-SA 4.0), [2-Minute Tabletop](https://2minutetabletop.com) (CC BY-NC 4.0) and [Fantasy Atlas](https://www.patreon.com/fantasy_atlas) (CC BY-NC 4.0). This screenshot is shared under CC BY-NC-SA 4.0.*
 
 ## The Problem
 

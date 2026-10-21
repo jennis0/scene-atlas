@@ -26,7 +26,7 @@ Open it with **Edit** on a group card, **Edit group** in the viewer, or **Review
 
 ![The group editor for one group: its author and name, and each variant with its subgroup, type, grid and tags](/screenshots/group-editor.webp)
 
-<sub>*Campfire Stories* by [Fantasy Atlas](https://www.patreon.com/fantasy_atlas), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), shown in the Scene Atlas group editor.</sub>
+*"Campfire Stories" by [Fantasy Atlas](https://www.patreon.com/fantasy_atlas), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), shown in the Scene Atlas group editor.*
 
 In the editor you can:
 
