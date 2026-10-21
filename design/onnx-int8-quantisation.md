@@ -2,7 +2,7 @@
 
 This document captures the methodology, experiments, and key findings from optimising INT8 quantisation of CLIP/SigLIP2 embedding models in this project. It is written as a playbook for future agents to follow when adding new models or re-evaluating quantisation quality.
 
-> **Status (2026-10):** No shipped model uses int8. `small` and `medium` are fine-tuned 4-bit (w4a16) models released by scene-atlas-learning, and `large` is fp16 throughout. The int8 export path (`quantise_encoder_int8`, `text_int8_exclude_layers`) was removed from `export_model_onnx.py` and the registry because nothing could reach it. The findings below remain the reference for any future int8 work; reinstating it means restoring that code from git history (commit `9fa8343` or earlier) and making `scripts/quantisation` (or the parts it needs) tracked.
+> **Status (2026-10):** No shipped model uses int8. All three are fine-tuned models released by scene-atlas-learning: `small` and `medium` 4-bit (w4a16), `large` 8-bit (w8a16, SigLIP2-large-patch16-384). The so400m notes below describe the earlier zero-shot `large`. The int8 export path (`quantise_encoder_int8`, `text_int8_exclude_layers`) was removed from `export_model_onnx.py` and the registry because nothing could reach it. The findings below remain the reference for any future int8 work; reinstating it means restoring that code from git history (commit `9fa8343` or earlier) and making `scripts/quantisation` (or the parts it needs) tracked.
 >
 > **Important:** The specific numeric results below are for CLIP ViT-B/32 (`laion/CLIP-ViT-B-32-laion2B-s34B-b79K`). Other architectures (SigLIP2, larger ViT variants) may respond differently to each technique. Always re-run the experiments for each new model.
 

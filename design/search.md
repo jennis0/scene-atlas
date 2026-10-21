@@ -138,8 +138,8 @@ Three models are offered, each hosted on HuggingFace and downloaded on demand to
 | Name | Architecture | Embedding Dim | HF Repo | Notes |
 |------|-------------|---------------|---------|-------|
 | `small` | CLIP ViT-B/32 (laion2B), vision fp16, text int8 | 512 | jennis0/scene-atlas-small | Default without GPU |
-| `medium` | SigLIP2-base-patch16-224, vision fp16, text int8 | 768 | jennis0/scene-atlas-medium | Default with GPU |
-| `large` | SigLIP2-so400m-patch14-384, vision fp16/fp16 | 1152 | jennis0/scene-atlas-large | GPU strongly recommended |
+| `medium` | SigLIP2-base-patch16-384 fine-tune, w4a16 | 768 | jennis0/scene-atlas-medium | Default with GPU |
+| `large` | SigLIP2-large-patch16-384 fine-tune, w8a16 | 1024 | jennis0/scene-atlas-large | GPU strongly recommended |
 
 `clip_service._default_models_dir()` uses `APP_DATA_DIR/models/{name}/` when it contains a `manifest.json`. Otherwise, in a non-frozen (dev) run it falls back to `backend/models/{name}/`, so developers can test locally exported models without a HF download. Frozen builds never use the dev fallback.
 

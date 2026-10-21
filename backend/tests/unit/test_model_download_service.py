@@ -200,8 +200,11 @@ class TestDownloadModel:
                 get_model_dir,
                 is_model_downloaded,
             )
+            from backend.app.services.model_registry import MODEL_BY_NAME
 
-            # "large" is still published with the bundle at the repo root
+            # Every registered model now ships under onnx/; drop the subfolder to keep
+            # the bundle-at-repo-root layout covered.
+            monkeypatch.delitem(MODEL_BY_NAME["large"], "hf_subfolder")
             result = download_model("large")
 
         # version.json must exist (completion marker)
