@@ -36,6 +36,7 @@ import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal
 
@@ -234,6 +235,18 @@ def _with_open_item(db: Session, file_ids: list[int]) -> set[int]:
     return found
 
 
+@dataclass
+class _Queue:
+    """What a scan queues for reading."""
+
+    # (entry, row to reuse): None makes a new row
+    files: list[tuple[LinkedEntry, SourceFile | None]] = field(default_factory=list)
+    refresh: dict[int, str] = field(default_factory=dict)  # file id → its image's type
+
+    def refresh_count(self) -> int:
+        return sum(1 for _, row in self.files if row is not None and row.id in self.refresh)
+
+
 def apply_diff(
     db: Session, source: LibrarySource, folder: LinkedFolder, diff: ScanDiff, max_new: int
 ) -> ScanResult:
@@ -246,8 +259,38 @@ def apply_diff(
     # The rows as they are now: the worker may have written some since the snapshot
     fresh = files_by_id(db, touched + [k.id for k, _ in diff.changed])
 
+    forgotten = _record_gone(diff.gone, fresh, orphans, now)
+    result.back = _record_back(diff.back, fresh)
+    queue = _record_changed(db, diff.changed, fresh, orphans, without_item)
+    # The orphans left are unchanged files (changed and gone ones were handled above)
+    queue.files += [
+        (LinkedEntry(row.rel_key, row.size, row.mtime_ns), row) for row in orphans.values()
+    ]
+    queue.files += [(entry, None) for entry in diff.new]
+
+    delete_files(db, forgotten)
+    db.flush()
+    result.moved = repoint_to_duplicates(db, source.id)
+
+    queue.files = _within_limit(queue.files, max_new)
+    if queue.files:
+        result.job_id = _queue_files(db, source, folder, queue.files, queue.refresh)
+    result.new = len(queue.files)
+    result.refresh = queue.refresh_count()
+    source.state = SOURCE_ONLINE
+    source.last_scan_at = now
+    return result
+
+
+def _record_gone(
+    gone: list[KnownFile],
+    fresh: dict[int, SourceFile],
+    orphans: dict[int, SourceFile],
+    now: datetime,
+) -> list[int]:
+    """Mark gone images' files missing. Returns the gone rows with nothing to keep, to delete."""
     forgotten: list[int] = []
-    for known in diff.gone:
+    for known in gone:
         row = fresh.get(known.id)
         orphans.pop(known.id, None)
         if row is None:
@@ -257,63 +300,65 @@ def apply_diff(
         elif row.state in (FILE_DUPLICATE, FILE_SKIPPED, FILE_FAILED):
             forgotten.append(row.id)
         # A pending file fails when its item reads it; a removed one stays removed.
+    return forgotten
 
-    for known in diff.back:
+
+def _record_back(back: list[KnownFile], fresh: dict[int, SourceFile]) -> int:
+    """Clear ``missing_since`` on files back as they were. Returns how many."""
+    count = 0
+    for known in back:
         row = fresh.get(known.id)
         if row is not None and (row.size, row.mtime_ns) == (known.size, known.mtime_ns):
             row.missing_since = None
-            result.back += 1
+            count += 1
+    return count
 
-    # (entry, row to reuse): None makes a new row
-    queue: list[tuple[LinkedEntry, SourceFile | None]] = []
-    edited = [k.id for k, _ in diff.changed if k.state == FILE_IMAGE]
+
+def _record_changed(
+    db: Session,
+    changed: list[tuple[KnownFile, LinkedEntry]],
+    fresh: dict[int, SourceFile],
+    orphans: dict[int, SourceFile],
+    without_item: set[int],
+) -> _Queue:
+    """Queue changed files: images' files for a refresh, others to be read again."""
+    edited = [k.id for k, _ in changed if k.state == FILE_IMAGE]
     image_types = _images_of(db, edited)
     refreshing = _with_open_item(db, edited)
-    refresh: dict[int, str] = {}  # file id → its image's type
-    for known, entry in diff.changed:
+    queue = _Queue()
+    for known, entry in changed:
         row = fresh.get(known.id)
         orphans.pop(known.id, None)
         if row is None:  # deleted meanwhile (a move took it): the file is new
-            queue.append((entry, None))
+            queue.files.append((entry, None))
         elif row.state == FILE_PENDING:  # its item reads the file as it is then
             row.size, row.mtime_ns = entry.size, entry.mtime_ns
             if row.id in without_item:
-                queue.append((entry, row))
+                queue.files.append((entry, row))
         elif row.state == FILE_IMAGE and row.id in image_types:
             # Edited in place: refresh its image (§4.5). The row keeps the version the
             # image was made from until the refresh records the one it read.
             row.missing_since = None
             if row.id not in refreshing:  # an open refresh reads the file as it is then
-                refresh[row.id] = image_types[row.id]
-                queue.append((entry, row))
+                queue.refresh[row.id] = image_types[row.id]
+                queue.files.append((entry, row))
         elif row.state != FILE_REMOVED:
             row.state, row.image_id, row.reason = FILE_PENDING, None, None
             row.size, row.mtime_ns, row.content_hash = entry.size, entry.mtime_ns, None
             row.missing_since = None
-            queue.append((entry, row))
+            queue.files.append((entry, row))
+    return queue
 
-    # The orphans left are unchanged files (changed and gone ones were handled above)
-    queue += [(LinkedEntry(row.rel_key, row.size, row.mtime_ns), row) for row in orphans.values()]
-    queue += [(entry, None) for entry in diff.new]
 
-    delete_files(db, forgotten)
-    db.flush()
-    result.moved = repoint_to_duplicates(db, source.id)
-
+def _within_limit[T](queue: list[T], max_new: int) -> list[T]:
     if len(queue) > max_new:
         logger.warning(
             "Linked scan found %d files to add; adding %d now and the rest next scan",
             len(queue),
             max_new,
         )
-        queue = queue[:max_new]
-    if queue:
-        result.job_id = _queue_files(db, source, folder, queue, refresh)
-    result.new = len(queue)
-    result.refresh = sum(1 for _, row in queue if row is not None and row.id in refresh)
-    source.state = SOURCE_ONLINE
-    source.last_scan_at = now
-    return result
+        return queue[:max_new]
+    return queue
 
 
 def _queue_files(

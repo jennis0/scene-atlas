@@ -415,25 +415,36 @@ def _has_maps(store: Path) -> bool:
     return store.is_dir() and read_marker(store) is None and count_media(store, 1)[0] > 0
 
 
-def inspect_folders(
-    *, app_data: Path | None, store: Path | None, linked: Path | None, max_items: int
-) -> Inspection:
-    """What opening these folders would do (absolute paths; any may be left out). Folders
-    not given are taken from the hints of a library found in the others. Read-only."""
-    app_data, store, linked = (
-        p.resolve() if p is not None else None for p in (app_data, store, linked)
-    )
+def _marker_in(folder: Path | None) -> Marker | None:
+    return read_marker(folder) if folder is not None else None
 
-    linked_info, linked_store = (None, None)
-    if linked is not None:
-        linked_info, linked_store = _inspect_linked(linked, max_items)
-    store_has_maps = store is not None and _has_maps(store)
 
-    if store is None:
-        store = linked_store
-    store_marker = read_marker(store) if store is not None else None
-    app_marker = read_marker(app_data) if app_data is not None else None
+def _as_str(path: Path | None) -> str | None:
+    return str(path) if path is not None else None
 
+
+@dataclass(frozen=True)
+class _Folders:
+    """The folders to inspect, with their markers."""
+
+    app_data: Path | None
+    store: Path | None
+    linked: Path | None
+    app_marker: Marker | None
+    store_marker: Marker | None
+
+    def hints(self) -> dict[str, str | None]:
+        return {
+            "app_data": _as_str(self.app_data),
+            "store": _as_str(self.store),
+            "linked": _as_str(self.linked),
+        }
+
+
+def _locate(app_data: Path | None, store: Path | None, linked: Path | None) -> _Folders:
+    """Read the folders' markers, and take the folders not given from the hints of a
+    library found in the others: the store's marker first."""
+    store_marker, app_marker = _marker_in(store), _marker_in(app_data)
     hints: dict[str, str | None] = {}
     if store_marker is not None and store is not None:
         hints = marker_hints(store, store_marker)
@@ -447,38 +458,64 @@ def inspect_folders(
         store_marker = read_marker(store)
     if linked is None and (hinted := hints.get("linked")):
         linked = Path(hinted)
+    return _Folders(app_data, store, linked, app_marker, store_marker)
 
+
+def _found_library(folders: _Folders, state: DatabaseState | None) -> FoundLibrary | None:
+    """The library the folders belong to, if any says. Its setup state is known only when
+    its own database was found."""
+    store_marker, app_marker = folders.store_marker, folders.app_marker
+    library_id = (
+        (store_marker.library_id if store_marker else None)
+        or (state.library_id if state else None)
+        or (app_marker.library_id if app_marker else None)
+    )
+    if library_id is None:
+        return None
+    setup_completed = (
+        state.setup_completed if state is not None and state.library_id == library_id else None
+    )
+    return FoundLibrary(library_id, setup_completed, folders.hints())
+
+
+def _wizard_message(decision: Decision, store_has_maps: bool) -> str | None:
+    if decision.refusal is not None:
+        return WIZARD_MESSAGES[decision.refusal]
+    if store_has_maps and decision.outcome == "new":
+        return WIZARD_STORE_HAS_MAPS
+    return None
+
+
+def inspect_folders(
+    *, app_data: Path | None, store: Path | None, linked: Path | None, max_items: int
+) -> Inspection:
+    """What opening these folders would do (absolute paths; any may be left out). Folders
+    not given are taken from the hints of a library found in the others. Read-only."""
+    app_data, store, linked = (
+        p.resolve() if p is not None else None for p in (app_data, store, linked)
+    )
+
+    linked_info, linked_store = (None, None)
+    if linked is not None:
+        linked_info, linked_store = _inspect_linked(linked, max_items)
+    store_has_maps = store is not None and _has_maps(store)
+    folders = _locate(app_data, store if store is not None else linked_store, linked)
+
+    app_data = folders.app_data
     try:
         state = read_database(app_data / DATABASE_FILENAME) if app_data is not None else None
     except sqlite3.Error as exc:
         logger.warning("Could not read the database in %s: %s", app_data, exc)
         return Inspection("error", WIZARD_DATABASE_UNREADABLE, linked_info, None, store_has_maps)
 
+    found = _found(state, folders.store, folders.store_marker)
     decision = decide(
-        app_data=app_data, store=store, linked=linked, found=_found(state, store, store_marker)
+        app_data=folders.app_data, store=folders.store, linked=folders.linked, found=found
     )
-
-    library = None
-    library_id = (
-        (store_marker.library_id if store_marker else None)
-        or (state.library_id if state else None)
-        or (app_marker.library_id if app_marker else None)
+    return Inspection(
+        decision.outcome,
+        _wizard_message(decision, store_has_maps),
+        linked_info,
+        _found_library(folders, state),
+        store_has_maps,
     )
-    if library_id is not None:
-        setup_completed = (
-            state.setup_completed if state is not None and state.library_id == library_id else None
-        )
-        library = FoundLibrary(
-            library_id,
-            setup_completed,
-            {
-                "app_data": str(app_data) if app_data else None,
-                "store": str(store) if store else None,
-                "linked": str(linked) if linked else None,
-            },
-        )
-    if decision.refusal is not None:
-        message = WIZARD_MESSAGES[decision.refusal]
-    else:
-        message = WIZARD_STORE_HAS_MAPS if store_has_maps and decision.outcome == "new" else None
-    return Inspection(decision.outcome, message, linked_info, library, store_has_maps)
