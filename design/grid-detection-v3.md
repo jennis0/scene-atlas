@@ -324,7 +324,7 @@ The port is a separate branch and worktree, started after `worktree-ingest-redes
 - **`grid_source` column: yes.** Detector re-runs must never overwrite a user's grid correction.
 - **No re-detection on upgrade.** The app is unreleased, and local libraries will be rebuilt.
 - **No `legacy` rollback switch.** v3 replaces the old detector outright; only its <1000 px path survives.
-- **The training script is committed** under `scripts/models/grid/`, next to the CLIP export scripts. The evaluation research stays untracked in `scripts/grid_research/`.
+- **The training script is committed** under `scripts/models/grid/`. The evaluation research stays untracked in `scripts/grid_research/`.
 
 **Steps:**
 

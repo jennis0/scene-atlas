@@ -1,9 +1,8 @@
 """Static registry of HuggingFace-hosted Scene Atlas embedding models.
 
-This is the single source of truth for model metadata used by:
-- The runtime backend (model download, selection, API responses)
-- scripts/models/export_model_onnx.py (export parameters)
-- scripts/models/publish_models_hf.py (HF repo targeting)
+The single source of truth for model metadata at runtime (download, selection, API
+responses). The models themselves are fine-tuned, exported and published by
+scene-atlas-learning's release pipeline (`uv run release ... --release <name>`).
 """
 
 HF_NAMESPACE = "jennis0"
@@ -14,8 +13,6 @@ MODELS: list[dict] = [
         # Identity
         "name": "small",
         "hf_repo": "jennis0/scene-atlas-small",
-        # Released by scene-atlas-learning's release pipeline, like medium (see below).
-        "release_source": "scene-atlas-learning",
         "hf_subfolder": "onnx",
         "hf_revision": "openclip-vitb32-rc3",
         # User-facing
@@ -40,11 +37,8 @@ MODELS: list[dict] = [
     {
         "name": "medium",
         "hf_repo": "jennis0/scene-atlas-medium",
-        # Fine-tuned and released by scene-atlas-learning's release pipeline
-        # (`uv run release ... --release medium`), not by the export/publish scripts here.
         # The repo root holds the full transformers checkpoint; only onnx/ is downloaded,
         # pinned to the release tag so later pushes to main can't change installed models.
-        "release_source": "scene-atlas-learning",
         "hf_subfolder": "onnx",
         "hf_revision": "siglip2-base-384-rc4",
         "label": "Medium",
@@ -63,8 +57,6 @@ MODELS: list[dict] = [
     {
         "name": "large",
         "hf_repo": "jennis0/scene-atlas-large",
-        # Released by scene-atlas-learning's release pipeline, like medium.
-        "release_source": "scene-atlas-learning",
         "hf_subfolder": "onnx",
         "hf_revision": "siglip2-l-384-rc4",
         "label": "Large",
@@ -103,20 +95,6 @@ GPU_PROVIDER_LABELS: dict[str, str] = {
     "DmlExecutionProvider": "GPU (DirectML)",
     "CoreMLExecutionProvider": "Apple Silicon (CoreML)",
 }
-
-
-# Standard ONNX file names used for all Scene Atlas model exports.
-# These are the fixed filenames written by export_model_onnx.py and expected
-# by publish_models_hf.py and the runtime CLIPService loader.
-ENCODER_NAMES: dict[str, str] = {
-    "vision": "clip_vision_encoder.onnx",
-    "text": "clip_text_encoder.onnx",
-}
-
-
-def is_externally_released(entry: dict) -> bool:
-    """True for models built and published outside this repo (see ``release_source``)."""
-    return bool(entry.get("release_source"))
 
 
 def get_model(name: str) -> dict | None:

@@ -32,9 +32,7 @@ dependencies = [
 #   uv sync --extra cpu                     (CPU inference)
 #   uv sync --extra gpu                     (NVIDIA CUDA inference)
 #   uv sync --extra gpu-directml            (DirectX 12 inference, Windows)
-# Dev extras — adds torch for model export scripts:
-#   uv sync --extra cpu-dev --extra dev     (CPU + dev tools)
-#   uv sync --extra gpu-dev --extra dev     (CUDA + dev tools)
+# Add --extra dev for the dev tools. Models are exported in scene-atlas-learning.
 #
 # ORT >= 1.24 everywhere: the medium model uses 4-bit MatMulNBits weights, which
 # ORT 1.19 cannot run (NaN outputs on 4-bit, no 8-bit kernel at all).
@@ -44,16 +42,8 @@ dependencies = [
 cpu = [
     "onnxruntime>=1.24.0,<2.0",
 ]
-cpu-dev = [
-    "onnxruntime>=1.24.0,<2.0",
-    "torch>=2.13.0,<3.0",
-]
 gpu = [
     "onnxruntime-gpu>=1.24.1,<2.0",
-]
-gpu-dev = [
-    "onnxruntime-gpu>=1.24.1,<2.0",
-    "torch>=2.13.0,<3.0",
 ]
 gpu-directml = ["onnxruntime-directml>=1.24.0,<2.0"]
 dev = [
@@ -62,15 +52,12 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
     "httpx>=0.26.0",
-    "transformers>=5.10.0,<6.0",
-    "onnx>=1.14.0,<2.0",   # ONNX export + quantisation tools (dev only)
     "tqdm>=4.60.0",
     "pip-audit>=2.7.0",    # CI: Python CVE scanning
     "bandit>=1.7.0",       # CI: Python SAST
     "ipywidgets>=8.1.8",
     "matplotlib>=3.10.8",
-    "huggingface-hub[hf-xet]>=0.20.0", # Publish ONNX models to HF Hub
-    "onnxscript>=0.6.0",      # Required by torch.onnx.export (newer torch versions)
+    "huggingface-hub[hf-xet]>=0.20.0", # Faster model downloads in dev
     "scikit-learn>=1.4.0,<2.0",  # Grid model training (scripts/models/grid)
 ]
 
@@ -172,31 +159,12 @@ exclude_lines = [
 ]
 
 [tool.uv]
-# Pick one runtime variant. cpu/cpu-dev conflict with gpu/gpu-dev/gpu-directml.
-# cpu and cpu-dev can't coexist (torch source index differs from default).
+# Pick one runtime variant: the ONNX Runtime packages can't coexist.
 conflicts = [
     [
         { extra = "cpu" },
-        { extra = "cpu-dev" },
         { extra = "gpu" },
-        { extra = "gpu-dev" },
         { extra = "gpu-directml" },
     ],
 ]
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cuda", extra = "gpu-dev" },
-    { index = "pytorch-cpu", extra = "cpu-dev" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url  = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cuda"
-url  = "https://download.pytorch.org/whl/cu126"
-explicit = true
 

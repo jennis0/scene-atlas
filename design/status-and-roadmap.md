@@ -34,7 +34,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Settings | `frontend/src/components/settings/`, `backend/app/api/settings.py` | DB-backed app settings |
 | Activity dock | `frontend/src/components/ActivityDock.tsx`, `frontend/src/components/imports/ImportJobRow.tsx` | Import and background-job progress, connection state |
 | Video support | `backend/app/services/video_utils.py` | `.mp4`/`.webm`; first frame for thumbnails and embeddings |
-| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-large, 1024-d). [onnx-int8-quantisation.md](onnx-int8-quantisation.md) |
+| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-large, 1024-d). |
 | Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelStep.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
 | GPU acceleration | `backend/app/services/ort_providers.py`, `clip_service.py` | `inference_device=auto`; CUDA / DirectML / CoreML / CPU. [gpu-acceleration.md](gpu-acceleration.md) |
 | Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. Updates via electron-updater: installs on Windows and AppImage, notifies on macOS and .deb (ADR-021); the user chooses Automatic, Ask first (default) or Off (ADR-025). [electron.md](electron.md#updates) |

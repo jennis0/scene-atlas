@@ -47,7 +47,6 @@ Design decisions, visual standards, and security posture.
 | [security.md](security.md) | Security evaluation for hosted deployment mode |
 | [testing.md](testing.md) | Testing strategy -- where checks run, fixtures, test conventions |
 | [releasing.md](releasing.md) | Making a release -- the version files, the Release workflow, draft releases, the Docker image, how each install updates |
-| [onnx-int8-quantisation.md](onnx-int8-quantisation.md) | ONNX INT8 quantisation methodology and results |
 | [grid-detection-v3.md](grid-detection-v3.md) | Grid detector v3 research: twin-difference labels, held-out results, small-map diagnosis, port recommendation |
 
 ## Status and Backlog

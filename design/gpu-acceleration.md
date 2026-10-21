@@ -20,9 +20,7 @@ An explicit provider that is unavailable, or an unknown value, logs a warning an
 | Extra | Package |
 |---|---|
 | `cpu` | `onnxruntime>=1.24.0,<2.0` |
-| `cpu-dev` | `onnxruntime` + `torch` |
 | `gpu` | `onnxruntime-gpu>=1.24.1,<2.0` |
-| `gpu-dev` | `onnxruntime-gpu` + `torch` |
 | `gpu-directml` | `onnxruntime-directml>=1.24.0,<2.0` |
 
 > **Note:** ORT >= 1.24 is required everywhere: the small and medium models use 4-bit `MatMulNBits` weights, which older ORT can't run. Install `onnxruntime-gpu` on its own (it bundles the Python API); installing it alongside the base `onnxruntime` package is what broke the ABI at 1.24.3 (`undefined symbol: Provider_GetHost`).
@@ -31,10 +29,7 @@ Installation:
 - **Server (CPU):** `uv sync --extra cpu`
 - **Server (CUDA):** `uv sync --extra gpu`
 - **Server (DirectML):** `uv sync --extra gpu-directml`
-- **Dev (CPU):** `uv sync --extra dev --extra cpu-dev`
-- **Dev (CUDA):** `uv sync --extra dev --extra gpu-dev`
-
-The `-dev` variants add `torch`, needed only by the ONNX export scripts.
+- **Dev:** add `--extra dev` to any of these, e.g. `uv sync --extra dev --extra cpu`
 
 A bare `uv sync` (no extras) installs no onnxruntime variant; `resolve_providers()` raises an `ImportError` naming the extras to install.
 
@@ -128,10 +123,6 @@ Users with Intel integrated graphics (Iris Xe and similar) see **25–180 second
 - **Intel iGPU**: worst case, up to 3 minutes on first launch per process
 
 Windows caches D3D12 PSOs after first run, so later launches are fast. Because the Windows desktop build always bundles DirectML, this affects Windows users on Intel iGPUs with `inference_device=auto`; setting it to `cpu` avoids it.
-
-### Developer Scripts
-
-`scripts/models/export_model_onnx.py --device {cpu,cuda,directml,coreml}` selects the ONNX provider for the optional quality evaluation. Export and quantisation always run on CPU; torch uses CUDA when available, and `directml` is ONNX-only.
 
 ## Consequences
 

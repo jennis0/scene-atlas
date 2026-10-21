@@ -330,7 +330,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - No first-run HuggingFace download (models are bundled)
 - ONNX models must be re-exported when changing the base model (`scripts/models/export_model_onnx.py`)
 - `backend/models/` is gitignored; CI must run the export script before building
-- **Status note (2026-10):** small and medium are now fine-tuned 4-bit (w4a16) models released by scene-atlas-learning (`release_source` in `backend/app/services/model_registry.py`); large is fp16 throughout and is the only model `export_model_onnx.py` exports. The int8 export path was removed; [onnx-int8-quantisation.md](onnx-int8-quantisation.md) keeps the research. The runtime still runs an int8 text encoder on CPU if a manifest declares one.
+- **Status note (2026-10):** all three models are now fine-tuned, quantised, exported and published by scene-atlas-learning's release pipeline, which also holds the quantisation research (its `docs/model-compression.md`). `export_model_onnx.py`, `publish_models_hf.py` and the torch/transformers dev dependencies were removed from this repo. The runtime still runs an int8 text encoder on CPU if a manifest declares one.
 
 ---
 
@@ -401,7 +401,7 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 - Dimension-based model compatibility checking: weak proxy — two models can share dimensions but produce incompatible embeddings; model identity is better encoded in table names
 
 **Consequences:**
-- Adding a new model requires only: export script run + manifest generation
+- Adding a new model requires only: export script run + manifest generation (the export now lives in scene-atlas-learning; see ADR-016's status note)
 - Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if table is missing or has wrong count
 - All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
@@ -432,7 +432,7 @@ Key choices:
 
 6. **Model switch sequence:** `POST /active` submits `_download_and_activate` to JobRunner which sequences: download → `reload_clip_service()` → `wait_for_clip_ready()` → `reload_lancedb_service(f"embeddings_{name}")` → `rebuild_all_embeddings(force=True)`. `force=True` is required because the existing embeddings are for the old model and the skip-if-present guard must not fire.
 
-7. **Model registry as single source of truth:** `backend/app/services/model_registry.py` contains all model specs (HF repos, descriptions, hardware recommendations, quantisation parameters). Export and publish scripts import from this module rather than maintaining their own inline registry.
+7. **Model registry as single source of truth:** `backend/app/services/model_registry.py` contains all model specs (HF repos, descriptions, hardware recommendations, quantisation parameters). (The export and publish scripts that also imported it moved to scene-atlas-learning in 2026-10.)
 
 8. **No auto-update:** `version.json` stores `hf_commit_sha` to enable future update detection, but no polling or auto-download is implemented. Intentional — compute overhead and user expectation around background downloads.
 
