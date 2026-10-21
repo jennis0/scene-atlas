@@ -42,6 +42,10 @@ Scene Atlas organises art you already have. It is not a virtual tabletop, a map 
 | macOS    | Apple Silicon only | Docker Desktop | From source |
 | Linux    | AppImage, DEB | Docker | From source |
 
+## Licence
+
+Scene Atlas is free and open source under the [MIT licence](https://github.com/jennis0/scene-atlas/blob/main/LICENSE).
+
 ## Next Steps
 
 Head to [Installation](/guide/getting-started) to get running.

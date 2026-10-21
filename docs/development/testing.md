@@ -17,14 +17,14 @@ uv run pytest backend/tests/unit backend/tests/integration -v
 # Just parser tests (fastest feedback loop, ~5s)
 uv run pytest backend/tests/unit/test_parser.py -v
 
-# Just the critical round-trip test
-uv run pytest backend/tests/integration/test_metadata_roundtrip.py -v
-
 # Frontend tests
 cd frontend && npx vitest run
 
 # Frontend tests with watch mode
 cd frontend && npx vitest
+
+# Electron and upgrade-test unit tests (node --test)
+npm run test:electron
 
 # Heavy tests (real CLIP ONNX model -- ~289MB FP16, setup via scripts/models/setup_models.py)
 uv run python -m pytest -m heavy -v
@@ -66,8 +66,8 @@ make test-heavy         # heavy tests with real CLIP inference
 Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run real inference. They are **excluded by default** via `addopts = "-m 'not heavy'"` in pyproject.toml. Currently only `test_clip_heavy.py` uses this marker.
 
 **Model caching:**
-- ONNX models are cached in CI via `actions/cache@v4` keyed on `backend/app/services/model_registry.py`
-- Models are only re-exported when the export script or config changes
+- CI caches the small ONNX model with `actions/cache`, keyed on `backend/app/services/model_registry.py`
+- The model is downloaded again only when that file changes
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
@@ -113,7 +113,7 @@ Playwright tests validate critical user flows in a real browser against the full
 
 **`reuseExistingServer`:** Locally, if you already have the backend and frontend running, Playwright reuses them -- no cold-start overhead. In CI, Playwright starts both servers fresh.
 
-**Test coverage (35 tests across 10 files):**
+**Test coverage (12 spec files):**
 - `smoke.spec.ts` -- Health check, page load, seeded data visible
 - `gallery.spec.ts` -- Image count, type tabs, view toggle, sort dropdown
 - `gallery-deep.spec.ts` -- Text-only search, semantic search, filters, clear all, empty state, grouped view
@@ -124,6 +124,8 @@ Playwright tests validate critical user flows in a real browser against the full
 - `import-deep.spec.ts` -- New file: progress view → finished → report counts → confirmed undo restores the gallery count; re-importing a library file is reported under "Already in library"
 - `edit-group.spec.ts` -- Context menu open, group images/metadata, escape close
 - `activity-dock.spec.ts` -- Closing the dialog keeps the import in the dock; its row shows the outcome and opens the report
+- `accessibility.spec.ts` -- axe WCAG 2.2 AA scans of the main surfaces in every palette, theme and contrast level; keyboard path through the core task
+- `zoom.spec.ts` -- At the equivalent of 200% zoom with larger text, the main controls stay reachable
 
 ## Test File Structure
 
@@ -213,7 +215,9 @@ e2e/                                  # Playwright E2E tests (full stack, real b
     ├── upload-flow.spec.ts           # Search, filter, metadata viewer
     ├── import-deep.spec.ts           # Import → report → undo; duplicate skipped
     ├── edit-group.spec.ts            # Context menu, group metadata, escape close
-    └── activity-dock.spec.ts         # Dock row → report
+    ├── activity-dock.spec.ts         # Dock row → report
+    ├── accessibility.spec.ts         # axe WCAG scans, keyboard path
+    └── zoom.spec.ts                  # 200% zoom + larger text
 
 frontend/src/
 ├── components/

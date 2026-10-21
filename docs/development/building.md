@@ -24,16 +24,27 @@ cd frontend && npm install && npm run dev
 
 The frontend Vite config proxies `/api` requests to the backend at `localhost:8000` (`API_PROXY_TARGET` overrides it; E2E uses that). `scripts/app/start.py` supervises uvicorn with auto-restart and writes its output to `logs/api.log`; stop it with `uv run python scripts/app/stop.py`. The backend's own log is `data/logs/scene-atlas.log`.
 
-### Pre-commit Hooks
+### Git Hooks
 
-Git hooks are auto-installed via `npm install` at the repo root (husky `prepare` script).
+Husky installs the hooks when you run `npm install` at the repo root (the `prepare` script).
 
-Pre-commit (lint-staged, fixes in place):
+**Pre-commit** (`.husky/pre-commit` runs lint-staged, configured in the root `package.json`; fixes staged files in place):
 - `backend/**/*.py`, `scripts/**/*.py`: `ruff check --fix` + `ruff format`
 - `frontend/src/**/*.{ts,tsx}`: `eslint --fix` + `prettier --write`
 - `electron/src/**/*.ts`: `prettier --write`
 
-Pre-push (`.husky/pre-push`, blocks the push on failure): `ruff check` and `ruff format --check` over `backend/` and `scripts/`, backend unit tests, ESLint, `prettier --check src/`, `tsc --noEmit` for the frontend and for `electron/`, and vitest.
+**Pre-push** (`.husky/pre-push`, blocks the push on the first failure):
+
+| Area | Checks |
+|------|--------|
+| Backend | `ruff check` and `ruff format --check` over the git-tracked files in `backend/` and `scripts/`, pyright (pinned version, via `uvx`), backend unit tests |
+| Frontend | ESLint (no warnings allowed), `prettier --check src/`, `tsc --noEmit`, knip (unused files, exports and dependencies), Vitest |
+| Electron | `tsc --noEmit` on `electron/tsconfig.json`, `npm run test:electron` (Electron and upgrade-test unit tests, `node --test`) |
+| Repo | jscpd duplication check (threshold in `.jscpd.json`) |
+
+::: warning Fresh clones and worktrees
+Each clone or worktree needs its own setup before the pre-push hook works: `uv sync --extra dev --extra cpu`, `npm install` at the root, and `npm ci` in `frontend/`. Without the synced venv, `uv run ruff` can fall through to a different ruff on your `PATH`, and pyright can't resolve `onnxruntime`.
+:::
 
 ### Linting and Formatting
 
@@ -47,44 +58,18 @@ uv run ruff format backend/
 cd frontend && npx eslint src/ --fix && npx prettier --write src/
 ```
 
-## Web Server Mode
+## Production-like Build
 
-For deployment behind a reverse proxy (e.g., nginx, Caddy). See [Docker Server](/deploy/server) and [Standalone Server](/deploy/standalone) for full guides.
+To run the app as a server deployment does (one port, no Vite), build the frontend once; the backend serves `frontend/dist` itself:
 
 ```bash
-# Build the frontend once; the backend serves frontend/dist automatically
 cd frontend && npm run build && cd ..
-
-# Run the backend (API + UI on one port)
 uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
-::: danger
-Server mode has no built-in authentication. Run it only behind a reverse proxy that authenticates users (basic auth, forward-auth, or an OAuth proxy), never directly exposed to the internet.
-:::
+Open `http://localhost:8000`. Rebuild the frontend after frontend changes. Environment variables and `.env` work as in a real deployment; see `.env.example`.
 
-### Configuration
-
-All config via environment variables or `.env` file. Key settings:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `APP_DATA_DIR` | `data/` | DB, LanceDB, thumbnails, staging, logs |
-| `IMAGE_LIBRARY_DIR` | `images/`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image store and `backups/` |
-| `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` | Allowed CORS origins (JSON array) |
-| `APP_MODE` | `server` | `server`, or `app` when run as the Electron sidecar |
-
-All other paths (database, vector index, thumbnails, staging, backups) are always derived from `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` in `backend/app/config.py`.
-
-See the [Configuration Reference](/deploy/configuration) and `.env.example` for the full list.
-
-### Reverse Proxy Notes
-
-- The proxy should handle TLS termination
-- Set `Strict-Transport-Security` header at the proxy level
-- The proxy must authenticate users; Scene Atlas has no authentication of its own
-- Configure `CORS_ORIGINS` to match your actual frontend domain
-- The proxy should overwrite `X-Forwarded-For` so rate limits key on the real client IP
+For deploying it, see [Standalone Server](/deploy/standalone), [Docker Server](/deploy/server) (including reverse proxy and authentication) and the [Configuration Reference](/deploy/configuration).
 
 ## Electron Desktop Build
 
@@ -94,6 +79,8 @@ See the [Configuration Reference](/deploy/configuration) and `.env.example` for 
 # Vite dev server + Electron window (from the repo root)
 npm run electron:dev
 ```
+
+In development Electron loads the Vite dev server and starts no backend of its own: run `uv run python scripts/app/start.py` alongside it. F12 or Ctrl+Shift+I toggles DevTools.
 
 **WSL:** WSLg doesn't pass Windows' display scaling to Linux apps, so on a 4K screen the Linux build opens at 100% and looks tiny. Add `export GDK_SCALE=2` (or your Windows scale, rounded) to `~/.bashrc`, or use Settings → Appearance → Zoom.
 
@@ -126,25 +113,37 @@ cd frontend && npm run build && cd ..         # Vite frontend
 npm run electron:build                        # tsc + electron-builder
 ```
 
-**Publishing:** electron-builder publishes to GitHub Releases (`publish.provider: github`, channel `latest`) only when the release workflow runs with `publish=true`. The app has no built-in auto-updater.
+**Publishing and updates:** builds run with `--publish never`; the `publish` block in `electron-builder.yml` only makes electron-builder write the update metadata (`latest*.yml`, blockmaps), which the Release workflow uploads with the installers. The app updates itself with electron-updater: Windows and AppImage installs download and install, macOS and `.deb` installs only notify. See [design/electron.md](https://github.com/jennis0/scene-atlas/blob/main/design/electron.md#updates).
 
 ### Config Storage
 
 | Item | Location |
 |------|----------|
 | App config | `{userData}/scene-atlas-config.json` |
-| Backend log | `{userData}/backend.log` |
+| Backend log | `{userData}/backend.log` (rotated to `backend.log.1`) |
+| Updater log | `{userData}/updater.log` |
 | App data / image library dirs | A first launch writes the defaults (`%LOCALAPPDATA%\Scene Atlas\data` and `...\images` on Windows, `Documents/Scene Atlas/...` elsewhere) as a provisional library; the setup wizard's library step can replace them. Passed to the sidecar as `--app-data-dir` / `--image-library-dir` |
-| Linked maps folder | Optional, chosen in the setup wizard or Settings; passed as `--linked-library-dir`. In `npm run electron:dev` the folders are only saved to the config: the dev backend ignores them (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` for it) |
+| Linked folder (`linkedLibraryDir`) | Optional: the user's own images folder, read in place. Chosen in the setup wizard or Settings; passed as `--linked-library-dir`. In `npm run electron:dev` the folders are only saved to the config: the dev backend ignores them (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` for it) |
+
+The config also holds the update choice, window state and display preferences; see [design/electron.md](https://github.com/jennis0/scene-atlas/blob/main/design/electron.md#config-storage) for the full shape.
 
 `userData` is the OS-standard app data path (e.g. `%APPDATA%/Scene Atlas` on Windows, `~/Library/Application Support/Scene Atlas` on macOS, `~/.config/Scene Atlas` on Linux).
 
 ## CI/CD
 
-Lint and unit tests run locally in the pre-push hook; CI does not repeat them on every push.
+Lint and unit tests run locally in the pre-push hook. CI runs only on pull requests and manual runs; nothing runs on a push to a branch.
 
-- `.github/workflows/ci.yml` (pull requests): pip-audit + bandit, backend unit + integration tests with coverage, frontend npm audit (runtime deps) + `tsc` + Vite build
-- `.github/workflows/release.yml` (manual `workflow_dispatch`): backend lint/unit/integration/heavy tests, frontend lint/test/coverage/build, unit tests on Windows and macOS, Playwright E2E, then Electron builds for Windows x64, macOS arm64, and Linux x64. Run it against `main`, check the artifacts, then re-run with `publish=true` and a `version` to create the GitHub Release.
-- `.github/workflows/docs.yml` (push to `main` touching `docs/`): builds this documentation site and deploys it to GitHub Pages if Pages is enabled
+- `.github/workflows/ci.yml` (pull requests to `main`): pip-audit + bandit; backend unit and integration tests with coverage (small ONNX model, cached); frontend `npm audit` (runtime deps, high+) and `npm run build` (`tsc` + Vite); pyright, knip and jscpd.
+- `.github/workflows/release.yml` (manual): checks the version, runs the full backend, frontend and cross-platform (Windows, macOS) tests and Playwright E2E, builds the Electron installers (Windows x64, macOS arm64, Linux x64) and builds and smoke-tests the Docker image. Without `publish=true` it stops there, as a check of `main`.
+- `.github/workflows/release-published.yml` (a release is published): tags the Docker image `sha-<commit>` with the version and, unless it's a prerelease, `latest`.
+- `.github/workflows/docs.yml` (push to `main` touching `docs/`, or manual): builds this site and deploys it to GitHub Pages, if Pages is enabled.
 
-For details on running tests, see [testing.md](testing.md).
+### Releasing
+
+1. Bump the version in a PR: `python scripts/release/release_version.py bump X.Y.Z`, then merge it.
+2. Run the Release workflow against `main` with `publish=true`. It creates a draft release `vX.Y.Z` from its own builds and pushes the Docker image as `sha-<commit>`. Installed apps ignore drafts.
+3. Check the draft's installers, then publish it on GitHub. That tags the Docker image (`release-published.yml`).
+
+Details are in [design/releasing.md](https://github.com/jennis0/scene-atlas/blob/main/design/releasing.md).
+
+For running tests, see [Testing](testing.md).

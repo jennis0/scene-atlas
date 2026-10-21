@@ -104,6 +104,14 @@ export default defineConfig({
           { text: "Building & Running", link: "/development/building" },
           { text: "Testing", link: "/development/testing" },
           { text: "Stress Testing", link: "/development/stress-testing" },
+          {
+            text: "Contributing",
+            link: "https://github.com/jennis0/scene-atlas/blob/main/CONTRIBUTING.md",
+          },
+          {
+            text: "Security Policy",
+            link: "https://github.com/jennis0/scene-atlas/blob/main/SECURITY.md",
+          },
         ],
       },
     ],
