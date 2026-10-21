@@ -17,7 +17,8 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/pipeline/ingest_worker.py` | `IngestWorker` loop thread and `get_ingest_worker()`. |
 | `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items (before seal). |
 | `backend/pipeline/ingest_local.py` | Local imports (desktop app): list picked folders and files into ready items read in place ([local-ingest.md](local-ingest.md)). |
-| `backend/pipeline/linked_scan.py` | The linked folder: scan, diff against `source_files`, queue new files as a sealed job; startup reconcile; the rescan timer ([§5.7](#57-linked-items)). |
+| `backend/pipeline/linked_scan.py` | The linked folder: scan, diff against `source_files`, queue new files as a sealed job; startup reconcile ([§5.7](#57-linked-items)). |
+| `backend/pipeline/linked_scanner.py` | When scans run: one at a time, the focus throttle and the rescan timer ([§5.7](#57-linked-items)). |
 | `backend/pipeline/linked_refresh.py` | Refresh of an edited linked file: the image snapshot a refresh item carries, and which grid columns it may re-detect ([§5.7](#57-linked-items)). |
 | `backend/pipeline/grid_rules.py` | Which grids re-detection may change (ADR-019), shared by the grid backfill and refresh. |
 | `backend/app/services/linked_files.py` | `source_files` kept in step with items and images: outcome write-back, moves, removal. |
@@ -285,7 +286,7 @@ Rationale: [ADR-020](decisions.md#adr-020-auto-image-type-on-import). Heads: `ba
 
 Plan: [library-setup.md §4](library-setup.md#4-linked-library). Storage side: [storage.md](storage.md#linked-folder).
 
-**Scans** (`linked_scan.py`) run one at a time (`LinkedScanner`), on a thread of their own: at startup after the library check, on a timer (the asyncio task `rescan_timer` wakes every minute and reads `linked_rescan_minutes`; 0 = off), on `POST /library/scan` (`manual`, or `focus` from the desktop window, ignored within 60 s of the last scan or when rescans are off). Background scans run only with the worker (`ingest_worker_enabled`); tests drive both by hand.
+**Scans** (`linked_scan.py`) run one at a time (`LinkedScanner`, `linked_scanner.py`), on a thread of their own: at startup after the library check, on a timer (the asyncio task `rescan_timer` wakes every minute and reads `linked_rescan_minutes`; 0 = off), on `POST /library/scan` (`manual`, or `focus` from the desktop window, ignored within 60 s of the last scan or when rescans are off). Background scans run only with the worker (`ingest_worker_enabled`); tests drive both by hand.
 
 1. **Walk** (no lock): `LinkedFolder.list()`, the local import's walker with keys taken from the folder itself (`Author/Pack/file`, so the parser reads the creator), images and videos only, junk and the library's own folders left out. A folder that vanished during the walk counts as offline: nothing is marked missing.
 2. **Diff** (`diff_files`, pure) against the source's rows, loaded in one query: new, changed (size or mtime), gone, back again. A scan that finds nothing to do reads no file and creates no job.

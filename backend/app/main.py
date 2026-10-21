@@ -246,7 +246,7 @@ async def lifespan(app: FastAPI):
 
     # The linked folder (design/library-setup.md §4.3): scanned now, then on a timer.
     # Background scans feed the worker, so they run with it (tests drive both by hand).
-    from ..pipeline.linked_scan import get_linked_scanner, rescan_timer
+    from ..pipeline.linked_scanner import get_linked_scanner, rescan_timer
 
     rescan_task: asyncio.Task | None = None
     if settings.ingest_worker_enabled and settings.linked_library_dir is not None:

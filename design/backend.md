@@ -285,7 +285,7 @@ The source interface: `original_path(image)` reads any original, from the store 
 
 ### Linked folder (`linked_files.py`, `pipeline/linked_scan.py`)
 
-`linked_scan` scans the linked folder (one at a time, in a thread; at startup, on the `linked_rescan_minutes` timer, and on `POST /library/scan`) and queues new files as one sealed import job. `linked_files` keeps `source_files` in step: item outcomes, moves, removed images. See [ingestion.md §5.7](ingestion.md#57-linked-items).
+`linked_scan` scans the linked folder and queues new files as one sealed import job; `linked_scanner` runs scans one at a time, in a thread: at startup, on the `linked_rescan_minutes` timer, and on `POST /library/scan`. `linked_files` keeps `source_files` in step: item outcomes, moves, removed images. See [ingestion.md §5.7](ingestion.md#57-linked-items).
 
 ### Library identity (`library_identity.py`)
 

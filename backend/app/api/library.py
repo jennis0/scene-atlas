@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
 from ...pipeline.ingest_worker import get_ingest_worker
-from ...pipeline.linked_scan import get_linked_scanner
+from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
 from ..library_identity import get_library_id, inspect_folders
 from ..models import LibrarySource

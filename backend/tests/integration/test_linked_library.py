@@ -31,9 +31,10 @@ from backend.app.models.database import (
 from backend.app.services import get_thumbnail_store, originals
 from backend.app.services import ingest_state as st
 from backend.pipeline import ingest_queue as q
-from backend.pipeline import linked_scan
+from backend.pipeline import linked_scan, linked_scanner
 from backend.pipeline.linked_refresh import REFRESH_GONE_REASON
-from backend.pipeline.linked_scan import LinkedScanner, ScanResult, reconcile_linked_source
+from backend.pipeline.linked_scan import ScanResult, reconcile_linked_source
+from backend.pipeline.linked_scanner import LinkedScanner
 
 from .test_imports_api import BASE, image_bytes
 from .test_local_ingest import library_files, tree_digest, write_tree
@@ -50,7 +51,7 @@ class Linked:
         self.root = root
 
     def scan(self) -> ScanResult:
-        result = linked_scan.get_linked_scanner().scan()
+        result = linked_scanner.get_linked_scanner().scan()
         assert result is not None
         return result
 
@@ -103,7 +104,7 @@ def linked(api, tmp_path, monkeypatch):
     root = tmp_path / "Maps"
     root.mkdir()
     monkeypatch.setattr(settings, "linked_library_dir", root)
-    monkeypatch.setattr(linked_scan, "_scanner", LinkedScanner())
+    monkeypatch.setattr(linked_scanner, "_scanner", LinkedScanner())
     monkeypatch.setattr(q, "SOURCE_CHANGED_DELAY", timedelta(0))
     originals.forget_availability()
     yield Linked(api, root)
@@ -708,7 +709,7 @@ def test_stop_using_the_folder(forest):
 
 def test_stop_using_waits_for_a_scan_or_a_batch_in_progress(forest, monkeypatch):
     """Removing the folder's images under a running scan or commit would race them."""
-    scanner = linked_scan.get_linked_scanner()
+    scanner = linked_scanner.get_linked_scanner()
     monkeypatch.setattr(scanner, "_running", True)
     assert forest.client.delete(f"{LIBRARY}/linked").status_code == 409
     monkeypatch.setattr(scanner, "_running", False)
@@ -768,7 +769,7 @@ def test_purge_never_touches_the_linked_folder(forest):
 
 def test_scan_endpoint(linked):
     write_tree(linked.root, {"A/Map.png": image_bytes(1)})
-    scanner = linked_scan.get_linked_scanner()
+    scanner = linked_scanner.get_linked_scanner()
     r = linked.client.post(f"{LIBRARY}/scan", json={"reason": "manual"})
     assert r.status_code == 202 and r.json() == {"started": True}
     for _ in range(200):
@@ -891,7 +892,7 @@ def test_a_scan_interrupted_before_sealing_is_redone(linked, monkeypatch):
 
     with monkeypatch.context() as patched:
         patched.setattr(linked_scan, "seal_scan", crash)
-        assert linked_scan.get_linked_scanner().scan() is None  # failed, logged
+        assert linked_scanner.get_linked_scanner().scan() is None  # failed, logged
     assert [job.planned_at for job in linked.jobs()] == [None]
 
     result = linked.sync()

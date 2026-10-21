@@ -13,7 +13,7 @@ Scene Atlas runs on hardware from small laptops to servers, against libraries wh
 | 3 | JobRunner | `ThreadPoolExecutor` (`job_runner.py`) | Concurrent maintenance jobs | `max_job_workers` |
 | 4 | IngestWorker | One thread (`pipeline/ingest_worker.py`) | One import batch at a time, process-wide | `ingestion_batch_size` (items per batch) |
 | 5 | MemoryBudget | `threading.Condition` byte budget (`memory_budget.py`) | Total estimated decode memory across prepare workers | `ingest_memory_budget_mb` (env) |
-| 6 | LinkedScanner | A flag and one daemon thread per scan (`pipeline/linked_scan.py`) | One linked folder scan at a time | `linked_rescan_minutes` (how often) |
+| 6 | LinkedScanner | A flag and one daemon thread per scan (`pipeline/linked_scanner.py`) | One linked folder scan at a time | `linked_rescan_minutes` (how often) |
 
 ### 1. Prepare pool
 

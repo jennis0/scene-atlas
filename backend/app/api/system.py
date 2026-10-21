@@ -195,7 +195,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     Submits a background job and returns immediately with a job ID.
     Refuses to run if any import jobs are currently active.
     """
-    from ...pipeline.linked_scan import get_linked_scanner
+    from ...pipeline.linked_scanner import get_linked_scanner
     from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 
     runner = get_job_runner()

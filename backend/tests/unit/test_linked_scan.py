@@ -13,7 +13,8 @@ from backend.app.models.database import (
     FILE_REMOVED,
 )
 from backend.app.services.originals import LinkedEntry
-from backend.pipeline.linked_scan import KnownFile, LinkedScanner, ScanResult, diff_files
+from backend.pipeline.linked_scan import KnownFile, ScanResult, diff_files
+from backend.pipeline.linked_scanner import LinkedScanner
 
 
 def known(id_: int, key: str, size=10, mtime=100, state=FILE_IMAGE, missing=False) -> KnownFile:
@@ -134,7 +135,7 @@ def test_timer_is_due_after_the_interval(monkeypatch):
     scanner.scan()
     assert not scanner.due(15)
     later = time.monotonic() + 15 * 60
-    monkeypatch.setattr("backend.pipeline.linked_scan.time.monotonic", lambda: later)
+    monkeypatch.setattr("backend.pipeline.linked_scanner.time.monotonic", lambda: later)
     assert scanner.due(15)
 
 
