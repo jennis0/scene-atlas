@@ -1,11 +1,12 @@
 import { ReactNode, useId } from 'react'
-import { RestartBadge } from './RestartBadge'
+import { RestartBadge, type RestartPromptProps } from './RestartBadge'
 import { SettingRowContext } from './settingRowContext'
 
 interface SettingRowProps {
   label: string
   description?: string
-  requiresRestart?: boolean
+  /** The setting applies only after a restart */
+  restart?: RestartPromptProps
   /** Control below the text instead of beside it: for wide controls (segmented choices,
    * pickers) that would otherwise squeeze the description. */
   stacked?: boolean
@@ -15,7 +16,7 @@ interface SettingRowProps {
 export function SettingRow({
   label,
   description,
-  requiresRestart,
+  restart,
   stacked = false,
   children,
 }: SettingRowProps) {
@@ -25,7 +26,7 @@ export function SettingRow({
       className={
         stacked
           ? 'space-y-2 py-0.5'
-          : `flex justify-between gap-4 py-1 ${description || requiresRestart ? 'items-start' : 'items-center'}`
+          : `flex justify-between gap-4 py-1 ${description || restart ? 'items-start' : 'items-center'}`
       }
     >
       <div className="flex-1 min-w-0">
@@ -35,9 +36,9 @@ export function SettingRow({
             {description}
           </p>
         )}
-        {requiresRestart && (
-          <div className="mt-2">
-            <RestartBadge />
+        {restart && (
+          <div className={restart.pending ? 'mt-2' : 'mt-1'}>
+            <RestartBadge {...restart} />
           </div>
         )}
       </div>

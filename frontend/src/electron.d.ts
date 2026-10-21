@@ -88,6 +88,10 @@ export interface ElectronAPI {
    * deleted, and the backend restarts in this window (loading page, then the UI reloads).
    */
   applyLibrary(dirs: LibraryDirs): Promise<ApplyLibraryResult>
+  /** Restart the backend on the same folders, for settings that apply only then. Resolves
+   * false when it can't (dev, where the developer runs the backend); otherwise it never
+   * resolves: the loading page, then the UI reloads. */
+  restartBackend(): Promise<boolean>
 
   // Local imports (design/local-ingest.md)
   /** The file's path on disk, or '' if it has none. */

@@ -103,6 +103,8 @@ uv run python -m scripts.demo.import_library http://127.0.0.1:8123 $W/import $W/
 DEMO_URL=http://127.0.0.1:8123 DEMO_HELD=$W/held npm run docs:screenshots
 ```
 
+A dialog or panel is captured with 24 px of the app around it (`PAD`), and every image outside it is hidden first, so the padding never shows art that would need its own credit.
+
 `docs:screenshots` writes PNGs to `e2e/test-results-screenshots/png/` and converts them to `docs/public/screenshots/*.webp`; check them before committing. Each page credits the art visible in its shot under the image.
 
 ## Directions tried and rejected

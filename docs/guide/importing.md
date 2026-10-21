@@ -82,7 +82,7 @@ Open the report from the import's notification or from Activity.
 
 ![An import report on its Skipped section: link files that aren't images, and tokens that Auto skipped, each with Include](/screenshots/import-report.webp)
 
-<sub>Token thumbnails by [2-Minute Tabletop](https://2minutetabletop.com), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).</sub>
+*Token thumbnails by [2-Minute Tabletop](https://2minutetabletop.com), [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).*
 
 It has up to four sections:
 

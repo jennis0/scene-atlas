@@ -85,7 +85,7 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 Runtime settings are stored in the database and seeded with the defaults below on first start. Settings marked **UI** can be changed under **Settings** in the web UI; the rest can be changed through the settings API (`PATCH /api/v1/settings/`, see `/docs` on a running server).
 
-### Import
+### Import Limits and Stored Format
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|

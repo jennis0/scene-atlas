@@ -9,6 +9,7 @@ import { NumberSetting } from '@/components/settings/NumberSetting'
 import { UpdatesSection } from '@/components/settings/UpdatesSection'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
 import { StorageSection } from '@/components/settings/StorageSection'
+import { useRestartPrompt } from '@/hooks/useRestartPrompt'
 import { useSettingsDraft } from '@/hooks/useSettingsDraft'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
@@ -176,6 +177,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
     })
 
     const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+    const restartFor = useRestartPrompt({ enabled: dialogOpen, settings, draft, save })
 
     useImperativeHandle(
       ref,
@@ -522,7 +524,7 @@ export const SettingsTabContent = forwardRef<SettingsTabContentRef, SettingsTabC
               <SettingRow
                 label="Parallel image processing"
                 description="Images prepared at once across all imports: hashing, thumbnails, colours and grid detection. Above 4, imports are no faster and the app is slow while they run (1-16)"
-                requiresRestart={true}
+                restart={restartFor('max_concurrent_prepare')}
               >
                 <NumberSetting
                   min={1}

@@ -32,10 +32,38 @@ const DIRS: StorageDirs = {
   },
 };
 
+/** Space kept around an element, so the shot shows it sitting in the app */
+const PAD = 24;
+
+/** The whole window, or an element with PAD of the window around it (clamped to it) */
 async function shot(target: Page | Locator, name: string): Promise<void> {
-  await target.screenshot({
-    path: path.join(OUT, `${name}.png`),
+  const file = path.join(OUT, `${name}.png`);
+  if ("goto" in target) {
+    await target.screenshot({ path: file, animations: "disabled" });
+    return;
+  }
+  const page = target.page();
+  // The padding shows the app behind the element, but not its art: that would need
+  // crediting too (design/brand.md#screenshots)
+  await target.evaluate((el) => {
+    for (const media of document.querySelectorAll<HTMLElement>("img, video")) {
+      if (!el.contains(media)) media.style.visibility = "hidden";
+    }
+  });
+  const box = await target.boundingBox();
+  const view = page.viewportSize();
+  if (!box || !view) throw new Error(`${name}: nothing to capture`);
+  const x = Math.max(0, box.x - PAD);
+  const y = Math.max(0, box.y - PAD);
+  await page.screenshot({
+    path: file,
     animations: "disabled",
+    clip: {
+      x,
+      y,
+      width: Math.min(view.width, box.x + box.width + PAD) - x,
+      height: Math.min(view.height, box.y + box.height + PAD) - y,
+    },
   });
 }
 
@@ -72,6 +100,7 @@ async function asDesktopApp(
         getStorageDirs: async () => dirs,
         chooseFolder: async (kind) => (kind === "linked" ? dirs.linked : null),
         applyLibrary: async () => ({ error: null, restarted: false }),
+        restartBackend: async () => false,
         getPathForFile: () => "",
         chooseImportFolders: async () => [],
         chooseImportFiles: async () => [],

@@ -42,6 +42,7 @@ export function useSettingsDraft(options?: UseSettingsDraftOptions): UseSettings
     mutationFn: (partialSettings: Partial<AppSettings>) => settingsApi.patch(partialSettings),
     onSuccess: (updatedSettings) => {
       queryClient.setQueryData(QUERY_KEYS.appSettings, updatedSettings)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.restartPending })
       // Clear entire draft on successful save. Race-condition edits are intentionally discarded
       // (user edits made while mutation in-flight are lost, but this is acceptable UX)
       setDraft({})

@@ -50,6 +50,9 @@ describe('StorageSection', () => {
     expect(screen.getByText('None')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Choose images folder' })).toBeInTheDocument()
     expect(inspect).not.toHaveBeenCalled()
+    // Nothing to restart for until a folder changes
+    expect(screen.getAllByText('Applies after a restart')).toHaveLength(3)
+    expect(screen.queryByRole('button', { name: 'Restart to apply' })).not.toBeInTheDocument()
   })
 
   it('checks a changed folder, then restarts on it', async () => {
@@ -61,7 +64,7 @@ describe('StorageSection', () => {
 
     expect(api.chooseFolder).toHaveBeenCalledWith('store', 'C:\\images')
     expect(screen.getByText(/doesn't move your files/)).toBeInTheDocument()
-    const restart = screen.getByRole('button', { name: 'Restart now to apply' })
+    const restart = screen.getByRole('button', { name: 'Restart to apply' })
     await waitFor(() => expect(restart).toBeEnabled())
     expect(inspect).toHaveBeenCalledWith({ app_data: 'C:\\data', store: 'E:\\images' })
     await user.click(restart)
@@ -99,7 +102,7 @@ describe('StorageSection', () => {
     await screen.findByText('C:\\images')
     await user.click(screen.getByRole('button', { name: 'Change imported images folder' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('belongs to a different library')
-    expect(screen.getByRole('button', { name: 'Restart now to apply' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Restart to apply' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })

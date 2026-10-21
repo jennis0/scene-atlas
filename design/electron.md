@@ -98,6 +98,8 @@ Everything else in setup (appearance, stored format, tag packs, search model) is
 
 A second call while restarting never resolves, and nothing else starts a backend until the restart settles: on macOS, `activate` waits for it, so a window closed mid-restart can't leave two backends on the same folders. In dev there's no sidecar: the config is saved and the call resolves `{ restarted: false }`; the developer's backend ignores the folders (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` and restart it).
 
+**Restart-only settings** (`app:restart-backend`): settings the backend reads only at startup, such as Parallel image processing, use the same in-window restart on the folders in use. Their row's **Restart to apply** saves the settings first, then calls it. It resolves `false` in dev, where there's no sidecar to restart, and otherwise never. On a server there's nothing to call: the badge reads *Restart the server to apply*. Which saved settings are still waiting for a restart comes from `GET /settings/restart-pending` (`RESTART_SETTINGS` in `services/app_settings.py`, compared with the values the backend started with).
+
 A backend that refuses the folders ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)) shows its error on the loading page, with **Try again** and **Choose folders…** (see [Startup Sequence](#startup-sequence)). Each `startup:*` handler acts only while the page offers it.
 
 ## IPC Channels
@@ -114,6 +116,7 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 | `library:get-dirs` | renderer → main | `{ appData, store, linked, defaults: { appData, store } }`: the folders the backend runs on, and the first-launch defaults |
 | `library:choose-folder` | renderer → main | `(kind, current?)`, kind `appData` \| `store` \| `linked`: a plain native folder picker starting at `current`; the path, or null |
 | `library:apply` | renderer → main | `({ appData, store, linked })`: see [Changing folders](#changing-folders-in-window-restart). Resolves `{ error, restarted: false }`, or never when the backend restarts |
+| `app:restart-backend` | renderer → main | Restart the backend on the same folders, for restart-only settings. Resolves `false` in dev, otherwise never |
 | `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: `{ displayPrefs, libraryChosen }` from the config, exposed as `electronAPI.displayPrefs` and `electronAPI.libraryChosen` |
 | `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
 | `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows title-bar overlay, and saves them for the next launch |
@@ -135,6 +138,7 @@ window.electronAPI = {
   getStorageDirs: () => Promise<StorageDirs>,
   chooseFolder: (kind, current?) => Promise<string | null>,
   applyLibrary: (dirs) => Promise<{ error: string | null; restarted: boolean }>,
+  restartBackend: () => Promise<boolean>,             // false in dev; otherwise the page reloads
   getUpdateState, checkForUpdates, setUpdateChoice,    // see Updates
   downloadUpdate, installUpdate, openUpdateDownload, onUpdateState,
 }

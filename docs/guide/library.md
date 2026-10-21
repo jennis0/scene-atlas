@@ -81,7 +81,7 @@ Scene Atlas doesn't move its files for you yet.
 
 1. Close Scene Atlas, then copy the folder to its new place.
 2. Start Scene Atlas. In **Settings → Storage locations**, choose the new folder. It should say *Scene Atlas library found.*
-3. Choose **Restart now to apply**.
+3. Choose **Restart to apply** under the folder you changed.
 4. Once your library opens from the new place, delete the old folder.
 
 Scene Atlas checks that *Search data* and *Imported images* belong to the same library and refuses to start if they don't. If the desktop app can't open the library, it offers **Try again** and **Choose folders…**.

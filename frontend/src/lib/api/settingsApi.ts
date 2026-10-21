@@ -10,4 +10,9 @@ export const settingsApi = {
     const { data } = await api.patch<AppSettings>('/settings/', patch)
     return data
   },
+  /** Settings saved since the backend started that apply only after a restart */
+  restartPending: async (): Promise<(keyof AppSettings)[]> => {
+    const { data } = await api.get<{ keys: (keyof AppSettings)[] }>('/settings/restart-pending')
+    return data.keys
+  },
 }
