@@ -13,6 +13,7 @@ import { useLibraryInspect } from '@/hooks/useLibraryInspect'
 import { useLibraryStatus } from '@/hooks/useLibraryStatus'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import type { InspectResult } from '@/lib/api/libraryApi'
+import type { RestartPromptProps } from './RestartBadge'
 import { StopUsingFolder } from './StopUsingFolder'
 
 type Pending = Partial<Record<LibraryFolderKind, string>>
@@ -26,6 +27,8 @@ interface StoragePathRowProps {
   empty?: string
   browseLabel?: string
   onBrowse: () => void
+  /** Restart onto the pending folders, and whether that's possible yet */
+  restart: Omit<RestartPromptProps, 'pending'>
   extra?: React.ReactNode
 }
 
@@ -37,11 +40,16 @@ function StoragePathRow({
   empty = '—',
   browseLabel = 'Change',
   onBrowse,
+  restart,
   extra,
 }: StoragePathRowProps) {
   const display = pending ?? current ?? empty
   return (
-    <SettingRow label={label} description={description} requiresRestart>
+    <SettingRow
+      label={label}
+      description={description}
+      restart={{ ...restart, pending: pending !== undefined }}
+    >
       <div className="flex flex-col items-end gap-1.5">
         <span
           className={`max-w-[10.59rem] truncate text-xs font-mono ${pending ? 'text-primary' : 'text-muted-foreground'}`}
@@ -140,6 +148,13 @@ export function StorageSection({ open }: { open: boolean }) {
     setApplyError(null)
   }
 
+  // Every changed row's badge restarts onto all the pending folders, once they've been checked
+  const restart = {
+    onRestart: () => void apply(),
+    disabled: !inspection.result || !!inspection.refusal,
+    restarting: applying,
+  }
+
   return (
     <SettingsSection title="Storage locations">
       <StoragePathRow
@@ -148,6 +163,7 @@ export function StorageSection({ open }: { open: boolean }) {
         current={dirs?.appData}
         pending={pending.appData}
         onBrowse={() => void browse('appData')}
+        restart={restart}
       />
       <StoragePathRow
         label="Imported images"
@@ -155,6 +171,7 @@ export function StorageSection({ open }: { open: boolean }) {
         current={dirs?.store}
         pending={pending.store}
         onBrowse={() => void browse('store')}
+        restart={restart}
       />
       <StoragePathRow
         label="Images folder"
@@ -164,6 +181,7 @@ export function StorageSection({ open }: { open: boolean }) {
         empty="None"
         browseLabel={dirs?.linked ? 'Change' : 'Choose'}
         onBrowse={() => void browse('linked')}
+        restart={restart}
         extra={dirs?.linked && status?.linked && <StopUsingFolder linked={status.linked} />}
       />
 
@@ -174,7 +192,6 @@ export function StorageSection({ open }: { open: boolean }) {
           currentLibraryId={status?.library_id}
           applying={applying}
           applyError={applyError}
-          onApply={() => void apply()}
           onCancel={cancel}
         />
       )}
@@ -182,14 +199,14 @@ export function StorageSection({ open }: { open: boolean }) {
   )
 }
 
-/** The pending folder change: what the check found, and restart to apply it or cancel */
+/** The pending folder change: what the check found, and cancel. The changed rows' badges
+ * restart to apply it. */
 function PendingChange({
   pending,
   inspection: { state: inspect, result, refusal: inspectRefusal },
   currentLibraryId,
   applying,
   applyError,
-  onApply,
   onCancel,
 }: {
   pending: Pending
@@ -197,7 +214,6 @@ function PendingChange({
   currentLibraryId: string | undefined
   applying: boolean
   applyError: string | null
-  onApply: () => void
   onCancel: () => void
 }) {
   const movesFiles = pending.appData !== undefined || pending.store !== undefined
@@ -222,25 +238,15 @@ function PendingChange({
           {refusal}
         </p>
       )}
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          onClick={onApply}
-          disabled={applying || !result || !!inspectRefusal}
-        >
-          {applying ? 'Restarting…' : 'Restart now to apply'}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 text-xs"
-          onClick={onCancel}
-          disabled={applying}
-        >
-          Cancel
-        </Button>
-      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 text-xs"
+        onClick={onCancel}
+        disabled={applying}
+      >
+        Cancel
+      </Button>
     </div>
   )
 }

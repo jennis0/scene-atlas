@@ -31,7 +31,7 @@ These choices affect only this device.
 
 ### Storage locations (desktop app)
 
-Where the library's folders are: **Search data**, **Imported images** and, if you use one, **Images folder** (your own folder). Choose a new folder, then **Restart now to apply**. Changing a folder doesn't move your files; see [Moving the library](/guide/library#moving-the-library).
+Where the library's folders are: **Search data**, **Imported images** and, if you use one, **Images folder** (your own folder). Choose a new folder, then **Restart to apply** under it. Changing a folder doesn't move your files; see [Moving the library](/guide/library#moving-the-library).
 
 ![Storage locations: Search data, Imported images and Images folder, each with Change; Images folder also has Stop using](/screenshots/settings-storage.webp)
 
@@ -87,6 +87,8 @@ Add [tag packs](/guide/tags#tag-packs) you didn't choose during setup.
 
 ### Performance
 
-**Parallel image processing** is how many images are prepared at once across all imports. More is faster up to about 4; beyond that, imports gain little and the app is slow while they run. Takes effect after a restart.
+**Parallel image processing** is how many images are prepared at once across all imports. More is faster up to about 4; beyond that, imports gain little and the app is slow while they run.
+
+It applies after a restart. Once you change it, **Restart to apply** appears under it: in the desktop app it saves and restarts straight away; on a server it reads *Restart the server to apply*, for whoever runs the server.
 
 Other tuning settings have no controls; see [Runtime Settings](/deploy/configuration#runtime-settings).

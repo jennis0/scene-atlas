@@ -72,6 +72,7 @@ async function asDesktopApp(
         getStorageDirs: async () => dirs,
         chooseFolder: async (kind) => (kind === "linked" ? dirs.linked : null),
         applyLibrary: async () => ({ error: null, restarted: false }),
+        restartBackend: async () => false,
         getPathForFile: () => "",
         chooseImportFolders: async () => [],
         chooseImportFiles: async () => [],

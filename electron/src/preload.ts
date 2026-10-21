@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // restarts on them and this page is replaced.
   applyLibrary: (dirs: LibraryDirs): Promise<{ error: string | null; restarted: boolean }> =>
     ipcRenderer.invoke('library:apply', dirs),
+  // Restart the backend on the same folders, for settings that apply only then. Resolves
+  // false when it can't (dev); otherwise this page is replaced.
+  restartBackend: (): Promise<boolean> => ipcRenderer.invoke('app:restart-backend'),
 
   // Local imports (design/local-ingest.md): the backend reads these paths itself.
   // '' for a File with no path on disk.

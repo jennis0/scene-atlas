@@ -146,8 +146,11 @@ async def lifespan(app: FastAPI):
         backfill_search_text(session)
 
         from .services.app_settings import get_settings as get_app_settings
+        from .services.app_settings import restart_values
 
         app_config = get_app_settings(session)
+        # What GET /settings/restart-pending compares saved settings against
+        app.state.running_settings = restart_values(app_config)
 
         try:
             library_id = open_library(session, **library_dirs)

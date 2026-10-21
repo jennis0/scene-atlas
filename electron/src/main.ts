@@ -243,6 +243,15 @@ handleTrusted('library:apply', (_event, raw) => {
   return new Promise(() => {})
 })
 
+// Settings that apply only on a restart: the same in-window restart, on the folders in use.
+// Resolves false in dev, where there's no sidecar to restart; otherwise never (the page is
+// replaced).
+handleTrusted('app:restart-backend', () => {
+  if (isDev || !currentDirs) return false
+  if (!restarting) restartBackend(currentDirs)
+  return new Promise(() => {})
+})
+
 // Updates (design/electron.md#updates)
 
 handleTrusted('updates:get-state', () => updater?.getState() ?? null)

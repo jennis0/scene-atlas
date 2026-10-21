@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 
 _KNOWN_KEYS: frozenset[str] = frozenset(AppSettings.model_fields.keys())
 
+# Read once at startup (main.lifespan), so a saved change applies only after a restart
+RESTART_SETTINGS: tuple[str, ...] = (
+    "max_concurrent_prepare",
+    "max_concurrent_heavy_requests",
+    "scheduler_enabled",
+)
+
+
+def restart_values(current: AppSettings) -> dict[str, object]:
+    """The restart-only settings as the backend starts with them."""
+    return {key: getattr(current, key) for key in RESTART_SETTINGS}
+
+
+def pending_restart(stored: AppSettings, running: dict[str, object]) -> list[str]:
+    """Restart-only settings saved since startup that the running backend hasn't applied."""
+    return [key for key, value in running.items() if getattr(stored, key) != value]
+
+
 # NOTE: active_model is intentionally NOT auto-seeded into the DB on first boot.
 # It defaults to "" in AppSettings, and get_settings() will use that default if the
 # key is absent from the DB. This allows _get_active_model_name() in clip_service.py

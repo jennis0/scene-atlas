@@ -514,6 +514,12 @@ class AppSettings(BaseModel):
     active_model: str = ""  # "" = auto-detect at startup; "small"|"medium"|"large" once set
 
 
+class RestartPending(BaseModel):
+    """Settings saved since the backend started that apply only after a restart."""
+
+    keys: list[str]
+
+
 class AppSettingsPatch(BaseModel):
     """Partial update for app settings — only include fields you want to change."""
 
