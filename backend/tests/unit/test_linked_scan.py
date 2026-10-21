@@ -129,13 +129,17 @@ def test_focus_scans_are_throttled():
 
 
 def test_timer_is_due_after_the_interval(monkeypatch):
+    # A fixed clock: with the real one, (t + 900) - t can round to just under 900 when
+    # the scan and the read share a tick (Windows' clock is ~15 ms coarse).
+    now = [1000.0]
+    monkeypatch.setattr("backend.pipeline.linked_scanner.time.monotonic", lambda: now[0])
     scanner = LinkedScanner(scan=lambda: ScanResult("online"))
     assert scanner.due(15)  # never scanned
     assert not scanner.due(0)  # rescans off
     scanner.scan()
+    now[0] += 15 * 60 - 1
     assert not scanner.due(15)
-    later = time.monotonic() + 15 * 60
-    monkeypatch.setattr("backend.pipeline.linked_scanner.time.monotonic", lambda: later)
+    now[0] += 1
     assert scanner.due(15)
 
 
