@@ -107,36 +107,60 @@ def sync_files(
     if not linked:
         return
     rows = files_by_id(db, [file_id for _, file_id in linked])
+    versions = versions or {}
     forgotten: list[int] = []
     for item, file_id in linked:
         row = rows.get(file_id)
         if row is None or row.state == FILE_REMOVED:
             continue
-        version = (versions or {}).get(item.id)
-        if row.state == FILE_IMAGE:
-            _sync_refresh(row, item, version)
-            continue
-        if version is not None:
-            row.size, row.mtime_ns = version
-        if item.source_hash:
-            row.content_hash = item.source_hash
-        if item.state == st.DONE:
-            row.state, row.image_id, row.reason = FILE_IMAGE, item.image_id, None
-        elif item.state == st.DUPLICATE:
-            row.state, row.image_id, row.reason = FILE_DUPLICATE, item.duplicate_of_image_id, None
-        elif item.state == st.SKIPPED and item.error_kind in _SORTED_OUT_KINDS:
-            row.state, row.image_id, row.reason = FILE_SKIPPED, None, item.error_reason
-        elif item.state == st.SKIPPED:
+        if not _sync_file(row, item, versions.get(item.id)):
             forgotten.append(row.id)
-        elif item.state == st.FAILED:
-            row.state, row.image_id, row.reason = FILE_FAILED, None, item.error_reason
-        else:  # open again
-            row.state, row.image_id, row.reason = FILE_PENDING, None, None
     delete_files(db, forgotten)
     for item, file_id in linked:
-        duplicate_of = item.duplicate_of_image_id
-        if item.state == st.DUPLICATE and item.duplicate_tier == "bytes" and duplicate_of:
-            move_if_missing(db, duplicate_of, file_id)
+        if (image_id := _byte_duplicate_of(item)) is not None:
+            move_if_missing(db, image_id, file_id)
+
+
+# The file row (state, image, reason) an item's state settles into
+_Outcome = tuple[str, int | None, str | None]
+
+
+def _outcome(item: ImportItem) -> _Outcome | None:
+    """None: the file is forgotten, so the next scan offers it again."""
+    if item.state == st.DONE:
+        return FILE_IMAGE, item.image_id, None
+    if item.state == st.DUPLICATE:
+        return FILE_DUPLICATE, item.duplicate_of_image_id, None
+    if item.state == st.SKIPPED:
+        if item.error_kind in _SORTED_OUT_KINDS:
+            return FILE_SKIPPED, None, item.error_reason
+        return None
+    if item.state == st.FAILED:
+        return FILE_FAILED, None, item.error_reason
+    return FILE_PENDING, None, None  # open again
+
+
+def _sync_file(row: SourceFile, item: ImportItem, version: Version | None) -> bool:
+    """Write one item's state back to its file. Returns False if the row is to be deleted."""
+    if row.state == FILE_IMAGE:
+        _sync_refresh(row, item, version)
+        return True
+    if version is not None:
+        row.size, row.mtime_ns = version
+    if item.source_hash:
+        row.content_hash = item.source_hash
+    outcome = _outcome(item)
+    if outcome is None:
+        return False
+    row.state, row.image_id, row.reason = outcome
+    return True
+
+
+def _byte_duplicate_of(item: ImportItem) -> int | None:
+    """The image whose bytes the item's file has, if it's a byte duplicate."""
+    if item.state == st.DUPLICATE and item.duplicate_tier == "bytes":
+        return item.duplicate_of_image_id
+    return None
 
 
 def _sync_refresh(row: SourceFile, item: ImportItem, version: Version | None) -> None:
