@@ -102,7 +102,9 @@ The named volume `scene-atlas-data` contains your database and search index. The
 
 ## Your own maps folder
 
-Scene Atlas can read an existing collection where it is, without copying it: set `LINKED_LIBRARY_DIR` to the folder. It is scanned when the backend starts and then every 15 minutes (Settings → Library: "Check for changes", and how often), and maps added, moved or deleted there are picked up. Scene Atlas never writes to it, so mount it read-only. Add a `docker-compose.override.yml`:
+Scene Atlas can read an existing collection where it is, without copying it: set `LINKED_LIBRARY_DIR` to the folder. It is scanned when the backend starts and then every 15 minutes (Settings → Library: "Check for changes", and how often), and maps added, moved or deleted there are picked up. Scene Atlas never writes to it, so mount it read-only. See [Your Library](/guide/library#using-your-own-folder) for how it behaves.
+
+Add a `docker-compose.override.yml` next to `docker-compose.yml`. Compose reads it automatically, and it survives downloading a new `docker-compose.yml`:
 
 ```yaml
 services:
@@ -200,7 +202,7 @@ When the scheduler is enabled (the default), Scene Atlas backs up every 24 hours
 
 Each backup contains the SQLite database (`battlemap.db`) and a LanceDB vector index snapshot. They are written to `/app/images/backups/<timestamp>/`, i.e. `IMAGE_DIR/backups/` on the host.
 
-To restore: stop the container, copy `battlemap.db` from a backup into the data volume as `/app/data/battlemap.db`, and restart. Schema migrations are applied automatically on startup.
+To restore: stop the container, copy `battlemap.db` from a backup into the data volume as `/app/data/battlemap.db`, and restart. Schema migrations are applied automatically on startup. Images imported after that backup are lost; see [Restoring a backup](/guide/library#restoring-a-backup).
 
 ## Updating
 

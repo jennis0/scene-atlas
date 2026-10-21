@@ -40,14 +40,14 @@ xattr -dr com.apple.quarantine "/Applications/Scene Atlas.app"
 
 On first launch, Scene Atlas opens its setup steps:
 
-1. **Appearance.** Choose a theme and text size.
-2. **Your library.** Start a new library, or use a folder of maps you already have. Scene Atlas reads that folder where it is and never changes, moves or deletes your files. You can also choose where two folders go:
-   - *Imported maps*: full-size copies of maps you import in the app, plus backups. Any large drive will do.
+1. **Appearance.** Choose a theme, text size and how the app [updates](#updates).
+2. **Your library.** Start a new library, or use a folder of images you already have. Scene Atlas reads that folder where it is and never changes, moves or deletes your files. You can also choose where two folders go:
+   - *Imported images*: full-size copies of images you import in the app, plus backups. Any large drive will do.
    - *Search data*: the database, thumbnails and search index. Best on a fast drive.
 
-   A new library defaults to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. Pointing the step at an existing Scene Atlas library opens it. If you change the folders, the app restarts its backend in the same window.
+   A new library defaults to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. With your own folder, *Imported images* defaults to a `Scene Atlas` folder inside it. Pointing the step at an existing Scene Atlas library opens it. See [Your Library](/guide/library) for how the folders fit together.
 3. **The rest of setup.** Choose how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
-4. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images.
+4. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images. If you chose your own folder, its images start appearing then.
 
 ## System Requirements
 
@@ -55,21 +55,14 @@ On first launch, Scene Atlas opens its setup steps:
 |---|---------|-------------|
 | OS | Windows 10 (64-bit), macOS 13 Ventura (Apple Silicon), or a 64-bit Linux desktop | |
 | RAM | 8 GB | 16 GB |
-| App Data Disk | 2 GB + ~50% of your library size (for thumbnails, index, and converted copies) | SSD for faster indexing |
-| Image Data Disk | As much storage as is required for your image files! | This can be slower HDD without significant performance loss |
+| Search data disk | 2 GB plus a few percent of your library's size, for thumbnails and the search index | An SSD |
+| Imported images disk | The size of the images you import. Nothing extra for [your own folder](/guide/library#using-your-own-folder) | A slower, larger drive is fine |
 | GPU | Not required | DirectX 12 GPU (Windows) or Apple Silicon (macOS) for faster import processing |
+| Internet | To download the search model on first launch, and for updates | |
 
-## AI Models
+## Search Models
 
-You can change the active model at any time in **Settings**. Images are automatically re-embedded when you switch.
-
-| Model | Size | GPU needed? | Quality |
-|-------|------|-------------|---------|
-| **Small** | ~250 MB | No | Good:works well on CPU |
-| **Medium** | ~500 MB | Recommended | Better:noticeably more accurate but slower |
-| **Large** | ~1 GB | Strongly recommended | Best search accuracy |
-
-The app auto-selects a model based on your hardware. See the [Configuration Reference](/deploy/configuration) for model details.
+Setup recommends a model for your hardware: Medium with a GPU, Small without. Switch at any time in [Settings → Search Model](/guide/settings#search-model); every image is processed again with the new one. See [Model Details](/deploy/configuration#model-details).
 
 ## GPU Acceleration
 
@@ -88,15 +81,16 @@ No manual configuration needed. To force a specific device, set `INFERENCE_DEVIC
 |------|----------|
 | App configuration | `{userData}/scene-atlas-config.json` |
 | Backend log | `{userData}/backend.log` |
-| App data and image library | Chosen during first launch (default `data` and `images` in `%LOCALAPPDATA%\Scene Atlas` on Windows, `Documents/Scene Atlas` on macOS and Linux) |
-| Backend application log | `<app data>/logs/scene-atlas.log` |
+| Update log | `{userData}/updater.log` |
+| Search data and Imported images | Chosen during setup (default `data` and `images` in `%LOCALAPPDATA%\Scene Atlas` on Windows, `Documents/Scene Atlas` on macOS and Linux) |
+| Backend application log | `<search data>/logs/scene-atlas.log` |
 
 Where `{userData}` is:
 - **Windows:** `%APPDATA%/Scene Atlas`
 - **macOS:** `~/Library/Application Support/Scene Atlas`
 - **Linux:** `~/.config/Scene Atlas`
 
-The app data directory contains the SQLite database, LanceDB vector index, and thumbnails. Backups are written to `<image library>/backups/`. Both locations can be changed later in **Settings**.
+Search data holds the SQLite database, LanceDB vector index, thumbnails and models. Backups are written to `<imported images>/backups/`. Change the folders in **Settings → Storage locations**; see [Your Library](/guide/library) for backups, restoring and moving.
 
 ## Updates
 
@@ -118,7 +112,9 @@ Your data directories and settings are kept, and the database is backed up befor
 
 ## Troubleshooting
 
-**App won't start:** Check `{userData}/backend.log` for errors. The backend picks a free port automatically, so check for a missing or unreadable data directory first.
+**App won't start:** Check `{userData}/backend.log` for errors. The backend picks a free port automatically, so check for a missing or unreadable data directory first. If a library folder is missing, for example on a drive that isn't connected, the loading screen offers **Try again** and **Choose folders…**.
+
+**Text and controls are tiny on Linux under WSL:** set **Settings → Appearance → Zoom**, or start the app with `GDK_SCALE=2`.
 
 **Model download fails:** Check your internet connection. You can retry from Settings.
 

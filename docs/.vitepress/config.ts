@@ -47,6 +47,7 @@ export default defineConfig({
       { text: "Guide", link: "/guide/what-is-scene-atlas" },
       { text: "Deploy", link: "/deploy/desktop" },
       { text: "Reference", link: "/deploy/configuration" },
+      // Configuration stays under /deploy/: the README and the app link to it
       { text: "Development", link: "/development/building" },
       {
         text: "GitHub",
@@ -68,11 +69,13 @@ export default defineConfig({
       {
         text: "Using Scene Atlas",
         items: [
-          { text: "Importing Scenes", link: "/guide/importing" },
+          { text: "Your Library", link: "/guide/library" },
+          { text: "Importing", link: "/guide/importing" },
+          { text: "Gallery & Image Viewer", link: "/guide/gallery" },
           { text: "Searching", link: "/guide/searching" },
           { text: "Groups & Variants", link: "/guide/groups" },
-          { text: "Tags & Filtering", link: "/guide/tags" },
-          { text: "Gallery & Image Viewer", link: "/guide/gallery" },
+          { text: "Tags", link: "/guide/tags" },
+          { text: "Settings", link: "/guide/settings" },
         ],
       },
       {
@@ -90,6 +93,9 @@ export default defineConfig({
             text: "Configuration",
             link: "/deploy/configuration",
           },
+          { text: "How Search Works", link: "/reference/search" },
+          { text: "Command-Line Tools", link: "/reference/cli" },
+          { text: "Troubleshooting", link: "/reference/troubleshooting" },
         ],
       },
       {
@@ -118,10 +124,4 @@ export default defineConfig({
 
   // Exclude internal planning docs from the public site
   srcExclude: ["**/plans/**", "**/superpowers/**"],
-
-  ignoreDeadLinks: [
-    // Links in development docs that point to backend source files
-    /\.\/backend\//,
-    /\.\/\.\.\/\.\.\//,
-  ],
 });

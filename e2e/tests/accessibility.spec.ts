@@ -90,7 +90,7 @@ for (const { palette, theme, contrast } of VARIANTS) {
     });
 
     test("library and settings dialog", async ({ page }) => {
-      await page.getByTitle("Library information").click();
+      await page.getByTitle("Settings", { exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Library" });
       await expect(dialog).toBeVisible();
       await expectNoViolations(page);

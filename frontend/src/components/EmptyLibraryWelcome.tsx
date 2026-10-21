@@ -12,7 +12,7 @@ const steps = [
   {
     Icon: Upload,
     title: '1. Import',
-    description: 'Drag in a folder, or use the Import button.',
+    description: 'Use the Import button, then drop in a folder or files.',
   },
   {
     Icon: Search,

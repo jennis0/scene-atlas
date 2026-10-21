@@ -1,6 +1,6 @@
 # Library setup and the linked library
 
-Status: **plan** (2026-10-19). Decision record: [ADR-026](decisions.md#adr-026-library-setup-in-the-wizard-and-the-linked-library).
+Status: **built** (planned 2026-10-19, merged in PR #51). Decision record: [ADR-026](decisions.md#adr-026-library-setup-in-the-wizard-and-the-linked-library).
 
 This plan covers three things that ship together:
 
@@ -110,7 +110,7 @@ The paragraph under "Use a folder of images you already have" is the exception. 
 
 ### 2.3 After setup
 
-- **Empty-library screen.** While a linked scan is running, the screen says "Adding your maps…" in place of the import prompt. The gallery fills as batches commit: images are visible before their job finishes, and the gallery refreshes at most every 4 s during an import.
+- **Empty-library screen.** While a linked scan is running, the screen says "Adding your images…" in place of the import prompt. The gallery fills as batches commit: images are visible before their job finishes, and the gallery refreshes at most every 4 s during an import.
 - **Activity dock.** The scan is one row, "Battle Maps · 1,204 of 56,214". Its import report never opens by itself.
 - **Duration.** A large first scan takes hours, because embedding and grid detection dominate. The copy says so once and nowhere else.
 

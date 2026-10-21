@@ -305,6 +305,11 @@ the old in-memory index (which was faster per query but reloaded the whole table
 browse is as fast as before. Benchmark with `stress_tests/library_scale.py`
 (colour cases) before changing the default.
 
+**Settings.** Settings → General → Colour match offers Close (12), Similar (25,
+the default) and Broad (40) (`COLOR_MATCH_OPTIONS` in `SettingsTabContent.tsx`).
+Any value from 0 to 100 can still be set through `PATCH /settings/`; a value that
+isn't one of the three shows no option selected.
+
 ## FTS5 Index Maintenance
 
 ### Triggers (auto-sync)

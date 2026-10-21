@@ -37,7 +37,7 @@ test.describe("200% zoom with Larger text", () => {
   }) => {
     await expectNoHorizontalScroll(page);
     await expectOnScreen(page.getByRole("button", { name: "Import" }));
-    await expectOnScreen(page.getByTitle("Library information"));
+    await expectOnScreen(page.getByTitle("Settings", { exact: true }));
     await expectOnScreen(page.getByPlaceholder(/Search scenes/));
 
     // The compact header leaves at least half the window for the maps
@@ -62,7 +62,7 @@ test.describe("200% zoom with Larger text", () => {
   });
 
   test("library dialog fits, every tab usable", async ({ page }) => {
-    await page.getByTitle("Library information").click();
+    await page.getByTitle("Settings", { exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
