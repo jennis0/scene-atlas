@@ -17,17 +17,14 @@ import logging
 
 from PIL import Image as PILImage
 from sqlalchemy import and_, or_
+from sqlalchemy.orm import selectinload
 
-from backend.app.models.database import (
-    GRID_SOURCE_DETECTOR,
-    GRID_SOURCE_FILENAME,
-    GRID_SOURCE_USER,
-    Image,
-)
-from backend.app.services import get_image_store
+from backend.app.models.database import GRID_SOURCE_DETECTOR, GRID_SOURCE_USER, Image
 from backend.app.services.memory_budget import get_memory_budget
+from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down, shutdown_requested
 from backend.pipeline.db import pipeline_db
+from backend.pipeline.grid_rules import detection_mode, group_sibling_counts
 from backend.pipeline.ingest_process import grid_detection_bytes
 from backend.pipeline.pipeline_config import PipelineConfig, load_pipeline_config
 from backend.pipeline.tasks.grid_detection import detect_grid_from_image
@@ -35,47 +32,6 @@ from backend.pipeline.tasks.grid_detection import detect_grid_from_image
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 50  # Smaller than hash backfill — grid detection is heavier per image
-
-
-def _sibling_counts(db, image: Image) -> tuple[tuple[int, int], ...]:
-    """NxM grid sizes from the file names of other images in the same group."""
-    if image.group_id is None:
-        return ()
-    rows = (
-        db.query(Image.grid_width, Image.grid_height)
-        .filter(
-            Image.group_id == image.group_id,
-            Image.id != image.id,
-            Image.grid_source == GRID_SOURCE_FILENAME,
-            Image.grid_width.isnot(None),
-            Image.grid_height.isnot(None),
-        )
-        .distinct()
-        .all()
-    )
-    counts: dict[tuple[int, int], None] = {}
-    for w, h in rows:
-        counts[(w, h)] = None
-        counts[(h, w)] = None
-    return tuple(counts)
-
-
-def detection_mode(image: Image, force: bool) -> str | None:
-    """ "full", "size", or None to leave the image alone."""
-    if image.image_type != "battlemap" or image.media_type == "video":
-        return None
-    if image.grid_source == GRID_SOURCE_USER:
-        return None
-    if image.grid_source == GRID_SOURCE_FILENAME:
-        # A confidence means the size was detected; without one, any size is the file's NxM.
-        if image.gridded is not True or (
-            image.grid_width is not None and image.grid_confidence is None
-        ):
-            return None  # explicit "no grid", or an exact NxM
-        return "size" if force or image.grid_confidence is None else None
-    if image.grid_source == GRID_SOURCE_DETECTOR:
-        return "full" if force else None
-    return "full"  # no grid information yet
 
 
 def _memory_estimate(path, width: int, height: int, cfg: PipelineConfig) -> int:
@@ -90,12 +46,16 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
 
     With *force*, re-detect even where grid info exists. Returns detected/skipped/errors counts.
     """
-    image_store = get_image_store()
     cfg = load_pipeline_config()
 
     detected = skipped = errors = 0
     with pipeline_db() as db:
-        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        images = (
+            db.query(Image)
+            .options(selectinload(Image.source_file))
+            .filter(Image.id.in_(image_ids))
+            .all()
+        )
         for image in images:
             if shutdown_requested():
                 break  # keep what's detected; the caller stops at the batch boundary
@@ -104,9 +64,11 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                 if mode is None or image.width is None or image.height is None:
                     skipped += 1
                     continue
-                file_path = image_store.get_path(image.storage_key)
-                if not file_path.exists():
-                    logger.warning("Image %s: file not found at %s", image.id, file_path)
+                try:
+                    file_path = original_path(image)
+                except OriginalUnavailable as exc:
+                    # Missing, or in a linked folder that's offline: left for a later run
+                    logger.warning("Image %s: %s", image.id, exc.reason)
                     skipped += 1
                     continue
 
@@ -119,7 +81,9 @@ def detect_grids_batch(image_ids: list[int], force: bool = False) -> dict:
                         image.height,
                         size_only=size_only,
                         pipeline_config=cfg,
-                        sibling_counts=_sibling_counts(db, image) if size_only else (),
+                        sibling_counts=group_sibling_counts(db, image.id, image.group_id)
+                        if size_only
+                        else (),
                     )
                 if result["gridded"] is None:  # unreadable; retrying won't help
                     skipped += 1

@@ -131,6 +131,24 @@ describe('ActivityDock', () => {
     expect(onUndone).toHaveBeenCalled()
   })
 
+  it('offers no Undo for a scan of the linked folder', async () => {
+    ;({ manager } = await installFakeImportManager({
+      jobs: [
+        jobSummary({
+          label: 'Battle Maps',
+          linked: true,
+          status: 'completed',
+          counts: counts({ done: 4 }),
+        }),
+      ],
+    }))
+    renderWithProviders(<ActivityDock backgroundJobs={[]} onOpenImport={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('activity-dock-pill'))
+    expect(screen.getByTestId('import-job-card')).toHaveTextContent('Battle Maps')
+    expect(screen.queryByTitle('Undo import')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Dismiss')).toBeInTheDocument()
+  })
+
   it('pauses a running import from its row', async () => {
     let client
     ;({ manager, client } = await installFakeImportManager({

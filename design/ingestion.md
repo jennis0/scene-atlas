@@ -17,6 +17,12 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/pipeline/ingest_worker.py` | `IngestWorker` loop thread and `get_ingest_worker()`. |
 | `backend/pipeline/ingest_archive.py` | Server-side zip expansion into items (before seal). |
 | `backend/pipeline/ingest_local.py` | Local imports (desktop app): list picked folders and files into ready items read in place ([local-ingest.md](local-ingest.md)). |
+| `backend/pipeline/linked_scan.py` | The linked folder: scan, diff against `source_files`, queue new files as a sealed job; startup reconcile ([§5.7](#57-linked-items)). |
+| `backend/pipeline/linked_scanner.py` | When scans run: one at a time, the focus throttle and the rescan timer ([§5.7](#57-linked-items)). |
+| `backend/pipeline/linked_refresh.py` | Refresh of an edited linked file: the image snapshot a refresh item carries, and which grid columns it may re-detect ([§5.7](#57-linked-items)). |
+| `backend/pipeline/grid_rules.py` | Which grids re-detection may change (ADR-019), shared by the grid backfill and refresh. |
+| `backend/app/services/linked_files.py` | `source_files` kept in step with items and images: outcome write-back, moves, removal. |
+| `backend/app/services/originals.py` | The source interface: reading an original, stored or linked ([storage.md](storage.md#linked-folder)). |
 | `backend/pipeline/ingest_maintenance.py` | Scheduled, state-based cleanup. |
 | `backend/pipeline/image_hashes.py` | File SHA-256, strip-wise pixel hash, DCT pHash. |
 | `backend/pipeline/stored_format.py` | Optional conversion of new imports to the configured stored format. |
@@ -60,6 +66,7 @@ Defined in `backend/app/models/database.py`; tables created by Alembic `020_inge
 | `planned_at` | Set at seal. Items are claimable only after this. |
 | `last_upload_at` | Last byte receipt; drives "upload interrupted" and abandonment |
 | `source_roots` | Local imports: JSON list of the folders the job reads from; the worker skips the job while any is missing |
+| `library_source_id` | A scan of the linked folder ([§5.7](#57-linked-items)). Undo is refused for these |
 | `dismissed_at` | Hidden from the activity dock. Deletes nothing. |
 | `created_at`, `updated_at`, `completed_at` | |
 
@@ -93,6 +100,7 @@ One row per file. All durable ingest state lives here.
 | `staging_key` | Server-generated staged filename; NULL until received and cleared once no longer needed |
 | `source_hash` | SHA-256 of the original bytes. Client hint before upload; server-computed (authoritative) on receipt |
 | `source_path` | Local imports: absolute path of the original, read by the worker and never written. Exactly one of `staging_key` / `source_path` locates an item's bytes |
+| `source_file_id` | Linked items: the file's `source_files` row. The worker reads the file through the linked folder by the row's key; `source_path` is only what the path was when the item was made |
 | `attempts`, `retry_after` | Claim counter (crash/poison detection) and transient-error backoff |
 | `error_kind`, `error_stage`, `error_reason`, `error_detail` | `error_kind` ∈ `file` \| `transient` \| `system` \| `bytes_lost`, or `sorted_out` on a skipped item Auto set aside; `error_reason` is user-facing, `error_detail` the raw exception (truncated to 4000 chars) |
 | `image_id` | Set when `done` |
@@ -139,11 +147,13 @@ The table in `ingest_state._TRANSITIONS` is the source of truth:
 | `processing` | `SYSTEM_ERROR` (attempt refunded; queue pauses) | `ready` |
 | `processing` | `BYTES_LOST` (staged file missing) | `awaiting_bytes` |
 | `processing` | `SOURCE_UNAVAILABLE` (a local import's folder is missing; attempt refunded, job waits) | `ready` |
+| `processing` | `SOURCE_CHANGED` (a linked file changed while it was read; attempt refunded, read again after 10 s) | `ready` |
 | `processing` | `RECOVERED` (startup, attempts < 3) | `ready` |
 | `processing` | `CRASH_LIMIT` (startup, attempts ≥ 3: "Repeatedly crashed during processing") | `failed` |
 | `failed` | `RETRY` / `RETRY_NEEDS_BYTES` | `ready` / `awaiting_bytes` |
 | `duplicate` | `IMPORT_AS_COPY` / `IMPORT_AS_COPY_NEEDS_BYTES` | `ready` / `awaiting_bytes`, with `allow_duplicate` |
 | `processing` | `SORTED_OUT` (Auto: token, other or unsure; `error_kind = sorted_out`) | `skipped` |
+| `processing` | `REFRESH_GONE` (a linked image being refreshed was removed meanwhile; `error_kind = refresh_gone`) | `skipped` |
 | `skipped` | `INCLUDE` / `INCLUDE_NEEDS_BYTES` (only items with `error_kind = sorted_out`; the queue checks it) | `ready` / `awaiting_bytes`, with a fixed `image_type` |
 
 Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed`, `duplicate` and sorted-out `skipped` items can be re-opened by user action. `MAX_ATTEMPTS = 3`.
@@ -161,9 +171,10 @@ Derived in the API, never stored:
 - **`upload_interrupted`**: active, items awaiting bytes, nothing ready or processing, and `last_upload_at` older than 2 minutes (`UPLOAD_STALL`). The UI offers "Choose files to resume" or "Finish without them".
 - **`waiting_for`**: a local import's folders that are missing right now (open, not cancelled). The dock and dialog say "Waiting for …".
 - **`local`**: the job reads from folders on this computer (`source_roots` set); there is nothing to upload or resume.
+- **`linked`**: a scan of the linked folder (`library_source_id` set). No Undo, and its report never opens by itself. Its `waiting_for` names the folder, never its path.
 - **Queue status** (`running`, `system_paused`, `reason`, `current_job_id`) from the worker.
 
-**Undo import** (`DELETE /imports/{id}`) cancels the job, refuses with 409 while a batch is processing, deletes every image with that `import_job_id`, deletes gallery groups the job created (not merged-into ones) if now empty, then the job, groups, items and staging directory. Rows are deleted and committed first; files and vectors are removed afterwards (`deletion_service.PendingFileDeletes`).
+**Undo import** (`DELETE /imports/{id}`) is refused with 409 for a linked scan (its maps leave with "Stop using this folder"). Otherwise it cancels the job, refuses with 409 while a batch is processing, deletes every image with that `import_job_id`, deletes gallery groups the job created (not merged-into ones) if now empty, then the job, groups, items and staging directory. Rows are deleted and committed first; files and vectors are removed afterwards (`deletion_service.PendingFileDeletes`).
 
 ## 5. Processing: the ingest worker
 
@@ -270,6 +281,35 @@ Rationale: [ADR-020](decisions.md#adr-020-auto-image-type-on-import). Heads: `ba
 - **Group editor:** `GET /imports/sorted-out/counts` (gallery group → count, via `import_groups.image_group_id`) and `GET /imports/sorted-out?image_group_id=` (items across imports), backed by `ix_import_groups_image_group` and `ix_import_items_group_state`. A group gets its gallery id at its first commit, so only groups with at least one imported image (or merged into an existing group) appear there.
 - **Robustness:** a failure while sorting (a bad head, a database error) fails that batch's Auto items at stage `classify` with their temp files and previews cleaned up; it never leaves items `processing`. A malformed bundled head is skipped with an error logged; the others still load.
 - **Review editor:** only finished groups are opened. The backend defines the rule once: `ImportJobDetail.reviewable_group_ids` are the gallery groups with an imported image from this job and no unfinished import group of this job adding to them; `groups_reviewable` counts them.
+
+### 5.7 Linked items
+
+Plan: [library-setup.md §4](library-setup.md#4-linked-library). Storage side: [storage.md](storage.md#linked-folder).
+
+**Scans** (`linked_scan.py`) run one at a time (`LinkedScanner`, `linked_scanner.py`), on a thread of their own: at startup after the library check, on a timer (the asyncio task `rescan_timer` wakes every minute and reads `linked_rescan_minutes`; 0 = off), on `POST /library/scan` (`manual`, or `focus` from the desktop window, ignored within 60 s of the last scan or when rescans are off). Background scans run only with the worker (`ingest_worker_enabled`); tests drive both by hand.
+
+1. **Walk** (no lock): `LinkedFolder.list()`, the local import's walker with keys taken from the folder itself (`Author/Pack/file`, so the parser reads the creator), images and videos only, junk and the library's own folders left out. A folder that vanished during the walk counts as offline: nothing is marked missing.
+2. **Diff** (`diff_files`, pure) against the source's rows, loaded in one query: new, changed (size or mtime), gone, back again. A scan that finds nothing to do reads no file and creates no job.
+3. **Apply** (one write transaction): gone images get `missing_since` and are kept; gone rows without an image are deleted; back again clears `missing_since`; a missing image takes over a present duplicate of itself. A changed file of an image is queued as a **refresh** (below) unless one is already open for it; its row keeps the version the image was made from (and loses `missing_since`). Other changed rows go back to `pending`. Pending rows with no open item (their job was lost) are queued again. New files get `pending` rows. Up to `max_local_import_items` files are queued per scan; refreshes left over are offered by the next scan, since their rows still look changed.
+4. **Queue**: one job labelled with the folder's name, Auto image type (a refresh has its image's type), `source_roots = [folder]` (so it waits while the folder is offline), rows and items inserted in bulk, left unsealed. An oversized edited file fails without being read, and its row stays its image's.
+5. **Seal** (`seal_scan`): `compute_plan` parses the paths with no lock held, then `apply_plan` writes the groups in a short transaction (`plan_job` is the two together). Measured (WSL, 2026-10-19): 60k new files take about 16 s, of which about 4 s hold the write lock, in two transactions; diffing a rescan with no changes takes under half a second, plus the walk. A crash before sealing leaves an unsealed job; the next scan discards it and its rows, and finds the files new again.
+
+**Processing** (`_prepare_linked`): `_prepare_local` without the copy. The file is resolved through `LinkedFolder.local_path` (the containment check) and hashed, decoded and grid-detected where it is; stored format doesn't apply, and the image is committed with `storage_key` NULL and `source_file_id`. Its (size, mtime) is noted when prepare starts and checked again before commit (`changed_since_read`): a file that changed goes back to `ready` (`SOURCE_CHANGED`). A missing file fails (`The file was moved or deleted`); an unavailable folder refunds the item (`Waiting for <folder name>`).
+
+**Write-back** (`linked_files.sync_files`, in the same transaction as each item change): done → `image`, duplicate → `duplicate` (with the match), sorted out → `skipped` with the reason, failed → `failed` with the reason, re-opened (Retry, Include, Import as copy) → `pending`. Cancel, or skipping a group, deletes the pending rows, so the next scan offers those files again. The version read is recorded with each outcome, so a rescan sees the file unchanged.
+
+**Refresh** (library-setup.md §4.5, `linked_refresh.py`): a linked item whose file already is an image's file (`Image.source_file_id`) is a refresh of that image. The claim snapshots the image into `ClaimedItem.refresh` (`RefreshTarget`: its hash, type and grid columns, plus its group's file-name grid sizes when size-only detection applies). Prepare hashes the file:
+
+- **Same bytes as the image** (only touched): `RefreshUnchanged`. The item is `done` with the image's id, and only the row's size, mtime and hash are written. Nothing is decoded or embedded.
+- **Different bytes**: no duplicate check. The user's file is the truth, so the image is refreshed in place even when the new bytes are another image's (a byte or pixel duplicate); both images then share a hash, as "Import as copy" allows. Decode, thumbnails (a new stem, so new keys), colours, pixel hash and pHash, embedding, and the grid by `refresh_grid`, which applies the forced backfill's rules (`grid_rules.detection_mode`): `user` grids and explicit file-name labels ("No Grid", an exact NxM, re-oriented if the image turned) are kept; detector grids are detected again; a name that says gridded gets its size detected again. Nothing detected, or detection off, drops what was detected from the old pixels.
+- **Commit** (`_commit_refresh`, in the batch's transaction, after the same size-and-mtime re-check as any linked item): the image row is re-read and only file-derived columns are written (`width`, `height`, `file_size`, `thumbnail_key`, `content_hash`, `stored_hash`, `pixel_hash`, `phash`, colours). The grid is written only if the image's type and grid columns are still those snapshotted at claim, so a user edit made meanwhile wins. Name, author, tags, group, `image_type`, `filename`, `search_text` and `import_job_id` are never touched. The old thumbnails are deleted after the commit (any left are unreferenced, for the orphan sweep). The vector is upserted after commit; if that fails, the old vector is deleted so reconciliation re-embeds from the new thumbnail rather than keeping a stale one.
+- **Image removed meanwhile** (deleted, or "Remove missing maps"): the item is `skipped` (`REFRESH_GONE`, "The map was removed before its file could be refreshed"), with nothing to retry. Its file is `removed` already. The same check runs for an unchanged refresh.
+- **Write-back** (`linked_files._sync_refresh`): the row stays `image` with its `image_id` whatever the item became. Done records the version read and the hash. Failed records the version that failed (`ItemFailure.source_version`) and the reason, so a rescan reads it again only once it changes, and the image is untouched. Cancel, Retry and recovery leave the row alone: a cancelled refresh, or one lost with an unsealed scan, is offered again by the next scan.
+- A known gap: a new file with the image's *old* bytes, prepared in the same batch as the refresh, can still be marked a duplicate of it (prepare's early check reads the library before the refresh commits). The commit's in-batch index drops the old hashes, so only the early check is affected.
+
+**Moves**: a bytes-tier duplicate (early or at commit) whose match is a linked image whose file is missing is that file, moved: the image is repointed to the new row, keeping all its metadata, and the old row is deleted (`move_if_missing`). A rescan does the same for a missing image with a present `duplicate` row (`repoint_to_duplicates`).
+
+**Startup** (`reconcile_linked_source`, in the lifespan after `open_library`): a configured folder gets its row (created, or its location updated: unfinished scans then wait on the new place) and is online or offline; with no folder configured, an existing row is detached and its unfinished scans are cancelled.
 
 ## 6. Duplicate detection
 
@@ -426,6 +466,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 | `grid_analysis_max_dim` | 0 (full resolution) | Longest side analysed by grid detection; lowering it misses thin lines on high-dpi maps |
 | `num_dominant_colors`, `color_clustering_samples`, `color_kmeans_n_init` | 5, 5000, 3 | Colour extraction |
 | `stored_format`, `stored_quality`, `stored_lossless` | `original` (`webp` if chosen in the setup wizard, or seeded by `CONVERT_TO_WEBP=1` at first boot in server mode), 90, true | See [§10](#10-stored-format) |
+| `linked_rescan_minutes` | 15 | How often the linked folder is scanned (0, 5, 15 or 60; 0 = only at startup). Read at each timer wake, so changes apply without a restart ([§5.7](#57-linked-items)) |
 
 ## 13. Implementation notes
 

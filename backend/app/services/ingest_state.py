@@ -56,6 +56,7 @@ class ItemEvent(StrEnum):
     SYSTEM_ERROR = "system_error"  # queue pauses, item goes back
     BYTES_LOST = "bytes_lost"  # staged file missing; needs re-upload
     SOURCE_UNAVAILABLE = "source_unavailable"  # local import's folder is missing; job waits
+    SOURCE_CHANGED = "source_changed"  # a linked file changed while it was read; read it again
     RECOVERED = "recovered"  # startup: was processing when the process died
     CRASH_LIMIT = "crash_limit"  # startup: was processing, attempts exhausted
     RETRY = "retry"  # user retry, staged bytes present
@@ -64,6 +65,7 @@ class ItemEvent(StrEnum):
     IMPORT_AS_COPY_NEEDS_BYTES = "import_as_copy_needs_bytes"
     SKIP = "skip"  # cancel, finish-without, skip group, abandoned upload
     SORTED_OUT = "sorted_out"  # Auto: the image-type head says token/other (design §5.6)
+    REFRESH_GONE = "refresh_gone"  # a linked image being refreshed was removed meanwhile
     INCLUDE = "include"  # user override of a sorted-out item, bytes present
     INCLUDE_NEEDS_BYTES = "include_needs_bytes"
 
@@ -83,9 +85,11 @@ _TRANSITIONS: dict[tuple[str, ItemEvent], str] = {
     (PROCESSING, ItemEvent.SYSTEM_ERROR): READY,
     (PROCESSING, ItemEvent.BYTES_LOST): AWAITING_BYTES,
     (PROCESSING, ItemEvent.SOURCE_UNAVAILABLE): READY,
+    (PROCESSING, ItemEvent.SOURCE_CHANGED): READY,
     (PROCESSING, ItemEvent.RECOVERED): READY,
     (PROCESSING, ItemEvent.CRASH_LIMIT): FAILED,
     (PROCESSING, ItemEvent.SORTED_OUT): SKIPPED,
+    (PROCESSING, ItemEvent.REFRESH_GONE): SKIPPED,
     (FAILED, ItemEvent.RETRY): READY,
     (FAILED, ItemEvent.RETRY_NEEDS_BYTES): AWAITING_BYTES,
     (DUPLICATE, ItemEvent.IMPORT_AS_COPY): READY,

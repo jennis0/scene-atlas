@@ -1,6 +1,12 @@
+/** Whether an image's original can be read: a linked map's file can be missing, or its
+ * folder offline (design/library-setup.md §4.7). Thumbnails work either way. */
+export type FileState = 'ok' | 'missing' | 'offline'
+
 export interface Image {
   id: number
-  storage_key: string
+  /** Null for a map read from the linked folder */
+  storage_key: string | null
+  file_state: FileState
   filename: string
   author: string
   name: string
@@ -367,6 +373,9 @@ export interface AppSettings {
   stored_format: 'original' | 'webp' | 'jpeg' | 'png'
   stored_quality: number
   stored_lossless: boolean
+
+  // Linked folder: minutes between rescans; 0 = only when the app starts (5, 15 or 60 otherwise)
+  linked_rescan_minutes: number
 
   // Job runner (takes effect on next restart)
   max_job_workers: number

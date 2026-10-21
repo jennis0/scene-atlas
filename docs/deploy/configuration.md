@@ -20,8 +20,11 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 |----------|---------|-------------|
 | `APP_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
 | `IMAGE_LIBRARY_DIR` | `./images`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+| `LINKED_LIBRARY_DIR` | unset | A folder of your own maps that Scene Atlas reads where they are and never writes to. Optional; mount it read-only (e.g. `-v /srv/maps:/library:ro` with `LINKED_LIBRARY_DIR=/library`). It may be missing at startup: its maps then show as unavailable until it's back. See [Your own maps folder](/deploy/server#your-own-maps-folder) |
 
 A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `IMAGE_LIBRARY_DIR` or move the folder.
+
+Each library is recognised by a `scene-atlas-library.json` file at the root of `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR`. The backend refuses to start if the two folders belong to different libraries, if `IMAGE_LIBRARY_DIR` doesn't hold the maps the database expects (for example a drive that isn't mounted), or if either folder is `LINKED_LIBRARY_DIR` or contains it. The log says which, on a line starting `STARTUP ERROR:`.
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 
@@ -96,6 +99,14 @@ Runtime settings are stored in the database and seeded with the defaults below o
 Stored format is Original, WebP, JPEG or PNG and applies to new imports only (see [Importing](/guide/importing#stored-format)). Quality applies to WebP and JPEG (1-100); JPEG sources always use it.
 
 `max_import_files` and `max_import_total_size` apply to each uploaded ZIP archive. The per-import file limit is the `MAX_IMPORT_ITEMS` environment variable.
+
+### Linked folder
+
+| Setting | Key | Default | Where |
+|---------|-----|---------|-------|
+| Check for changes | `linked_rescan_minutes` | 15 | UI |
+
+How often `LINKED_LIBRARY_DIR` is scanned for added, moved and deleted maps: 5, 15 or 60 minutes, or 0 for only when the backend starts. "Check for changes" in Settings scans at any time. A scan that finds nothing new reads no files.
 
 ### Grid Detection
 

@@ -13,7 +13,7 @@ How each major subsystem works.
 | [backend.md](backend.md) | Backend API server -- FastAPI, services, configuration, endpoints |
 | [storage.md](storage.md) | Data storage -- SQLite schema, LanceDB vectors, ImageStore filesystem, backups |
 | [resource-management.md](resource-management.md) | Concurrency and resources -- prepare pool, heavy-op semaphore, JobRunner, IngestWorker, memory budget, resource-aware defaults |
-| [first-run.md](first-run.md) | First-run experience in both modes: storage window, setup wizard, gate, theme preference |
+| [first-run.md](first-run.md) | First-run experience in both modes: provisional first launch, setup wizard (including the desktop library step), gate, theme preference |
 | [electron.md](electron.md) | Electron desktop app -- windows, IPC, sidecar lifecycle, packaging, GPU builds |
 | [gpu-acceleration.md](gpu-acceleration.md) | ONNX Runtime execution providers -- `inference_device`, CUDA / DirectML / CoreML, CPU fallback |
 
@@ -27,7 +27,8 @@ How individual features and subsystems are designed.
 | [frontend.md](frontend.md) | Frontend SPA -- structure, gallery and search state, grouped view, imports client |
 | [editor-metadata-first.md](editor-metadata-first.md) | Plan: group editor loads summaries first and details on demand, bulk edits by id, virtualised All view (with measurements) |
 | [ingestion.md](ingestion.md) | Ingestion pipeline (ADR-018) -- import data model, item state machine, upload protocol, ingest worker, duplicate tiers, stored format, maintenance, recovery |
-| [local-ingest.md](local-ingest.md) | Plan: local folder import (desktop app), linked library in place, drop folder |
+| [local-ingest.md](local-ingest.md) | Local folder import (desktop app, built), linked library (see library-setup.md), drop folder |
+| [library-setup.md](library-setup.md) | Plan: storage in the setup wizard, the linked library, library identity and reopening |
 | [import-progress.md](import-progress.md) | Import progress view (overall bar, now importing, time left) and the editor's import-running strip |
 | [parser.md](parser.md) | ImageParser -- filename parsing, tag extraction, image group detection |
 | [tag-packs.md](tag-packs.md) | Tag packs -- genre-specific vocabularies, import mechanics, settings integration |

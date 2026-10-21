@@ -13,6 +13,7 @@ Scene Atlas runs on hardware from small laptops to servers, against libraries wh
 | 3 | JobRunner | `ThreadPoolExecutor` (`job_runner.py`) | Concurrent maintenance jobs | `max_job_workers` |
 | 4 | IngestWorker | One thread (`pipeline/ingest_worker.py`) | One import batch at a time, process-wide | `ingestion_batch_size` (items per batch) |
 | 5 | MemoryBudget | `threading.Condition` byte budget (`memory_budget.py`) | Total estimated decode memory across prepare workers | `ingest_memory_budget_mb` (env) |
+| 6 | LinkedScanner | A flag and one daemon thread per scan (`pipeline/linked_scanner.py`) | One linked folder scan at a time | `linked_rescan_minutes` (how often) |
 
 ### 1. Prepare pool
 
@@ -66,6 +67,10 @@ Related decode limits in `config.py`:
 - `max_image_pixels` (1,000,000,000) — Pillow's decompression-bomb limit; larger images fail.
 - `pixel_hash_max_pixels` (100,000,000) — JPEGs above this are decoded at reduced scale (libjpeg DCT scaling) and skip the pixel-hash duplicate check.
 
+### 6. LinkedScanner
+
+Scans of the linked folder run one at a time on a thread of their own; a request while one runs is refused (`started: false`). The walk holds no lock; the diff is applied in one short write transaction, and the scan's job is sealed with its paths parsed before the lock is taken again ([ingestion.md §5.7](ingestion.md#57-linked-items)). A 60k-file first scan held the write lock for about 4 s in total (measured in WSL), below the 10 s `busy_timeout` other writers wait. The rescan timer is an asyncio task that wakes every minute and starts a scan when `linked_rescan_minutes` have passed since the last one. Scans stop at `raise_if_shutting_down()` after the walk.
+
 ## Resource Detection
 
 `resource_detector.compute_resource_defaults()` runs once, inside `seed_default_settings()` on first boot. It reads `os.cpu_count()` (fallback 2) and total RAM via psutil (fallback 4 GB):
@@ -110,7 +115,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 ## Settings Sources
 
 - **`app_settings` table** — all concurrency settings, import limits and algorithm parameters. Seeded once by `seed_default_settings()` (resource defaults above, hardcoded values for the rest). Changed via `PATCH /api/v1/settings` in every deployment mode. `.env` is never used to seed it, so first boot behaves the same in all modes.
-- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir` and `--image-library-dir` to the sidecar on its command line, and saves the setup wizard's WebP choice through the settings API.
+- **`config.py` / env** — infrastructure (paths, ports, CORS, rate limits) and service constants. Server and developer modes use `.env`; the Electron shell passes `--port`, `--app-data-dir`, `--image-library-dir` and, when a folder is linked, `--linked-library-dir` to the sidecar on its command line, and saves the setup wizard's WebP choice through the settings API.
 
 | Setting | Default source | Takes effect |
 |---------|---------------|--------------|
@@ -120,6 +125,7 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 | `scheduler_enabled` | `True` | Restart |
 | `ingestion_batch_size` | 16 | Next batch (read per batch) |
 | Import limits | hardcoded | Next request (read per request) |
+| `linked_rescan_minutes` | 15 (allowed: 0, 5, 15, 60) | How often the linked folder is scanned; 0 = only at startup. Read at each timer wake ([ingestion.md §5.7](ingestion.md#57-linked-items)) |
 
 The Settings UI exposes `max_concurrent_prepare` (labelled "Parallel image processing", 1–16; restart required); the others are only editable through the API.
 
@@ -141,7 +147,7 @@ In the `main.py` lifespan:
 3. `init_prepare_pool(max_concurrent_prepare)`.
 4. `asyncio.Semaphore(max_concurrent_heavy_requests)` → `app.state.heavy_op_semaphore`.
 5. `get_job_runner()` — creates the JobRunner.
-6. `ingest_worker.recover()` and `start()` (when `ingest_worker_enabled`).
+6. `ingest_worker.recover()` and `start()` (when `ingest_worker_enabled`), then, with a linked folder configured, its first scan and the rescan timer.
 7. Scheduler start (when `scheduler_enabled`), heartbeat start.
 
 Shutdown: `request_shutdown()` → scheduler stop → `ingest_worker.stop(60s)` (the in-flight batch commits; anything left is recovered next start) → `shutdown_job_runner()` → `shutdown_prepare_pool()` → LanceDB shutdown. The MemoryBudget is created lazily on first use.

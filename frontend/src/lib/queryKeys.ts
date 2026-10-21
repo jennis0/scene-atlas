@@ -27,6 +27,7 @@ export const QUERY_KEYS = {
   modelSetupStatus: ['models', 'setup-status'] as const,
   tagPacks: ['tag-packs'] as const,
   backgroundJobs: ['background-jobs'] as const,
+  libraryStatus: ['library-status'] as const,
 }
 
 /** Invalidates all queries affected by changes to the scene library (add/edit/delete). */
@@ -34,6 +35,13 @@ export function invalidateGalleryQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.search })
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.searchFacets })
   queryClient.resetQueries({ queryKey: QUERY_KEYS.groups })
+}
+
+/** After maps leave the library: the gallery, the linked folder's counts and the library totals */
+export function invalidateRemovedMapsQueries(queryClient: QueryClient) {
+  invalidateGalleryQueries(queryClient)
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.libraryStatus })
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.systemInfo })
 }
 
 /**

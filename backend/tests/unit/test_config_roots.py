@@ -132,3 +132,13 @@ class TestImageLibraryDefault:
 
         # Ignore a developer's own .env
         assert Settings(_env_file=None).image_library_dir == _LEGACY_LIBRARY_DIR
+
+
+class TestLinkedLibraryDir:
+    def test_from_env_and_need_not_exist(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("LINKED_LIBRARY_DIR", str(tmp_path / "Battle Maps"))
+        assert Settings(app_data_dir=tmp_path).linked_library_dir == tmp_path / "Battle Maps"
+
+    def test_empty_env_is_unset(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("LINKED_LIBRARY_DIR", " ")
+        assert Settings(app_data_dir=tmp_path).linked_library_dir is None

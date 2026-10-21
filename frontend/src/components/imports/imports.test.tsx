@@ -324,6 +324,20 @@ describe('ImportDialog: progress', () => {
 // Report
 // ---------------------------------------------------------------------------
 
+describe('linked folder scans', () => {
+  it('have no Undo in their result: the folder is removed with "Stop using this folder"', async () => {
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [
+        jobSummary({ linked: true, status: 'completed', counts: counts({ done: 5, failed: 1 }) }),
+      ],
+    }))
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
+    expect(screen.getByText(/5 imported, 1 failed/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo import' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
+  })
+})
+
 describe('ImportDialog: result', () => {
   const finished = jobSummary({
     status: 'completed',

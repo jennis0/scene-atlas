@@ -2,8 +2,9 @@
  * Launching and observing the packaged desktop app (dist-electron/*-unpacked).
  *
  * Each launch gets a throwaway profile: its own Chromium user data dir (so its own
- * single-instance lock and config) and, when seeded, its own storage roots. Nothing
- * touches the developer's real Scene Atlas install or library.
+ * single-instance lock and config), its own storage roots and, for a first launch, its
+ * own default folders (see launch()). Nothing touches the developer's real Scene Atlas
+ * install or library.
  *
  * The app is driven over the Chrome DevTools Protocol (--remote-debugging-port), not
  * Playwright's _electron.launch: that needs Node's --inspect, which the packaged app's
@@ -41,29 +42,86 @@ export function appExecutable(): string {
 export interface Profile {
   root: string;
   userData: string;
+  /** The folders a seeded config names */
   appData: string;
   images: string;
+  /** Where a first launch puts a new library (the app's defaults, redirected by launch()) */
+  defaults: { appData: string; store: string };
+  /** The fake home folder launch() points the OS's Documents lookup at (macOS, Linux) */
+  home: string;
   backendLog: string;
 }
 
-/** A fresh profile; with seedConfig the app skips the setup window and starts the backend. */
-export function makeProfile(seedConfig: boolean): Profile {
+/** Extra config keys for a seeded profile, e.g. libraryChosen or linkedLibraryDir. */
+export type SeedConfig = Record<string, unknown>;
+
+/**
+ * A fresh profile. Unseeded, the app starts as on a first launch: a provisional library on
+ * the default folders. Seeded, its config names the profile's own folders; a config with no
+ * libraryChosen key counts as chosen (one written before the setup wizard chose folders),
+ * so pass { libraryChosen: false } for a library whose setup is still at the library step.
+ */
+export function makeProfile(seedConfig: boolean | SeedConfig): Profile {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "scene-atlas-packaged-"));
+  const home = path.join(root, "home");
+  // electron/src/storageDirs.ts defaultStorageBase: Local AppData on Windows, else Documents.
+  const defaultBase =
+    process.platform === "win32"
+      ? path.join(home, "AppData", "Local", "Scene Atlas")
+      : path.join(home, "Documents", "Scene Atlas");
   const profile: Profile = {
     root,
     userData: path.join(root, "user-data"),
     appData: path.join(root, "app-data"),
     images: path.join(root, "images"),
+    defaults: { appData: path.join(defaultBase, "data"), store: path.join(defaultBase, "images") },
+    home,
     backendLog: path.join(root, "user-data", "backend.log"),
   };
   fs.mkdirSync(profile.userData);
+  fs.mkdirSync(path.join(home, ".config"), { recursive: true });
   if (seedConfig) {
-    fs.writeFileSync(
-      path.join(profile.userData, "scene-atlas-config.json"),
-      JSON.stringify({ appDataDir: profile.appData, imageLibraryDir: profile.images }),
-    );
+    writeConfig(profile, {
+      appDataDir: profile.appData,
+      imageLibraryDir: profile.images,
+      ...(seedConfig === true ? {} : seedConfig),
+    });
   }
   return profile;
+}
+
+function configPath(profile: Profile): string {
+  return path.join(profile.userData, "scene-atlas-config.json");
+}
+
+export function writeConfig(profile: Profile, config: SeedConfig): void {
+  fs.writeFileSync(configPath(profile), JSON.stringify(config));
+}
+
+export function readConfig(profile: Profile): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(configPath(profile), "utf8"));
+}
+
+/**
+ * Environment that moves the app's default folders into the profile, so a first launch
+ * never creates or opens the developer's real library:
+ * - Windows: LOCALAPPDATA, which defaultStorageBase reads itself.
+ * - Linux: XDG_CONFIG_HOME with a user-dirs.dirs naming the Documents folder, which
+ *   Chromium's Documents lookup (app.getPath('documents')) reads.
+ * - macOS: CFFIXED_USER_HOME, which Foundation's home folder lookup honours.
+ */
+function defaultFolderEnv(profile: Profile): NodeJS.ProcessEnv {
+  if (process.platform === "win32") {
+    return { LOCALAPPDATA: path.join(profile.home, "AppData", "Local") };
+  }
+  if (process.platform === "darwin") return { CFFIXED_USER_HOME: profile.home };
+  const configHome = path.join(profile.home, ".config");
+  const documents = path.join(profile.home, "Documents");
+  fs.writeFileSync(
+    path.join(configHome, "user-dirs.dirs"),
+    `XDG_DOCUMENTS_DIR="${documents}"\n`,
+  );
+  return { XDG_CONFIG_HOME: configHome };
 }
 
 export interface RunningApp {
@@ -116,7 +174,10 @@ export async function launch(
   const child = spawn(
     exe,
     [`--user-data-dir=${profile.userData}`, `--remote-debugging-port=${cdpPort}`, ...extraArgs],
-    { stdio: "ignore", env: { ...process.env, ...NO_UPDATES, ...appImageEnv(exe), ...options.env } },
+    {
+      stdio: "ignore",
+      env: { ...process.env, ...NO_UPDATES, ...appImageEnv(exe), ...defaultFolderEnv(profile), ...options.env },
+    },
   );
   let exited = false;
   child.once("exit", () => (exited = true));
@@ -142,7 +203,7 @@ export async function connect(
 }
 
 /** The first open page whose URL matches. */
-export async function waitForPage(
+async function waitForPage(
   browser: Browser,
   matches: (url: string) => boolean,
   timeoutMs = 180_000,
@@ -159,9 +220,57 @@ export async function waitForPage(
   throw new Error(`No page matched within ${timeoutMs} ms; open pages: ${urls.join(", ")}`);
 }
 
+// The sidecar serves the UI on loopback; the loading page is a file: URL.
+const BACKEND_UI = /^http:\/\/127\.0\.0\.1:\d+\//;
+
+export function waitForLoadingPage(browser: Browser): Promise<Page> {
+  return waitForPage(browser, (url) => url.endsWith("/loading.html"));
+}
+
 /** The window once it has left the loading page for the UI the backend serves. */
 export function waitForBackendUi(browser: Browser): Promise<Page> {
-  return waitForPage(browser, (url) => /^http:\/\/127\.0\.0\.1:\d+\//.test(url));
+  return waitForPage(browser, (url) => BACKEND_UI.test(url));
+}
+
+export interface LibraryDirs {
+  appData: string;
+  store: string;
+  linked: string | null;
+}
+
+/** electronAPI.applyLibrary from the UI. Awaited, it settles only when nothing restarts. */
+export function applyLibrary(
+  page: Page,
+  dirs: LibraryDirs,
+): Promise<{ error: string | null; restarted: boolean }> {
+  return page.evaluate((d) => (window as any).electronAPI.applyLibrary(d), dirs);
+}
+
+/**
+ * applyLibrary with folders that restart the backend, so the call never settles: wait for
+ * the backend that was running (*oldSidecarPid*) to exit and the UI to reload on the new one.
+ */
+export async function applyLibraryAndRestart(
+  page: Page,
+  dirs: LibraryDirs,
+  oldSidecarPid: number,
+): Promise<void> {
+  void applyLibrary(page, dirs).catch(() => {});
+  await waitUntil("old backend to exit", () => !isAlive(oldSidecarPid), 30_000);
+  await waitForChosenLibraryUi(page);
+}
+
+/** Wait until the window has reloaded the UI with libraryChosen set (after a restart). */
+async function waitForChosenLibraryUi(page: Page, timeoutMs = 180_000): Promise<void> {
+  await waitUntil(
+    "the UI to reload on the new backend",
+    async () =>
+      BACKEND_UI.test(page.url()) &&
+      (await page
+        .evaluate(() => (window as any).electronAPI.libraryChosen === true)
+        .catch(() => false)),
+    timeoutMs,
+  );
 }
 
 interface ProcessInfo {

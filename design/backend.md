@@ -22,6 +22,7 @@ backend/
 │   │   ├── images.py             # Image CRUD + file/thumbnail serving
 │   │   ├── imports.py            # Import jobs: manifest, archives, seal, content upload, actions
 │   │   ├── jobs.py               # Background job status
+│   │   ├── library.py            # Library status, folder inspection for the setup wizard
 │   │   ├── models.py             # Embedding model list/download/switch
 │   │   ├── rate_limits.py        # Shared slowapi Limiter
 │   │   ├── search.py             # Image and group search, facets
@@ -63,6 +64,7 @@ backend/
 │   │   └── video_utils.py        # Video first frame + dimensions
 │   ├── colorspace.py             # sRGB hex to CIELAB (used by the Color model and colour search)
 │   ├── config.py                 # Pydantic settings (env-driven)
+│   ├── library_identity.py       # library_id, folder markers, the rules for opening a library
 │   ├── logging_config.py         # Console + rotating file logging; Pillow pixel limit
 │   ├── main.py                   # App creation, middleware, routers, lifespan
 │   ├── process_utils.py          # RSS reading
@@ -104,6 +106,7 @@ backend/
 All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefixes are set in `main.py`. `/health` and `/` are at the root.
 
 ### Images (`/images`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | List images |
@@ -120,6 +123,7 @@ All API routes are mounted under `/api/v1` (`settings.api_prefix`); router prefi
 | POST | `/backfill-grids` | Grid detection backfill job (rate limited: expensive) |
 
 ### Search (`/search`)
+
 Logic lives in `backend/app/services/search_service.py`; ranking is described in [search.md](search.md).
 
 | Method | Path | Purpose |
@@ -137,6 +141,7 @@ Shared parameters for `/` and `/groups`:
 `/groups` also takes `include_all_image_ids` (populate `all_image_ids`, used by Edit All). Without a query, groups are listed in `sort_by` order; with a query, groups are ranked by their best-matching image and `sort_by` is ignored. Each `GroupSearchResult` has `group_id`, `base_name`, `author`, `hero_image`, `mosaic_images`, `total_scenes`, `matching_scenes`, `best_score`, `all_image_ids`. `limit` defaults to 50 (max 500) for groups and 500 (max 2000) for images.
 
 ### Groups (`/groups`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/search` | Typeahead group picker (`q`, `exclude_id`, `reference_name`) |
@@ -153,6 +158,7 @@ Shared parameters for `/` and `/groups`:
 Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' side effects: a changed grid field sets `grid_source` to user and clears `grid_confidence`, `gridded: false` clears the other grid fields, and `search_text` is rebuilt when tags, subgroup or author change. Move and merge also give moved images the target group's author and rebuild their `search_text`. They write with executemany `UPDATE`s and one `INSERT … RETURNING`, so the statement count doesn't grow with the number of images (pinned in `test_query_counts.py`). The batch reads return groups in the order asked, de-duplicated, leaving out ids that no longer exist. They are POST because the editor sends thousands of ids. The write endpoints are `@write_locked`, so they serialise with the ingest worker's commits.
 
 ### Tags (`/tags`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/categories` | List categories |
@@ -174,6 +180,7 @@ Bulk edits (`services/bulk_edit_service.py`) have the single-image endpoints' si
 | POST | `/retag-all` | Retag job (rate limited: expensive) |
 
 ### Imports (`/imports`)
+
 Defined in `backend/app/api/imports.py`. The flow and state machines are in [ingestion.md](ingestion.md).
 
 | Method | Path | Purpose |
@@ -202,6 +209,7 @@ Defined in `backend/app/api/imports.py`. The flow and state machines are in [ing
 Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thread). See [ingestion.md](ingestion.md#7-upload-protocol).
 
 ### Jobs (`/jobs`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | List JobRunner jobs |
@@ -210,11 +218,13 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | POST | `/dismiss-finished` | Forget every finished job |
 
 ### Export (`/export`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/library` | Stream library as ZIP (rate limited: expensive) |
 
 ### System (`/system`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/info` | Storage usage and library stats |
@@ -222,13 +232,27 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | DELETE | `/library` | Delete entire library job (rate limited: destructive) |
 | POST | `/tags/reset` | Reset tags to seed defaults (rate limited: destructive) |
 
+### Library (`/library`)
+
+See [library-setup.md](library-setup.md) ("Interfaces between the parts") for the response shapes.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/status` | `library_id` and the linked folder (`linked: null` when none is configured or known): `state` (`online` / `offline`, checked live; `detached` when a row exists but no folder is configured, or after `DELETE /linked`), `name`, `image_count`, `missing_count`, `last_scan_at`, `scanning`. The path is only returned in app mode |
+| POST | `/scan` | Body `{reason: "manual" \| "focus"}`. 202 `{started}`: starts a scan in the background unless one is running. `focus` is ignored within 60 s of the last scan, or when `linked_rescan_minutes` is 0. 409 if no linked folder is configured (or it's detached) |
+| POST | `/linked/remove-missing` | 200 `{removed}`. Removes the images whose linked file is missing (rows, thumbnails, vectors, and groups left empty); their files become `removed` so they aren't added again |
+| DELETE | `/linked` | 200 `{removed}`. "Stop using this folder": cancels its unfinished scans, removes every image read from it and forgets its files; the source is `detached` until the configuration drops the folder. 409 while a scan or a batch of its items is running. The folder is never touched |
+| POST | `/inspect` | Desktop only (404 in server mode). What opening the given folders (`app_data`, `store`, `linked`; absolute paths, any left out) would do: `new` / `open` / `error` with the wizard's message, a media count for a maps folder (capped at `max_local_import_items`), and a library found in them with its hints. Read-only; admission-controlled like other heavy requests |
+
 ### Settings (`/settings`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | Get app settings |
 | PATCH | `/` | Update app settings (rate limited: expensive) |
 
 ### Models (`/models`)
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | Models with download status |
@@ -241,6 +265,7 @@ Mutating routes are `@write_locked` (`BEGIN IMMEDIATE` on the endpoint's own thr
 | POST | `/setup-complete` | Mark first-run setup done |
 
 ### Root
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Deep health check: database, LanceDB, embedding model, JobRunner |
@@ -251,57 +276,87 @@ When `frontend/dist` exists, `/assets` is served statically and a catch-all rout
 ## Services
 
 ### ImageStore
-Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. See [storage.md](storage.md).
+
+Hash-sharded object store: `put(key, path)`, `put_bytes(key, data)`, `get_path(key)`, `local_path(key)`, `exists(key)`, `delete(key)`. Two instances: images (library root) and thumbnails. Creating one doesn't create its root: the startup check decides when a store may be created. See [storage.md](storage.md).
+
+### Originals (`originals.py`)
+
+The source interface: `original_path(image)` reads any original, from the store or the linked folder, and raises `OriginalUnavailable` (`missing` → 404, `offline` → 503 with the reason). `LinkedFolder` (`list`, `local_path` with the containment check; no `put` or `delete`) is the only way to the linked folder's files. `Image.file_state` (`ok | missing | offline`) is in every image response. See [storage.md](storage.md#linked-folder).
+
+### Linked folder (`linked_files.py`, `pipeline/linked_scan.py`)
+
+`linked_scan` scans the linked folder and queues new files as one sealed import job; `linked_scanner` runs scans one at a time, in a thread: at startup, on the `linked_rescan_minutes` timer, and on `POST /library/scan`. `linked_files` keeps `source_files` in step: item outcomes, moves, removed images. See [ingestion.md §5.7](ingestion.md#57-linked-items).
+
+### Library identity (`library_identity.py`)
+
+`library_id`, the `scene-atlas-library.json` markers, and `decide()`, the one implementation of the rules for opening a set of folders. The startup check (`check_library`, then `open_library`) and `POST /library/inspect` (`inspect_folders`) both use it; refusals carry a code with two texts, the startup one and the wizard's. See [storage.md](storage.md#library-identity).
 
 ### CLIPService
+
 Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-so400m via ONNX Runtime. Loaded in a background thread at startup. `encode_image(path)`, `encode_text(query)` (LRU-cached), `batch_encode_images(paths)`.
 
 ### Model registry and downloads
+
 `model_registry.py` is the static registry of model specs (names, HF repos, hardware recommendations). `model_download_service.py` downloads to `APP_DATA_DIR/models/{name}/` via temp-dir → rename; `version.json` marks completion.
 
 ### LanceDBService
+
 Disk-backed LanceDB client managing `embeddings_{model_name}` tables. A `threading.RLock` serialises write operations. `add_image_embedding`, `batch_add_embeddings`, `search_similar`, `delete_image_embedding`, `delete_embeddings`, `get_all_ids`.
 
 ### ImageParser
+
 Filename/path parser with DB-driven tag vocabulary. See [parser.md](parser.md).
 
 ### FTS service
+
 SQLite FTS5 over `image_fts` (Porter stemmer), BM25 ranking, query sanitisation and tag alias expansion.
 
 ### Colour search
+
 CIE76 delta E between the searched colours and each image's dominant colours, computed in SQL over the LAB columns stored on every `colors` row. See [search.md](search.md#colour-search).
 
 ### Ingest state (`ingest_state.py`)
+
 Pure transition tables for item states (`awaiting_bytes`, `ready`, `processing`, `done`, `duplicate`, `failed`, `skipped`) and job states (`active`, `paused`, `completed`, `cancelled`). All item updates go through it.
 
 ### IngestWorker (`backend/pipeline/ingest_worker.py`)
+
 One daemon thread per process. Sleeps until woken (bytes received, seal, resume, retry) or a 30 s timeout, claims a batch of up to `ingestion_batch_size` ready items round-robin across jobs, and processes it with `process_batch` (prepare on the prepare pool → embed → one `BEGIN IMMEDIATE` commit → LanceDB write → staging cleanup). When the system is unfit (model unavailable, library folder missing, < 512 MB free on an ingest volume) it stops claiming and re-probes instead of failing items. `recover()` clears `.incoming/` temp files and re-queues items left `processing` by a dead process; `stop()` lets the in-flight batch finish. `drain()` runs synchronously for tests.
 
 ### MemoryBudget (`backend/app/services/memory_budget.py`)
+
 Process-wide byte budget. Each prepare step reserves its estimated peak decode memory before decoding and blocks while the budget is exhausted; an item larger than the whole budget runs alone. Capacity is `ingest_memory_budget_mb` or half of RAM beyond a 2 GiB reserve (minimum 1 GiB).
 
 ### Grid detection (`backend/app/services/grid/`)
+
 `detect_grid` runs detector v3 (harmonic comb plus ONNX presence and hex classifiers from `app/data/grid_models`, CPU onnxruntime) on maps whose longest side is 1000 px or more, and the legacy `grid_detector.py` below that. See [grid-detection-v3.md](grid-detection-v3.md) and ADR-019.
 
 ### PreparePool
+
 Shared `ThreadPoolExecutor` (`max_concurrent_prepare` workers) for per-image preparation: hashing, decode, thumbnails, colours, grid detection.
 
 ### DeletionService
-`safe_delete_image` deletes the row and, if no other row references the same `storage_key`, the stored file and thumbnails, plus the vector. `delete_image_rows` does the same for many images and returns the file deletions to apply after commit.
+
+`safe_delete_image` deletes the row and, if no other row references the same `storage_key`, the stored file and thumbnails, plus the vector. `delete_image_rows` does the same for many images and returns the file deletions to apply after commit. A linked image (`storage_key` NULL) loses its thumbnails and vector; its file is never touched and its `source_files` row becomes `removed`.
 
 ### Validation
+
 `check_zip_safety` (entry count, uncompressed size, zip-slip) and `verify_media_mime` (file header matches extension).
 
 ### VideoUtils
+
 First-frame extraction and dimension reading for videos.
 
 ### AppSettingsService
+
 Reads/writes the `app_settings` table (runtime tuning, feature flags, import limits). Seeded on first boot by `seed_default_settings()`.
 
 ### JobRunner
+
 `ThreadPoolExecutor` (`max_job_workers`, created eagerly in the lifespan) with in-memory job status, progress and results. Used for embedding rebuild/reconcile, retagging, grid backfill, model download/activation and library deletion. Not used for imports. On shutdown, long jobs stop at their next batch boundary and are recorded as `interrupted` ([resource-management.md](resource-management.md#cooperative-shutdown)).
 
 ### Scheduler
+
 Asyncio scheduler; each task runs in the default executor. A task stopped by shutdown (`ShutdownRequested`) isn't recorded as run. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
 
 | Task | Interval | Function |
@@ -335,6 +390,7 @@ Two sources:
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
 | `app_data_dir` | `<repo>/data` | Fast storage root |
 | `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
+| `linked_library_dir` | `None` | The linked folder (`LINKED_LIBRARY_DIR`, or the sidecar's `--linked-library-dir`). Read-only; need not exist. Empty means unset |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
 | `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
 | `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
@@ -365,18 +421,19 @@ Other environment variables: `EMBEDDING_MODEL` (operator override of the active 
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
 2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
-3. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head). Pending migrations are preceded by a SQLite snapshot in `backups/pre-migration/`; if it fails, startup stops unmigrated ([storage.md](storage.md#backups)).
-4. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings.
-5. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
-6. Set `settings.vector_size` from the model manifest.
-7. Start the embedding model background load.
-8. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
-9. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`.
-10. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
-11. Start the update checker (server mode with `check_for_updates`; first check after 60 s, never blocking startup). Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
-12. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
+3. Library check (`check_library`, [storage.md](storage.md#library-identity)): reads the database (read-only), the store's marker and the linked folder setting, and refuses with `LibraryMismatchError` (logged as `STARTUP ERROR: …`, locks released) if the folders don't belong to one library. Nothing is created before it passes.
+4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head). Pending migrations are preceded by a SQLite snapshot in `backups/pre-migration/`; if it fails, startup stops unmigrated ([storage.md](storage.md#backups)).
+5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked. `reconcile_linked_source()` brings the linked folder's row in line with the configuration (online, offline or detached).
+6. `init_prepare_pool(max_concurrent_prepare)`; store engine on `app.state.db_engine`; create `app.state.heavy_op_semaphore`.
+7. Set `settings.vector_size` from the model manifest.
+8. Start the embedding model background load.
+9. Create the JobRunner. A daemon thread waits for the model, calls `IngestWorker.probe_now()`, then submits `reconcile_vectors` if the model loaded.
+10. If `ingest_worker_enabled`: `ingest_worker.recover()`, then `ingest_worker.start()`. With a linked folder configured, start its first scan and the rescan timer task.
+11. If `scheduler_enabled`: register the four scheduler tasks and start the scheduler.
+12. Start the update checker (server mode with `check_for_updates`; first check after 60 s, never blocking startup). Log the CORS warning if applicable. (The desktop sidecar prints `SCENE_ATLAS_READY` from `backend/pyinstaller/entry.py` once uvicorn is listening, not from here; see [electron.md](electron.md#sidecar-lifecycle).)
+13. Start the 15 s event-loop heartbeat (logs thread count and RSS); install a SIGUSR1 thread-dump handler on non-Windows.
 
-Shutdown: cancel heartbeat → `request_shutdown()` (long jobs stop at their next batch boundary) → stop the update checker → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
+Shutdown: cancel heartbeat and the rescan timer → `request_shutdown()` (long jobs stop at their next batch boundary) → stop the update checker → stop scheduler → `ingest_worker.stop(60s)` → `shutdown_job_runner()` → `shutdown_prepare_pool()` → `shutdown_lancedb_service()` → release the storage locks (the OS also drops them if the process dies).
 
 ## Middleware
 

@@ -74,7 +74,7 @@ CHECK_FOR_UPDATES=true
 ```
 
 ::: warning
-`IMAGE_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI instead.
+`IMAGE_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI, or link the collection read-only (see [Your own maps folder](#your-own-maps-folder)).
 :::
 
 ::: info Container user
@@ -99,6 +99,26 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 ::: warning
 The named volume `scene-atlas-data` contains your database and search index. The built-in backups are written to the image bind mount, so back up `IMAGE_DIR` (or both) with your normal backup tooling.
 :::
+
+## Your own maps folder
+
+Scene Atlas can read an existing collection where it is, without copying it: set `LINKED_LIBRARY_DIR` to the folder. It is scanned when the backend starts and then every 15 minutes (Settings → Library: "Check for changes", and how often), and maps added, moved or deleted there are picked up. Scene Atlas never writes to it, so mount it read-only. Add a `docker-compose.override.yml`:
+
+```yaml
+services:
+  scene-atlas:          # or scene-atlas-gpu
+    volumes:
+      - /srv/maps:/library:ro
+    environment:
+      LINKED_LIBRARY_DIR: /library
+```
+
+With plain Docker the same is `-v /srv/maps:/library:ro -e LINKED_LIBRARY_DIR=/library`.
+
+- Keep `IMAGE_DIR` outside the maps folder: Scene Atlas refuses to start if the image folder is the linked folder or contains it.
+- If the folder is missing (a NAS share that isn't mounted), the backend still starts: search and thumbnails work, and originals return 503 until it's back. Files are only marked missing when the folder is there and they aren't.
+- The folder's path is never shown to users; Settings shows its name and counts.
+- To stop using it, choose "Stop using this folder" in Settings (it removes the folder's maps from the library, never the files), then unset `LINKED_LIBRARY_DIR` and restart.
 
 ## Reverse Proxy
 

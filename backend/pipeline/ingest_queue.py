@@ -23,20 +23,36 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import cast
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
-from backend.app.models import ImageGroup, ImportGroup, ImportItem, ImportJob, TagCategory
+from backend.app.models import (
+    Image,
+    ImageGroup,
+    ImportGroup,
+    ImportItem,
+    ImportJob,
+    SourceFile,
+    TagCategory,
+)
 from backend.app.services import ImageParser
 from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import ItemEvent
+from backend.app.services.linked_files import Version, sync_files
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
+from .linked_refresh import (
+    KIND_REFRESH_GONE,
+    REFRESH_GONE_REASON,
+    RefreshTarget,
+    load_targets,
+    refreshed_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +61,10 @@ KIND_BYTES_LOST = "bytes_lost"
 # A local import's folder is missing (drive unplugged): the item goes back to ready and
 # its job waits until the folder is back (design/local-ingest.md §4.4).
 KIND_SOURCE_UNAVAILABLE = "source_unavailable"
+# A linked file changed while it was being read (design/library-setup.md §4.4): the item
+# goes back to ready, to be read again once the file has settled.
+KIND_SOURCE_CHANGED = "source_changed"
+SOURCE_CHANGED_DELAY = timedelta(seconds=10)
 # Auto: the image-type head sorted the item out (a token, or not a map or scene). It is
 # skipped, keeps its bytes and a preview, and the user can include it (design §5.6).
 KIND_SORTED_OUT = "sorted_out"
@@ -247,10 +267,13 @@ def _settle_new_item(item: ImportItem, entry: ManifestEntry, max_file_size: int 
         item.error_stage = "validate"
         item.error_reason = "Not a supported image, video or archive"
     elif max_file_size is not None and entry.size is not None and entry.size > max_file_size:
-        _fail_validation(item, "File is larger than the import size limit")
+        _fail_validation(item, OVERSIZED_REASON)
     elif entry.source_path is not None:
         item.source_path = entry.source_path
         item.state = st.next_item_state(item.state, ItemEvent.BYTES_RECEIVED)
+
+
+OVERSIZED_REASON = "File is larger than the import size limit"
 
 
 def _fail_validation(item: ImportItem, reason: str) -> None:
@@ -311,6 +334,95 @@ def _existing_groups(db: Session, names: set[str]) -> dict[tuple[str, str | None
     return found
 
 
+@dataclass(frozen=True)
+class PlannedGroup:
+    author: str | None
+    group_name: str
+    items: list[tuple[int, str]]  # (item id, parsed JSON)
+
+
+def compute_plan(db: Session, job_id: str) -> list[PlannedGroup]:
+    """Parse the job's paths and work out its groups. Read-only, and the slow part of a
+    seal (parsing), so a large import can do it before taking the write lock."""
+    items = (
+        db.query(ImportItem.id, ImportItem.relative_path, ImportItem.image_type)
+        .filter(
+            ImportItem.job_id == job_id,
+            ImportItem.kind != "archive",
+            ImportItem.state != st.FAILED,
+        )
+        .all()
+    )
+    by_path = {path: (item_id, image_type) for item_id, path, image_type in items}
+    by_type: dict[str, list[str]] = {}
+    for _, path, image_type in items:
+        # Auto items are grouped as battlemaps: group names don't depend on the type
+        parse_as = BATTLEMAP if image_type == AUTO else image_type
+        by_type.setdefault(parse_as, []).append(path)
+
+    parser = _build_parser(db)
+    # A folder named after a creator in the library is theirs, never one map's group
+    known_authors = db.scalars(select(ImageGroup.author).distinct()).all()
+    planned: list[PlannedGroup] = []
+    for image_type, paths in sorted(by_type.items()):
+        for group in parser.group_files(
+            paths, image_type=image_type, known_authors=[a for a in known_authors if a]
+        ):
+            group_name = group["group_name"]
+            parsed_items: list[tuple[int, str]] = []
+            for file_entry in group["files"]:
+                item_id, item_type = by_path[file_entry["relative_path"]]
+                payload = _parsed_payload(file_entry["parsed"], group_name)
+                if item_type == AUTO:
+                    # Tags differ by type (junk words); keep the scene parse for
+                    # effective_parsed
+                    payload["scene_tags"] = parser.parse(
+                        file_entry["relative_path"], image_type=SCENE
+                    )["tags"]
+                parsed_items.append((item_id, json.dumps(payload)))
+            planned.append(PlannedGroup(group.get("author") or "Unknown", group_name, parsed_items))
+    return planned
+
+
+def apply_plan(db: Session, job_id: str, planned: list[PlannedGroup]) -> list[ImportGroup]:
+    """Seal the job with a plan from ``compute_plan``: create its groups, resolved against
+    the gallery, and give each item its group and parse. Idempotent."""
+    job = db.get(ImportJob, job_id)
+    if job is None:
+        raise KeyError(job_id)
+    if job.planned_at is not None:
+        return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
+
+    existing = _existing_groups(db, {group.group_name for group in planned})
+    groups: list[ImportGroup] = []
+    for order, group in enumerate(planned):
+        existing_id = existing.get((group.group_name, group.author))
+        groups.append(
+            ImportGroup(
+                job_id=job_id,
+                author=group.author,
+                group_name=group.group_name,
+                image_group_id=existing_id,
+                merged_into_existing=existing_id is not None,
+                sort_order=order,
+            )
+        )
+    db.add_all(groups)
+    db.flush()  # one batched INSERT assigns every group id
+    updates = [
+        {"id": item_id, "import_group_id": import_group.id, "parsed": parsed}
+        for import_group, group in zip(groups, planned, strict=True)
+        for item_id, parsed in group.items
+    ]
+    if updates:
+        db.execute(update(ImportItem), updates)  # bulk UPDATE by primary key
+
+    job.planned_at = utcnow()
+    db.flush()
+    recompute_job_status(db, job_id)
+    return groups
+
+
 def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
     """Seal the manifest: parse paths, work out groups, resolve them against the gallery.
 
@@ -323,64 +435,7 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
         raise KeyError(job_id)
     if job.planned_at is not None:
         return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
-
-    items = (
-        db.query(ImportItem)
-        .filter(
-            ImportItem.job_id == job_id,
-            ImportItem.kind != "archive",
-            ImportItem.state != st.FAILED,
-        )
-        .all()
-    )
-    by_path = {item.relative_path: item for item in items}
-    by_type: dict[str, list[str]] = {}
-    for item in items:
-        # Auto items are grouped as battlemaps: group names don't depend on the type
-        parse_as = BATTLEMAP if item.image_type == AUTO else item.image_type
-        by_type.setdefault(parse_as, []).append(item.relative_path)
-
-    parser = _build_parser(db)
-    # A folder named after a creator in the library is theirs, never one map's group
-    known_authors = db.scalars(select(ImageGroup.author).distinct()).all()
-    planned: list[tuple[str | None, str, list[dict]]] = []
-    for image_type, paths in sorted(by_type.items()):
-        for group in parser.group_files(
-            paths, image_type=image_type, known_authors=[a for a in known_authors if a]
-        ):
-            author = group.get("author") or "Unknown"
-            planned.append((author, group["group_name"], group["files"]))
-
-    existing = _existing_groups(db, {name for _, name, _ in planned})
-    groups: list[ImportGroup] = []
-    for order, (author, group_name, _files) in enumerate(planned):
-        existing_id = existing.get((group_name, author))
-        groups.append(
-            ImportGroup(
-                job_id=job_id,
-                author=author,
-                group_name=group_name,
-                image_group_id=existing_id,
-                merged_into_existing=existing_id is not None,
-                sort_order=order,
-            )
-        )
-    db.add_all(groups)
-    db.flush()  # one batched INSERT assigns every group id
-    for import_group, (_author, group_name, files) in zip(groups, planned, strict=True):
-        for file_entry in files:
-            item = by_path[file_entry["relative_path"]]
-            item.import_group_id = import_group.id
-            payload = _parsed_payload(file_entry["parsed"], group_name)
-            if item.image_type == AUTO:
-                # Tags differ by type (junk words); keep the scene parse for effective_parsed
-                payload["scene_tags"] = parser.parse(item.relative_path, image_type=SCENE)["tags"]
-            item.parsed = json.dumps(payload)
-
-    job.planned_at = utcnow()
-    db.flush()
-    recompute_job_status(db, job_id)
-    return groups
+    return apply_plan(db, job_id, compute_plan(db, job_id))
 
 
 # Job status
@@ -541,6 +596,11 @@ class JobBusyError(Exception):
     """Raised when an operation must wait for the batch in progress to finish."""
 
 
+class LinkedJobError(Exception):
+    """Raised when undoing a scan of the linked folder: its maps leave with "Stop using
+    this folder" (design/library-setup.md §4.6)."""
+
+
 def undo_job(db: Session, job_id: str):
     """Delete every image the job created, then the job itself (design §4.2).
 
@@ -553,6 +613,8 @@ def undo_job(db: Session, job_id: str):
     """
     from backend.app.services.deletion_service import delete_image_rows
 
+    if db.get_one(ImportJob, job_id).library_source_id is not None:
+        raise LinkedJobError(job_id)
     cancel_job(db, job_id)
     if job_counts(db, job_id).get(st.PROCESSING, 0):
         raise JobBusyError(job_id)
@@ -610,6 +672,14 @@ class ClaimedItem:
     # from a missing drive).
     source_path: str | None = None
     source_roots: tuple[str, ...] = ()
+    # Linked items (design/library-setup.md §4.4): the file's row and key in the linked
+    # folder, and the (size, mtime) it had when prepare read it.
+    source_file_id: int | None = None
+    source_key: str | None = None
+    source_version: Version | None = None
+    # A linked file that already is an image's: the item refreshes that image in place
+    # (design/library-setup.md §4.5). The image as it was when the item was claimed.
+    refresh: RefreshTarget | None = None
     # Grid sizes (NxM) named by other files in the same import group, both orientations.
     # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
     sibling_grid_counts: tuple[tuple[int, int], ...] = ()
@@ -646,11 +716,25 @@ def _sibling_grid_counts(
     return {gid: tuple(counts) for gid, counts in found.items()}
 
 
+@dataclass(frozen=True)
+class _LinkedSources:
+    """The linked folder keys of a batch's linked items, and the images of those that
+    are refreshes."""
+
+    keys: dict[int, str]
+    targets: dict[int, RefreshTarget]
+
+
 def _snapshot(
     item: ImportItem,
     sibling_grid_counts: tuple[tuple[int, int], ...] = (),
     source_roots: tuple[str, ...] = (),
+    linked: _LinkedSources | None = None,
 ) -> ClaimedItem:
+    file_id = item.source_file_id
+    refresh = linked.targets.get(file_id) if linked and file_id is not None else None
+    # A refresh keeps the image's type, whatever the scan queued it as
+    image_type = (refresh.image_type or BATTLEMAP) if refresh is not None else item.image_type
     return ClaimedItem(
         id=item.id,
         job_id=item.job_id,
@@ -658,8 +742,8 @@ def _snapshot(
         kind=item.kind,
         relative_path=item.relative_path,
         filename=item.filename,
-        image_type=item.image_type,
-        parsed=effective_parsed(item.image_type, json.loads(item.parsed) if item.parsed else {}),
+        image_type=image_type,
+        parsed=effective_parsed(image_type, json.loads(item.parsed) if item.parsed else {}),
         staging_key=item.staging_key,
         source_hash=item.source_hash,
         attempts=item.attempts,
@@ -667,7 +751,27 @@ def _snapshot(
         sibling_grid_counts=sibling_grid_counts,
         source_path=item.source_path,
         source_roots=source_roots if item.source_path else (),
+        source_file_id=file_id,
+        source_key=linked.keys.get(file_id) if linked and file_id is not None else None,
+        refresh=refresh,
     )
+
+
+def _linked_sources(db: Session, items: list[ImportItem]) -> _LinkedSources:
+    """The batch's linked files: their keys, and which already are an image's (one
+    query; the images are loaded only for those)."""
+    ids = [item.source_file_id for item in items if item.source_file_id is not None]
+    if not ids:
+        return _LinkedSources({}, {})
+    rows = (
+        db.query(SourceFile.id, SourceFile.rel_key, Image.id)
+        .outerjoin(Image, Image.source_file_id == SourceFile.id)
+        .filter(SourceFile.id.in_(ids))
+        .all()
+    )
+    keys = {file_id: rel_key for file_id, rel_key, _ in rows}
+    with_image = [file_id for file_id, _, image_id in rows if image_id is not None]
+    return _LinkedSources(keys, load_targets(db, with_image))
 
 
 def _claimable_filter(now: datetime):
@@ -715,11 +819,13 @@ def claim_next_batch(
             db, {item.import_group_id for item in items if item.import_group_id is not None}
         )
         roots = tuple(available[job_id])
+        linked = _linked_sources(db, items)
         return job_id, [
             _snapshot(
                 item,
                 siblings.get(item.import_group_id, ()) if item.import_group_id else (),
                 roots,
+                linked,
             )
             for item in items
         ]
@@ -768,12 +874,16 @@ class ItemFailure:
     stage: str
     reason: str
     detail: str = ""
+    # Linked items: the (size, mtime) of the file that failed, recorded on its row so a
+    # rescan only reads it again once it changes
+    source_version: Version | None = None
 
 
 # Failures that aren't the file's fault: the item goes back to ready, attempt refunded.
 _REFUNDED = {
     KIND_SYSTEM: ItemEvent.SYSTEM_ERROR,
     KIND_SOURCE_UNAVAILABLE: ItemEvent.SOURCE_UNAVAILABLE,
+    KIND_SOURCE_CHANGED: ItemEvent.SOURCE_CHANGED,
 }
 REFUNDED_KINDS = frozenset(_REFUNDED)
 
@@ -806,6 +916,8 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
             if refund is not None:
                 item.state = st.next_item_state(item.state, refund)
                 item.attempts = max(0, item.attempts - 1)
+                if failure.kind == KIND_SOURCE_CHANGED:
+                    item.retry_after = now + SOURCE_CHANGED_DELAY
                 continue
             if failure.kind == KIND_BYTES_LOST:
                 item.state = st.next_item_state(item.state, ItemEvent.BYTES_LOST)
@@ -821,6 +933,12 @@ def record_failures(failures: list[ItemFailure], now: datetime | None = None) ->
             item.error_stage = failure.stage
             item.error_reason = failure.reason
             item.error_detail = failure.detail[:4000] if failure.detail else None
+        versions = {
+            f.item_id: f.source_version
+            for f in failures
+            if f.source_version and f.item_id in items and items[f.item_id].state == st.FAILED
+        }
+        sync_files(db, items.values(), versions)
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -833,6 +951,7 @@ class EarlyDuplicate:
     item_id: int
     image_id: int
     source_hash: str
+    source_version: Version | None = None  # linked items: the file as it was read
 
 
 def library_byte_duplicate(source_hash: str) -> int | None:
@@ -862,6 +981,65 @@ def record_early_duplicates(duplicates: list[EarlyDuplicate]) -> set[str]:
             item.duplicate_tier = "bytes"
             item.source_hash = duplicate.source_hash
             job_ids.add(item.job_id)
+        settled = [items[d.item_id] for d in duplicates if items.get(d.item_id) is not None]
+        versions = {d.item_id: d.source_version for d in duplicates if d.source_version}
+        sync_files(db, settled, versions)
+        for job_id in job_ids:
+            recompute_job_status(db, job_id)
+    return job_ids
+
+
+@dataclass(frozen=True)
+class RefreshUnchanged:
+    """A refresh whose file has the image's bytes (it was only touched): nothing to
+    redo, only the file's version to record (design/library-setup.md §4.5)."""
+
+    item_id: int
+    image_id: int
+    source_hash: str
+    source_version: Version
+
+
+def finish_refresh_gone(item: ImportItem) -> None:
+    """A refresh whose image was removed meanwhile: skipped, with nothing to retry."""
+    item.state = st.next_item_state(item.state, ItemEvent.REFRESH_GONE)
+    item.error_kind = KIND_REFRESH_GONE
+    item.error_stage = "commit"
+    item.error_reason = REFRESH_GONE_REASON
+
+
+def finish_committed(item: ImportItem, image_id: int, source_hash: str) -> None:
+    item.state = st.next_item_state(item.state, ItemEvent.COMMITTED)
+    item.image_id = image_id
+    item.source_hash = source_hash
+    item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
+
+
+def record_refresh_unchanged(unchanged: list[RefreshUnchanged]) -> set[str]:
+    """Finish refreshes whose bytes didn't change: done, with their file's new version
+    recorded. Returns the affected job ids."""
+    if not unchanged:
+        return set()
+    job_ids: set[str] = set()
+    with write_session() as db:
+        items = {
+            item.id: item
+            for item in db.query(ImportItem).filter(
+                ImportItem.id.in_([u.item_id for u in unchanged])
+            )
+        }
+        settled: list[ImportItem] = []
+        for entry in unchanged:
+            item = items.get(entry.item_id)
+            if item is None or item.state != st.PROCESSING:
+                continue
+            job_ids.add(item.job_id)
+            settled.append(item)
+            if refreshed_image(db, entry.image_id, item.source_file_id) is None:
+                finish_refresh_gone(item)
+            else:
+                finish_committed(item, entry.image_id, entry.source_hash)
+        sync_files(db, settled, {u.item_id: u.source_version for u in unchanged})
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -903,6 +1081,7 @@ def record_sorted_out(sorted_out: list[SortedOut]) -> set[str]:
             item.classification = json.dumps(entry.classification)
             item.preview_key = entry.preview_key
             job_ids.add(item.job_id)
+        sync_files(db, items.values())
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     return job_ids
@@ -932,6 +1111,7 @@ def recover_interrupted() -> dict[str, int]:
             else:
                 item.state = st.next_item_state(item.state, ItemEvent.RECOVERED)
                 recovered += 1
+        sync_files(db, stranded)
         for job_id in job_ids:
             recompute_job_status(db, job_id)
     if recovered or crashed:
@@ -977,6 +1157,7 @@ def retry_items(db: Session, job_id: str, item_ids: list[int] | None = None) -> 
     items = _items_in(db, job_id, st.sources_for(ItemEvent.RETRY), item_ids).all()
     for item in items:
         _reopen(item, ItemEvent.RETRY, ItemEvent.RETRY_NEEDS_BYTES)
+    sync_files(db, items)
     db.flush()
     recompute_job_status(db, job_id)
     return len(items)
@@ -990,6 +1171,7 @@ def import_as_copy(db: Session, job_id: str, item_ids: list[int] | None = None) 
         item.allow_duplicate = True
         item.duplicate_of_image_id = None
         item.duplicate_tier = None
+    sync_files(db, items)
     db.flush()
     recompute_job_status(db, job_id)
     return len(items)
@@ -1024,6 +1206,7 @@ def include_sorted_out(db: Session, item_ids: list[int]) -> tuple[int, set[str],
         if item.preview_key:
             previews.append((item.job_id, item.preview_key))
         item.preview_key = None
+    sync_files(db, items)
     db.flush()
     job_ids = {item.job_id for item in items}
     for job in db.query(ImportJob).filter(ImportJob.id.in_(job_ids)):
@@ -1055,6 +1238,8 @@ def skip_items(
         item.error_reason = reason
         remove_staged(job_id, item.staging_key)
         item.staging_key = None
+    # A linked file skipped this way is forgotten: the next scan offers it again
+    sync_files(db, items)
     db.flush()
     recompute_job_status(db, job_id)
     return len(items)

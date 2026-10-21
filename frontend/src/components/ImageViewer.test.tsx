@@ -39,6 +39,7 @@ function makeImage(overrides: Partial<Image> = {}): Image {
   return {
     id: 1,
     storage_key: 'ab/cd.webp',
+    file_state: 'ok',
     filename: 'forest_clearing.png',
     author: 'Cartographer',
     name: 'Forest Clearing',
@@ -224,6 +225,30 @@ describe('ImageViewer', () => {
       expect(onClose).not.toHaveBeenCalled()
       fireEvent.click(viewer())
       expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('originals that cannot be read', () => {
+    it.each([
+      ['missing', 'The original file is missing.'],
+      ['offline', "The folder this image is in isn't available."],
+    ] as const)('shows the thumbnail when the file is %s, and no download', (file_state, text) => {
+      setup(makeImage({ file_state }))
+      expect(screen.getByRole('status')).toHaveTextContent(text)
+      expect(within(viewer()).getAllByRole('img')[0]).toHaveAttribute(
+        'src',
+        '/api/v1/images/1/thumbnail',
+      )
+      expect(screen.getByRole('button', { name: 'Download image' })).toBeDisabled()
+    })
+
+    it('shows the original when it can be read', () => {
+      setup(makeImage())
+      expect(within(viewer()).getAllByRole('img')[0]).toHaveAttribute(
+        'src',
+        '/api/v1/images/1/file',
+      )
+      expect(screen.getByRole('button', { name: 'Download image' })).toBeEnabled()
     })
   })
 

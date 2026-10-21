@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import sqlite3
 import sys
 import threading
 import traceback
@@ -19,15 +20,17 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import NoResultFound
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from .api import export, groups, images, imports, jobs, search, system, tags
+from .api import export, groups, images, imports, jobs, library, search, system, tags
 from .api import models as models_api
 from .api import settings as settings_api
 from .api.rate_limits import limiter
 from .config import settings
 from .host_check import LoopbackHostMiddleware
+from .library_identity import LibraryMismatchError, check_library, open_library
 from .logging_config import setup_logging
 from .models import (
     get_engine,
@@ -44,10 +47,19 @@ logger = logging.getLogger(__name__)
 
 DESKTOP_LOCK_WAIT_SECS = 30.0
 
+# Set when the library check refused the folders, so the desktop sidecar can exit with a
+# code of its own and Electron can offer to choose other folders (library-setup.md §3.3).
+library_refused = False
+
+
+def _database_path() -> Path:
+    return Path(make_url(settings.database_url).database or "")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    global library_refused
     # Configure logging first so all startup messages go to our handlers.
     setup_logging(settings.app_data_dir, debug=settings.debug)
 
@@ -61,14 +73,38 @@ async def lifespan(app: FastAPI):
     storage_locks = []
     try:
         for root in (settings.app_data_dir, settings.image_library_dir):
-            # A missing library (e.g. an unmounted drive) is not created here; the
-            # ingest worker pauses until it appears.
+            # A missing store isn't created here. The library check below refuses it
+            # if the database has files there (e.g. an unmounted drive); otherwise it's
+            # a new, empty store, created and locked once the check has passed.
             if root.is_dir():
                 storage_locks.append(acquire_storage_lock(root, timeout=lock_wait))
     except StorageLockedError as exc:
         for lock in storage_locks:
             lock.release()
         logger.critical("STARTUP ERROR: %s", exc)
+        raise
+
+    # Before anything touches either root: the folders must belong to one library
+    # (design/library-setup.md §3.3). Read-only; open_library() below finishes it.
+    library_dirs = {
+        "app_data": settings.app_data_dir,
+        "store": settings.store_images_dir,
+        "linked": settings.linked_library_dir,
+    }
+    try:
+        check_library(**library_dirs, database=_database_path())
+    except (LibraryMismatchError, sqlite3.Error) as exc:
+        library_refused = isinstance(exc, LibraryMismatchError)
+        for lock in storage_locks:
+            lock.release()
+        logger.warning(
+            "Library folders: app data %s, images %s, linked %s",
+            *library_dirs.values(),
+        )
+        if isinstance(exc, sqlite3.Error):
+            logger.critical("STARTUP ERROR: Could not read the database at %s.", _database_path())
+        else:
+            logger.critical("STARTUP ERROR: %s", exc)
         raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
@@ -83,10 +119,9 @@ async def lifespan(app: FastAPI):
         engine = get_engine(settings.database_url)
         init_db(engine)
     except Exception as exc:
-        db_path = settings.database_url.replace("sqlite:///", "")
         logger.critical(
             "STARTUP ERROR: Could not initialize database at %s: %s",
-            db_path,
+            _database_path(),
             exc,
         )
         raise
@@ -113,8 +148,24 @@ async def lifespan(app: FastAPI):
         from .services.app_settings import get_settings as get_app_settings
 
         app_config = get_app_settings(session)
+
+        try:
+            library_id = open_library(session, **library_dirs)
+        except OSError as exc:
+            logger.critical("STARTUP ERROR: Could not write to the library folders: %s", exc)
+            raise
+        logger.info("Library %s", library_id)
+
+        from ..pipeline.linked_scan import reconcile_linked_source
+
+        reconcile_linked_source(session)
     finally:
         session.close()
+
+    # A store the check allowed to be created (a new library) is locked like the others.
+    library_root = settings.image_library_dir.resolve()
+    if library_root.is_dir() and all(lock.root != library_root for lock in storage_locks):
+        storage_locks.append(acquire_storage_lock(library_root))
 
     # Initialize prepare pool with the system-wide concurrency limit
     init_prepare_pool(app_config.max_concurrent_prepare)
@@ -193,6 +244,15 @@ async def lifespan(app: FastAPI):
         ingest_worker.start()
         logger.info("Ingest worker started")
 
+    # The linked folder (design/library-setup.md §4.3): scanned now, then on a timer.
+    # Background scans feed the worker, so they run with it (tests drive both by hand).
+    from ..pipeline.linked_scanner import get_linked_scanner, rescan_timer
+
+    rescan_task: asyncio.Task | None = None
+    if settings.ingest_worker_enabled and settings.linked_library_dir is not None:
+        get_linked_scanner().start("startup")
+        rescan_task = asyncio.create_task(rescan_timer())
+
     # Start scheduler for periodic maintenance. Overdue tasks run shortly after
     # startup, so short desktop sessions still get maintenance.
     from .services.scheduler import Scheduler
@@ -268,6 +328,8 @@ async def lifespan(app: FastAPI):
     yield
 
     heartbeat_task.cancel()
+    if rescan_task is not None:
+        rescan_task.cancel()
 
     # Shutdown
     logger.info("Shutting down application")
@@ -365,6 +427,7 @@ app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=[
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
 app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
+app.include_router(library.router, prefix=f"{settings.api_prefix}/library", tags=["library"])
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
 

@@ -66,8 +66,8 @@ def export_lib(test_client, tmp_db, make_test_image, tmp_path, monkeypatch):
 
     store = ImageStore(tmp_path / "image_store")
 
-    # Patch both the API-level and pipeline-level image store
-    monkeypatch.setattr("backend.app.api.export.get_image_store", lambda: store)
+    # Originals are read through services.originals, which uses the package getter
+    monkeypatch.setattr("backend.app.services.get_image_store", lambda: store)
 
     ids = _seed_library(db, store, make_test_image, tmp_path)
     db.close()

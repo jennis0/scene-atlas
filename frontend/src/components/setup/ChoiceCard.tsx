@@ -6,7 +6,7 @@ interface Choice {
   value: string
   label: string
   /** Read out with the radio as its description */
-  description: ReactNode
+  description?: ReactNode
   /** Short visual tag in the corner, e.g. "Recommended"; also read at the end of the description */
   badge?: string
   /** Below the description, outside the radio's label (e.g. a details disclosure) */
@@ -27,6 +27,7 @@ interface ChoiceCardProps {
 export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps) {
   const { value, label, description, badge, footer } = choice
   const descriptionId = useId()
+  const described = description != null || badge != null
   return (
     <div
       onClick={onSelect}
@@ -45,7 +46,7 @@ export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps)
           value={value}
           checked={checked}
           onChange={onSelect}
-          aria-describedby={descriptionId}
+          aria-describedby={described ? descriptionId : undefined}
           className="sr-only"
         />
         {checked ? (
@@ -56,11 +57,16 @@ export function ChoiceCard({ name, choice, checked, onSelect }: ChoiceCardProps)
         {label}
       </label>
 
-      <div id={descriptionId} className="space-y-2.5 text-xs text-muted-foreground leading-relaxed">
-        {description}
-        {/* Last: an sr-only first child would still push the next one down (space-y) */}
-        {badge && <p className="sr-only">{badge}.</p>}
-      </div>
+      {described && (
+        <div
+          id={descriptionId}
+          className="space-y-2.5 text-xs text-muted-foreground leading-relaxed"
+        >
+          {description}
+          {/* Last: an sr-only first child would still push the next one down (space-y) */}
+          {badge && <p className="sr-only">{badge}.</p>}
+        </div>
+      )}
 
       {footer}
 

@@ -1,10 +1,8 @@
-// Native folder and file pickers: the storage folders (setup and Settings) and local
+// Native folder and file pickers: the library's folders (setup and Settings) and local
 // imports. main.ts registers the IPC that opens them; each picker opens over the window
 // that asked, or on its own if that window has gone.
 import { app, BrowserWindow, dialog } from 'electron'
-import { hasForeignEntries } from './storageDirs'
-
-export type StorageKind = 'appData' | 'imageLibrary'
+import type { FolderKind } from './libraryDirs'
 
 const IMPORT_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'zip']
 
@@ -20,73 +18,29 @@ async function openDialog(
   return result.canceled ? [] : result.filePaths
 }
 
-/** Whether the user still wants a folder that already holds other files. */
-async function confirmForeignFolder(
-  sender: Electron.WebContents,
-  detail: string,
-): Promise<boolean> {
-  const win = BrowserWindow.fromWebContents(sender)
-  const options: Electron.MessageBoxOptions = {
-    type: 'warning',
-    title: 'Folder is not empty',
-    message: 'This folder already has other files in it.',
-    detail,
-    buttons: ['Choose Another Folder', 'Use This Folder'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  }
-  const { response } = win
-    ? await dialog.showMessageBox(win, options)
-    : await dialog.showMessageBox(options)
-  return response === 1
+const FOLDER_PICKER_TITLES: Record<FolderKind, string> = {
+  appData: 'Choose Search Data Folder',
+  store: 'Choose Imported Images Folder',
+  linked: 'Choose Your Images Folder',
 }
 
-function storagePicker(kind: StorageKind): { title: string; foreignDetail: string } {
-  switch (kind) {
-    case 'appData':
-      return {
-        title: 'Choose App Data Folder',
-        foreignDetail:
-          'Scene Atlas keeps its database, thumbnails and search index here. ' +
-          'A new or empty folder keeps them apart from your other files.',
-      }
-    case 'imageLibrary':
-      return {
-        title: 'Choose Image Library Folder',
-        foreignDetail:
-          'Scene Atlas keeps its own copy of every image you import here, in its own ' +
-          'folder layout. It will not show the files already in this folder: bring ' +
-          'your existing maps in with Import instead.\n\nA new or empty folder is best.',
-      }
-  }
-}
-
-/** Pick a storage folder, warning when it already holds files Scene Atlas didn't create
- * (most likely the user's existing collection, design/electron.md). Null when cancelled,
- * and when a dialog fails: the user can just try again. */
-export async function pickStorageDir(
+/** One of the library's folders (design/library-setup.md). A plain picker: the setup
+ * wizard and Settings check the choice with the backend. Null when cancelled, and when the
+ * dialog fails: the user can just try again. */
+export async function pickLibraryFolder(
   sender: Electron.WebContents,
-  kind: StorageKind,
+  kind: FolderKind,
   defaultPath?: string,
-  otherRoot?: string,
 ): Promise<string | null> {
-  const { title, foreignDetail } = storagePicker(kind)
   try {
-    for (;;) {
-      const paths = await openDialog(sender, {
-        title,
-        // Electron 43+ opens dialogs in Downloads unless given a starting folder.
-        defaultPath: defaultPath ?? app.getPath('home'),
-        properties: ['openDirectory', 'createDirectory'],
-        buttonLabel: 'Select Folder',
-      })
-      if (paths.length === 0) return null
-      const chosen = paths[0]
-      if (!hasForeignEntries(chosen, otherRoot)) return chosen
-      if (await confirmForeignFolder(sender, foreignDetail)) return chosen
-      defaultPath = chosen
-    }
+    const paths = await openDialog(sender, {
+      title: FOLDER_PICKER_TITLES[kind],
+      // Electron 43+ opens dialogs in Downloads unless given a starting folder.
+      defaultPath: defaultPath ?? app.getPath('home'),
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Select Folder',
+    })
+    return paths[0] ?? null
   } catch (err) {
     console.error('[electron] Folder picker failed:', err)
     return null

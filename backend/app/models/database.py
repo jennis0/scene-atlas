@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -17,10 +18,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    select,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
+    column_property,
     mapped_column,
     relationship,
     sessionmaker,
@@ -42,15 +45,87 @@ GRID_SOURCE_USER = "user"
 GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
 
 
+# The linked folder (design/library-setup.md §4): the user's own maps, read where they are.
+
+SOURCE_KIND_FOLDER = "folder"
+SOURCE_ONLINE = "online"
+SOURCE_OFFLINE = "offline"
+SOURCE_DETACHED = "detached"  # the row exists but no folder is configured
+
+FILE_PENDING = "pending"  # queued in an import job
+FILE_IMAGE = "image"
+FILE_DUPLICATE = "duplicate"
+FILE_SKIPPED = "skipped"
+FILE_FAILED = "failed"
+FILE_REMOVED = "removed"  # its image was removed; rescans leave it out
+
+
+class LibrarySource(Base):
+    """A linked folder. One row today; a table so files and images can reference it and
+    other kinds (S3) can be added later."""
+
+    __tablename__ = "library_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False, default=SOURCE_KIND_FOLDER)
+    location: Mapped[str] = mapped_column(Text, nullable=False)  # last-known absolute path
+    state: Mapped[str] = mapped_column(String, nullable=False, default=SOURCE_ONLINE)
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<LibrarySource(id={self.id}, state='{self.state}')>"
+
+
+class SourceFile(Base):
+    """One file in a linked folder: the durable index that lets a rescan skip every file
+    it has seen, whatever became of it (an image, a duplicate, skipped or failed)."""
+
+    __tablename__ = "source_files"
+    __table_args__ = (
+        UniqueConstraint("source_id", "rel_key", name="uq_source_files_source_key"),
+        Index("ix_source_files_source_state", "source_id", "state"),
+        Index("ix_source_files_image", "image_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("library_sources.id"), nullable=False
+    )
+    # POSIX path relative to the folder ("Author/Pack/file.jpg")
+    rel_key: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mtime_ns: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, default=FILE_PENDING)
+    # The image (state image) or the one it duplicates (state duplicate)
+    image_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("images.id"), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # skipped or failed: why
+    missing_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<SourceFile(id={self.id}, key='{self.rel_key}', state='{self.state}')>"
+
+
 class Image(Base):
     """Main image table."""
 
     __tablename__ = "images"
-    __table_args__ = (Index("ix_images_gridded_grid_type", "gridded", "grid_type"),)
+    __table_args__ = (
+        Index("ix_images_gridded_grid_type", "gridded", "grid_type"),
+        Index("ix_images_source_file_id", "source_file_id", unique=True),
+        CheckConstraint(
+            "storage_key IS NOT NULL OR source_file_id IS NOT NULL", name="ck_images_original"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     filename: Mapped[str] = mapped_column(String, nullable=False, index=True)  # For display
-    storage_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # ImageStore key
+    # The original: a key in the store, or (linked images) a file in the linked folder.
+    # Read it through backend.app.services.originals, never by building a path.
+    storage_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    source_file_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("source_files.id"), nullable=True
+    )
     name: Mapped[str | None] = mapped_column(String, index=True)  # Inferred base name
     author: Mapped[str | None] = mapped_column(String, index=True)
     group_id: Mapped[int | None] = mapped_column(
@@ -122,6 +197,30 @@ class Image(Base):
     group: Mapped["ImageGroup | None"] = relationship(
         "ImageGroup", back_populates="images", foreign_keys="[Image.group_id]"
     )
+    # Linked images: their file. Load it explicitly (selectinload) when reading many.
+    source_file: Mapped["SourceFile | None"] = relationship(
+        "SourceFile", foreign_keys="[Image.source_file_id]", viewonly=True
+    )
+    # Whether a linked image's file is missing from the folder; None for stored images.
+    # A correlated subquery, so image listings need no extra query for file_state.
+    source_missing: Mapped[bool | None] = column_property(
+        select(SourceFile.missing_since.isnot(None))
+        .where(SourceFile.id == source_file_id)
+        .correlate_except(SourceFile)
+        .scalar_subquery()
+    )
+
+    @property
+    def file_state(self) -> str:
+        """``ok``, ``missing`` (a linked file gone from its folder) or ``offline`` (its
+        folder isn't available). Stored originals are always ``ok``."""
+        if self.source_file_id is None:
+            return "ok"
+        from backend.app.services.originals import linked_folder_available
+
+        if not linked_folder_available():
+            return "offline"
+        return "missing" if self.source_missing else "ok"
 
     @property
     def group_name(self) -> str | None:
@@ -268,6 +367,10 @@ class ImportJob(Base):
     # Local imports (design/local-ingest.md): JSON list of the folders the job reads
     # from. The job waits while any of them is missing.
     source_roots: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A scan of the linked folder (design/library-setup.md §4.3): no Undo.
+    library_source_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("library_sources.id"), nullable=True
+    )
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -366,6 +469,11 @@ class ImportItem(Base):
     # Local imports: the original file's absolute path, read by the worker (never
     # written). NULL for uploads, whose bytes are in staging (staging_key).
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Linked items: the file's row. The worker reads it through the linked folder (by
+    # its key); source_path is only what it was when the item was made.
+    source_file_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("source_files.id"), nullable=True
+    )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retry_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_kind: Mapped[str | None] = mapped_column(
@@ -399,6 +507,7 @@ class ImportItem(Base):
         Index("ix_import_items_job_state", "job_id", "state"),
         Index("ix_import_items_job_group", "job_id", "import_group_id"),
         Index("ix_import_items_group_state", "import_group_id", "state"),
+        Index("ix_import_items_source_file", "source_file_id"),
     )
 
     def __repr__(self):

@@ -7,23 +7,22 @@ Scene Atlas ships as a desktop app using Electron (44; it needs macOS 13+, and t
 ```
 ┌──────────────────────────────────────────────────┐
 │  Electron Main Process  (electron/src/main.ts)   │
-│  ┌────────────────┐  ┌────────────────────────┐  │
-│  │  Setup Window   │  │  Main Window            │  │
-│  │  (first-run)    │  │  React app              │  │
-│  │  setup.html     │  │                         │  │
-│  │  ↕ setup IPC    │  │  ↕ preload IPC          │  │
-│  └────────────────┘  └────────────────────────┘  │
-│                            │                      │
-│                      ┌─────▼──────┐               │
-│                      │  Sidecar   │               │
-│                      │  (Python   │               │
-│                      │  backend)  │               │
-│                      └────────────┘               │
+│  ┌──────────────────────────────────────────┐    │
+│  │  Main Window                             │    │
+│  │  loading.html, then the React app        │    │
+│  │  ↕ preload IPC                           │    │
+│  └──────────────────────────────────────────┘    │
+│                     │                            │
+│               ┌─────▼──────┐                     │
+│               │  Sidecar   │                     │
+│               │  (Python   │                     │
+│               │  backend)  │                     │
+│               └────────────┘                     │
 └──────────────────────────────────────────────────┘
 ```
 
 - **Main process** — Window lifecycle, IPC handlers, sidecar management. Holds a single-instance lock; a second launch focuses the existing window.
-- **Preload scripts** — Secure IPC bridges (context-isolated, sandboxed, no Node integration)
+- **Preload script** — Secure IPC bridge (context-isolated, sandboxed, no Node integration)
 - **Renderer** — The React frontend. Packaged, it is served by the sidecar at `http://127.0.0.1:<port>/`; in dev, by Vite at `localhost:5173`
 - **Sidecar** — PyInstaller-frozen Python backend (FastAPI + Uvicorn), spawned as a child process
 
@@ -46,57 +45,76 @@ origin, and therefore its localStorage (theme, custom colours, view preferences)
 ```
 app.whenReady()  (only if the single-instance lock was acquired)
   → loadConfig()
-  → config exists?
-     ├── YES → launchApp(appDataDir, imageLibraryDir)
-     │         → createMainWindow()
-     │         → isDev?
-     │         │   ├── YES → load the Vite dev server (developer runs the backend on port 8000)
-     │         │   └── NO  → load loading.html
-     │         │              → prepareStorageDirs()  (create + write-test both roots; error page if unusable)
-     │         │              → findFreePort(47816)
-     │         │              → spawnSidecar(port, appDataDir, imageLibraryDir)
-     │         │              → sidecar prints SCENE_ATLAS_READY (once uvicorn is listening)
-     │         │              → poll /health → loadURL(http://127.0.0.1:<port>/)
-     │         └── App.tsx checks /models/setup-status → SetupWizard or gallery
-     └── NO  → showSetupWindow()
-              → user picks appDataDir and imageLibraryDir
-              → setup:complete IPC → validate + prepareStorageDirs → saveConfig → launchApp(...)
+  → no usable config? (first launch)
+  │   → move an unreadable config aside (scene-atlas-config.json.unusable-<time>)
+  │   → save the default folders with provisional: true (only if they're missing or empty)
+  │     and libraryChosen: false
+  → launchApp(dirs)
+     → createMainWindow()
+     → isDev?
+     │   ├── YES → load the Vite dev server (developer runs the backend on port 8000)
+     │   └── NO  → load loading.html, then startBackend(dirs):
+     │              → prepareStorageDirs()  (create + write-test app data and store; error page if unusable)
+     │              → findFreePort(47816)
+     │              → spawnSidecar(port, appData, store, linked?)
+     │              → sidecar prints SCENE_ATLAS_READY (once uvicorn is listening)
+     │              → poll /health → loadURL(http://127.0.0.1:<port>/)
+     └── App.tsx checks /models/setup-status → SetupWizard or gallery
 ```
+
+There is no storage window. A first launch runs a provisional library on the default folders, and the setup wizard's desktop-only **Your library** step can replace them ([library-setup.md](library-setup.md#2-first-run-flow-desktop)). The wizard skips that step once `libraryChosen` is set.
 
 The main process remembers the last `backend-error` and re-sends it on every `did-finish-load`, and the preload caches it, so the loading page receives it even after a reload.
 
+With the error, main sends the actions the loading page offers. **Try again** (`startup:retry`) restarts the backend on the same folders after any startup failure. **Choose folders…** (`startup:choose-folders`) is offered when the folders were refused (the sidecar exits with code 4, `LIBRARY_REFUSED`) or can't be used, and they aren't the defaults. It puts the config back on the default folders with `libraryChosen: false` and restarts, so the setup wizard's library step shows again ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)).
+
 ### Storage folder checks
 
-`electron/src/storageDirs.ts` (no `electron` import, unit tested with `node --test` in `electron/test/`) holds the checks on the two roots:
+Node-only modules (no `electron` import, unit tested with `node --test` in `electron/test/`; they import each other with `.ts` extensions, which `rewriteRelativeImportExtensions` turns into `.js`):
 
-- **`prepareStorageDirs`** creates both roots and write-tests them, on setup, on a storage change and on every launch (a drive may have been unmounted).
-- **`hasForeignEntries`** is used by `pickStorageDir()` in `main.ts` whenever the user picks either folder, in setup or in Settings. When the folder already holds entries Scene Atlas didn't create, a native warning offers *Choose Another Folder* (the default) or *Use This Folder*. The likely case is someone pointing the image library at their existing map collection: Scene Atlas would never show those files, and the reset instructions say to delete the library folder. Its own entries are dotfiles, two-character lower-case hex shards, `backups` and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe), and so is a folder that contains the other root. Update the lists whenever the backend writes a new top-level entry to either root.
+- **`storageDirs.ts`**
+  - **`prepareStorageDirs`** creates the app data folder and the store and write-tests them, on every launch (a drive may have been unmounted) and before applying new folders. It is never called on the linked folder, which is read-only.
+  - **`hasForeignEntries`** decides whether a replaced provisional folder may be deleted; a folder it can't read counts as foreign. Its own entries are dotfiles, two-character lower-case hex shards, `backups`, the library marker (`scene-atlas-library.json`) and the app data entries (`battlemap.db*`, `lancedb`, `store`, `logs`, …), plus OS clutter. Both lists are accepted in either folder, so one folder for both is allowed (the backend's storage lock is per resolved root, so that's safe). Update the lists whenever the backend writes a new top-level entry to either root; a missing entry only means a provisional folder is kept.
+  - **`isSameOrInside`** / **`isSamePath`** compare folders, case-insensitively on Windows and macOS.
+- **`libraryDirs.ts`** checks folders sent by `applyLibrary` (absolute; the store and app data may not be the linked folder or contain it, mirroring the backend, which is authoritative), decides whether they changed, which provisional folders they replace, and refuses a store inside a linked folder that is missing (creating it would create the linked folder).
+- **`appConfig.ts`** reads the config file's shape (below).
 
-The Electron setup window only chooses storage directories. Everything else (appearance, stored format, tag packs, search model) is the React setup wizard, the same in every mode (see [first-run.md](first-run.md)). The UI's display choices and colours are kept in the config too, so every window, the title bar included, follows the theme chosen in the app (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)).
+The folder pickers are plain: the wizard and Settings check a picked folder with the backend's `POST /library/inspect` instead of a native warning box.
+
+Everything else in setup (appearance, stored format, tag packs, search model) is the React setup wizard, the same in every mode (see [first-run.md](first-run.md)). The UI's display choices and colours are kept in the config too, so every window, the title bar included, follows the theme chosen in the app (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)).
+
+### Changing folders: in-window restart
+
+`library:apply` (the wizard's library step and Settings' storage change) runs in `main.ts`:
+
+1. Validate (`parseLibraryDirs`, `unavailableLinkedError`) and `prepareStorageDirs`. A rejection resolves `{ error }`.
+2. Save the config with the folders, `libraryChosen: true` and `provisional: false`. Keeping the defaults ends `provisional` too: they are the user's library from then on.
+3. Nothing changed: resolve `{ error: null, restarted: false }`.
+4. Otherwise `restartBackend()`, and the call never resolves:
+   1. show `loading.html` in the same window;
+   2. `stopSidecar(QUIT_GRACE_MS, force)`: past the grace period it is killed on every platform, since the new backend may need the same folders' locks;
+   3. if the config was provisional, delete the replaced default folders (`provisionalDirsToDelete`, `removeProvisionalDirs`), each only when `hasForeignEntries` is false, then the empty `Scene Atlas` folder they sat in. Only the current defaults are candidates, and a folder that is, holds or sits inside a new folder is never deleted;
+   4. `startBackend()` on the new folders, which loads the UI when it is ready. The preload runs again, so the wizard sees `libraryChosen`.
+
+A second call while restarting never resolves, and nothing else starts a backend until the restart settles: on macOS, `activate` waits for it, so a window closed mid-restart can't leave two backends on the same folders. In dev there's no sidecar: the config is saved and the call resolves `{ restarted: false }`; the developer's backend ignores the folders (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` and restart it).
+
+A backend that refuses the folders ([library-setup.md §3.3](library-setup.md#33-startup-check-both-modes)) shows its error on the loading page, with **Try again** and **Choose folders…** (see [Startup Sequence](#startup-sequence)). Each `startup:*` handler acts only while the page offers it.
 
 ## IPC Channels
 
 Every handler is registered through `handleTrusted()`, which rejects calls whose sender frame is not an app URL (`isAppUrl()` in `main.ts`). Windows are hardened: `window.open` is denied and navigation away from the app is blocked; http(s) links open in the system browser.
 
-### Setup Window (via `setupAPI`, `electron/src/setup.preload.ts`)
-
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `setup:get-default-dirs` | renderer → main | Returns `{ appDataDir, imageLibraryDir }` defaults (`<base>/data` and `<base>/images`; see [Config Storage](#config-storage)) |
-| `setup:choose-directory` | renderer → main | `(kind, currentDir, otherRoot)`: opens the folder picker at `currentDir` with the non-empty-folder warning (`pickStorageDir`), returns the chosen path or null |
-| `setup:complete` | renderer → main | `(appDataDir, imageLibraryDir)`: validates absolute paths, creates and write-tests both roots, saves config, launches app, closes setup. Returns `{ error: string \| null }` |
-
 ### Main Window (via `electronAPI`, `electron/src/preload.ts`)
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes |
-| `system:get-app-data-dir` | renderer → main | Returns current app data directory path |
-| `system:get-image-library-dir` | renderer → main | Returns current image library directory path |
-| `system:choose-app-data-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new app data location |
-| `system:choose-image-library-dir` | renderer → main | Folder picker (with the non-empty-folder warning) for a new image library location |
-| `system:change-storage-dirs` | renderer → main | Validates and prepares the new roots, saves config, stops the sidecar, relaunches the app. Resolves with `{ error }` only if the new locations are rejected |
-| `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: the config's `displayPrefs`, exposed as `electronAPI.displayPrefs` |
+| `backend-error` | main → loading page | Error message if the sidecar fails to start or crashes, and the actions to offer (`{retry, chooseFolders}`) |
+| `startup:retry` | loading page → main | Restart the backend on the same folders |
+| `startup:choose-folders` | loading page → main | Back to the default folders and the wizard's library step |
+| `library:get-dirs` | renderer → main | `{ appData, store, linked, defaults: { appData, store } }`: the folders the backend runs on, and the first-launch defaults |
+| `library:choose-folder` | renderer → main | `(kind, current?)`, kind `appData` \| `store` \| `linked`: a plain native folder picker starting at `current`; the path, or null |
+| `library:apply` | renderer → main | `({ appData, store, linked })`: see [Changing folders](#changing-folders-in-window-restart). Resolves `{ error, restarted: false }`, or never when the backend restarts |
+| `prefs:get-sync` | preload → main | Synchronous (`sendSync`), once per page load: `{ displayPrefs, libraryChosen }` from the config, exposed as `electronAPI.displayPrefs` and `electronAPI.libraryChosen` |
 | `prefs:set` | renderer → main | `(key, value)`: saves one display choice (validated); the theme also sets `nativeTheme.themeSource` |
 | `window:set-colors` | renderer → main | `{ background, foreground }` hex: sets the window background and the Windows title-bar overlay, and saves them for the next launch |
 | `updates:get-state` | renderer → main | The updater's state (`UpdateState` in `updatePolicy.ts`), null before it starts |
@@ -112,26 +130,28 @@ Every handler is registered through `handleTrusted()`, which rejects calls whose
 window.electronAPI = {
   platform: string,                                   // 'darwin' | 'win32' | 'linux'
   onBackendError: (cb: (msg) => void) => () => void,  // replays cached value; used by loading.html
-  getAppDataDir: () => Promise<string | null>,
-  getImageLibraryDir: () => Promise<string | null>,
-  chooseAppDataDir: () => Promise<string | null>,
-  chooseImageLibraryDir: () => Promise<string | null>,
-  changeStorageDirs: (appDataDir, imageLibraryDir) => Promise<{ error: string | null }>,
-  getUpdateState, checkForUpdates, setUpdatesEnabled,   // see Updates
-  installUpdate, openUpdateDownload, onUpdateState,
+  displayPrefs, setDisplayPref, setWindowColors,      // design/first-run.md
+  libraryChosen: boolean,                             // the wizard's library step is done
+  getStorageDirs: () => Promise<StorageDirs>,
+  chooseFolder: (kind, current?) => Promise<string | null>,
+  applyLibrary: (dirs) => Promise<{ error: string | null; restarted: boolean }>,
+  getUpdateState, checkForUpdates, setUpdateChoice,    // see Updates
+  downloadUpdate, installUpdate, openUpdateDownload, onUpdateState,
 }
 ```
+
+The types are in `frontend/src/electron.d.ts` (the contract is in [library-setup.md](library-setup.md#interfaces-between-the-parts)).
 
 Imports name local files by path ([local-ingest.md](local-ingest.md)): the preload exposes `getPathForFile` (`webUtils.getPathForFile`, for dropped items) and `chooseImportFolders` / `chooseImportFiles` (native pickers via `imports:choose-folders` / `imports:choose-files`, registered with `handleTrusted`). They only return paths the user picked; the backend reads the files.
 
 ## Sidecar Lifecycle
 
 1. **Port discovery** — `findFreePort(47816)` uses the preferred port if free, otherwise binds `127.0.0.1:0` for an OS-assigned port
-2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir, '--parent-pid', process.pid])`, stdin/stdout/stderr piped (stdin is never written to; see the parent watchdog below). Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. Configuration goes on the command line, not in environment variables.
+2. **Spawn** — `spawn(sidecarPath, ['--port', port, '--app-data-dir', appDataDir, '--image-library-dir', imageLibraryDir, ['--linked-library-dir', linkedLibraryDir,] '--parent-pid', process.pid])`, the linked folder only when one is configured, stdin/stdout/stderr piped (stdin is never written to; see the parent watchdog below). Sidecar path: `path.join(process.resourcesPath, 'sidecar', 'scene-atlas-backend[.exe]')`. Configuration goes on the command line, not in environment variables.
 3. **Ready signal** — `entry.py` runs uvicorn through a `uvicorn.Server` subclass that prints `SCENE_ATLAS_READY port=…` after startup has bound the socket (so after the lifespan, too). The main process scans stdout for it, polls `/health`, then loads the UI from the sidecar. Only the sidecar prints the marker; other launchers (E2E, the stress runner) poll `/health`
 4. **Logging** — stdout/stderr appended to `{userData}/backend.log`; the log is rotated to `backend.log.1` when it exceeds 5 MB at startup
 5. **Failure handling** — Spawn errors, any exit before ready, and a non-zero exit after ready send `backend-error` with the last 10 output lines and the log path. `loading.html` headlines the last Python exception message in those lines (e.g. another backend already holding the data folder's lock, see [backend.md](backend.md#startup-sequence-mainpy-lifespan)), else the first line of the error
-6. **Shutdown** — `stopSidecar()` closes the sidecar's stdin and, except on Windows, sends `SIGTERM`, then waits (5 s by default); on Windows, where `kill()` is `TerminateProcess`, it kills the sidecar only if it is still running after that. `will-quit` holds the quit (`preventDefault`) until it resolves, for up to `QUIT_GRACE_MS` (15 s). That wait is what makes the stop graceful on Windows: libuv puts every spawned child in a job object with `KILL_ON_JOB_CLOSE`, so the sidecar is terminated the moment Electron exits; before the wait, every normal close killed the backend mid-shutdown (found by the packaged-app tests). Also called on macOS's `window-all-closed` (the app stays in the dock) and before relaunching for a storage change. The backend logs `Shutdown complete` when its lifespan has finished
+6. **Shutdown** — `stopSidecar()` closes the sidecar's stdin and, except on Windows, sends `SIGTERM`, then waits (5 s by default); on Windows, where `kill()` is `TerminateProcess`, it kills the sidecar only if it is still running after that. `will-quit` holds the quit (`preventDefault`) until it resolves, for up to `QUIT_GRACE_MS` (15 s). That wait is what makes the stop graceful on Windows: libuv puts every spawned child in a job object with `KILL_ON_JOB_CLOSE`, so the sidecar is terminated the moment Electron exits; before the wait, every normal close killed the backend mid-shutdown (found by the packaged-app tests). Also called on macOS's `window-all-closed` (the app stays in the dock) and by the in-window restart, which kills the sidecar on every platform if it outlasts the grace period. The backend logs `Shutdown complete` when its lifespan has finished
 7. **Parent watchdog** — (macOS and Linux; on Windows the job object ends the sidecar with Electron, abruptly, before the watchdog can act) `--parent-pid` turns on `backend/app/parent_watchdog.py` in the sidecar, so it never outlives Electron (crash, force-quit, `app.exit()` without `will-quit`). It fires when stdin reaches EOF (the OS closes Electron's end of the pipe however Electron exits, on every platform) or when a 2 s poll finds the parent PID gone (psutil, so a reused PID doesn't count; covers an unreadable stdin). Firing sets the uvicorn server's `should_exit`, which runs the normal graceful shutdown (ingest batch, storage locks); if the process is still alive 90 s later it calls `os._exit(1)`. Without the flag (dev, server mode) stdin is ignored
 
 In dev mode the sidecar is not spawned — the developer runs the backend on port 8000.
@@ -216,7 +236,7 @@ The rest is hard to cut: `_lancedb.pyd` alone is 225 MB (kept, see [status-and-r
 | `enableNodeOptionsEnvironmentVariable` | off | `NODE_OPTIONS` could preload code into the main process |
 | `enableNodeCliInspectArguments` | off | `--inspect` would open a debugger on the main process |
 | `enableEmbeddedAsarIntegrityValidation` + `onlyLoadAppFromAsar` | on | only the shipped, hash-checked `app.asar` is loaded |
-| `grantFileProtocolExtraPrivileges` | **on** (default) | Off, `file://` can't read inside `app.asar`, so `setup.html` and `loading.html` fail with `ERR_FILE_NOT_FOUND` (found by the packaged-app tests). Turning it off needs those pages served from a custom protocol (`protocol.handle`), with `isAppUrl()` and the IPC sender checks moved to that scheme |
+| `grantFileProtocolExtraPrivileges` | **on** (default) | Off, `file://` can't read inside `app.asar`, so `loading.html` fails with `ERR_FILE_NOT_FOUND` (found by the packaged-app tests). Turning it off needs that page served from a custom protocol (`protocol.handle`), with `isAppUrl()` and the IPC sender checks moved to that scheme |
 
 With `--inspect` gone, Playwright's `_electron.launch` can't drive the packaged app; the packaged-app tests use `--remote-debugging-port` and CDP instead ([testing.md](testing.md#packaged-app-tests)).
 
@@ -284,11 +304,11 @@ Notify mode says a version is out and opens its release page (`releasePageUrl`; 
 
 | Item | Location |
 |------|----------|
-| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, displayPrefs?, windowColors?, windowState?, checkForUpdates? }` (`windowState`: see [Window state](#window-state); `checkForUpdates: false` turns automatic update checks off). `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
+| App config | `{userData}/scene-atlas-config.json` — `{ appDataDir, imageLibraryDir, linkedLibraryDir?, provisional, libraryChosen, displayPrefs?, windowColors?, windowState?, updateChoice? }`. `provisional`: the folders are the first-launch defaults, empty when written, not yet confirmed in setup. `libraryChosen`: the wizard's library step is done; a config without it predates this and counts as chosen. `windowState`: see [Window state](#window-state). `updateChoice`: see [Updates](#updates); a 0.1.x `checkForUpdates: false` is read as Off. `displayPrefs` and `windowColors` are the UI's display choices and colours (see [first-run.md](first-run.md#desktop-display-choices-and-window-colours)); they're sanitised on load (`displayPrefs.ts`). Older configs may also hold `convertToWebp` or `pendingStoredFormat`, which are ignored: the stored format is chosen in the setup wizard |
 | Backend log | `{userData}/backend.log` (+ `backend.log.1` after rotation) |
 | Updater log | `{userData}/updater.log` (+ `updater.log.1`) |
-| Default app data dir | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
-| Default image library dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
+| Default app data dir (first launch) | Windows: `%LOCALAPPDATA%/Scene Atlas/data`; macOS, Linux: `{Documents}/Scene Atlas/data` |
+| Default store (image library) dir | Windows: `%LOCALAPPDATA%/Scene Atlas/images`; macOS, Linux: `{Documents}/Scene Atlas/images` |
 
 On Windows, Documents is often redirected into OneDrive (the Windows 11 default for many accounts), which would sync the SQLite database, the LanceDB index and the thumbnails while they're open (lock conflicts, Files On-Demand evicting them) as well as every library image. Local AppData is never synced or roamed. `defaultStorageBase()` in `storageDirs.ts` chooses (unit tested); existing configs keep their folders.
 
@@ -302,21 +322,21 @@ On Windows, Documents is often redirected into OneDrive (the Windows 11 default 
 |------|---------|
 | `electron/src/main.ts` | Main process: windows, IPC handlers, sidecar orchestration |
 | `electron/src/preload.ts` | Main window preload: exposes `electronAPI` |
-| `electron/src/setup.preload.ts` | Setup window preload: exposes `setupAPI` |
 | `electron/src/sidecar.ts` | Sidecar spawn, port discovery, stdout parsing |
-| `electron/src/config.ts` | Config load/save/migration, default directories |
+| `electron/src/config.ts` | Config file load/save, default directories |
+| `electron/src/appConfig.ts` | Config shape, parsing and migration, the first-launch config (tests in `electron/test/`) |
+| `electron/src/libraryDirs.ts` | Validating and comparing library folders, provisional cleanup choices (tests in `electron/test/`) |
 | `electron/src/windowFrame.ts` | Frame per platform, menus, starting colours, and where the main window opens and how its state is saved |
 | `electron/src/windowState.ts` | The main window's saved bounds: validation and where it reopens (tests in `electron/test/`) |
 | `electron/src/updater.ts` | Wires electron-updater to the state the UI shows; install stops the backend first |
 | `electron/src/updatePolicy.ts` | Update rules: install or notify per platform, the feed override, the state's shape (tests in `electron/test/`) |
 | `electron/src/displayPrefs.ts` | Validation for display choices and window colours from the UI or config; `themeSourceFor` (tests in `electron/test/`) |
-| `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, non-empty-folder detection (tests in `electron/test/`, run with `npm run test:electron`) |
-| `electron/setup.html` | Setup window HTML (first-run directory picker); fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
-| `electron/loading.html` | Startup / error page shown until the sidecar serves the UI |
+| `electron/src/storageDirs.ts` | Storage folder checks: create + write-test, foreign-entry detection, path comparison (tests in `electron/test/`, run with `npm run test:electron`) |
+| `electron/loading.html` | Startup / error page shown until the sidecar serves the UI, and during an in-window restart; fonts bundled in `electron/fonts/`, so it needs no network and its CSP has no remote origins |
 | `electron-builder.yml` | Build targets, sidecar bundling, locales, fuses |
 | `scripts/build/build_sidecar.py` | Syncs `.venv-sidecar` and runs PyInstaller |
 | `scripts/build/build_electron.py` | Frontend → sidecar → TypeScript → electron-builder (`--dev` for an unpacked app only) |
 | `scripts/build/smoke_sidecar.py` | Runs the built sidecar's `--self-check`, then starts it and checks it serves the API and UI |
-| `e2e/packaged/` | Packaged-app tests (windows, sidecar lifecycle), `npm run test:packaged` |
+| `e2e/packaged/` | Packaged-app tests (first launch, sidecar lifecycle, folder changes), `npm run test:packaged` |
 | `backend/pyinstaller/scene_atlas_backend.spec` | PyInstaller spec for freezing the Python backend |
 | `backend/pyinstaller/entry.py` | Sidecar entry point |

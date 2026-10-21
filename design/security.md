@@ -104,14 +104,16 @@ Codacy Cloud analyses every PR (gate: 0 new issues at Info and above). The repos
 
 `.codacy.yml` excludes tests (`backend/tests`, `stress_tests`, `e2e`, `*.test.ts(x)`) and build output from analysis. Tests are still linted locally by ruff and eslint.
 
-### 6. MEDIUM: Electron IPC Changing Storage Paths
+### 6. MEDIUM: Electron IPC choosing the library's folders
 
 **Status**: Partially mitigated.
 
-The renderer can call `system:change-storage-dirs` (exposed as `window.electronAPI.changeStorageDirs`) with two paths. The main process (`electron/src/main.ts`) then writes them to the app config and relaunches the app with the backend pointed at the new data and library roots. Current checks:
+The renderer can call `library:apply` (exposed as `window.electronAPI.applyLibrary`) with the app data, store and linked folders ([library-setup.md](library-setup.md)). The main process (`electron/src/main.ts`) writes them to the app config and restarts the backend on them. Current checks:
+
 - The handler is registered with `handleTrusted`, which rejects calls whose sender frame is not an app URL (the backend sidecar origin, `file:` for `loading.html`, or the dev server in development).
-- Both arguments must be non-empty absolute paths.
-- Both directories are created if needed and must pass a write test.
+- Every path must be absolute. The store and app data may not be, or contain, the linked folder (`parseLibraryDirs`), and the backend's startup check repeats that rule.
+- The app data and store folders are created if needed and must pass a write test. The linked folder is never created or written.
+- Only empty first-launch (provisional) folders are ever deleted, and only when they hold nothing Scene Atlas didn't create.
 
 There is no restriction on which absolute paths are accepted, so code running in the renderer could point the backend at any writable location. Renderer windows run with `contextIsolation`, `sandbox` and no `nodeIntegration`, and navigation away from app URLs is blocked, which limits who can reach the channel.
 
@@ -120,9 +122,36 @@ There is no restriction on which absolute paths are accepted, so code running in
 **Status**: Mitigated.
 
 `POST /imports/{id}/local-sources` lists and reads files at paths the client sends ([local-ingest.md](local-ingest.md#6-security)). Controls:
+
 - Desktop app only: the route returns 404 unless `APP_MODE=app`, where the sidecar binds `127.0.0.1` and any caller is already a local process running as the user.
 - DNS rebinding: in app mode `LoopbackHostMiddleware` (`backend/app/host_check.py`) rejects requests whose `Host` isn't `127.0.0.1`, `localhost` or `[::1]` (400), so a rebound web page can't reach this or any other endpoint.
 - Only media is ingested: each file passes the magic-byte check (`verify_media_mime`) before it's copied; symlinks aren't followed; sources are never written.
+
+### 6b. MEDIUM: Library inspection reads paths named by the client
+
+**Status**: Mitigated.
+
+`POST /library/inspect` ([library-setup.md](library-setup.md#34-post-libraryinspect-desktop-only)) looks at folders the setup wizard names: it reads library markers, opens `battlemap.db` read-only, and walks a folder to count images. Controls:
+
+- Desktop app only (404 unless `APP_MODE=app`), behind the loopback `Host` check, like `local-sources` (6a).
+- Read-only: nothing is created or changed, except that SQLite may leave `-wal`/`-shm` files beside a database it opened read-only.
+- Returns an outcome, counts, library IDs and the library's own folder hints; never file names. Paths must be absolute.
+- The folders themselves are never set through the API: they reach the backend only as sidecar arguments or env vars.
+- Admission-controlled (`acquire_heavy_op`), since counting a large folder takes seconds.
+
+### 6c. MEDIUM: Reading the linked folder
+
+**Status**: Mitigated.
+
+The linked folder ([library-setup.md §4](library-setup.md#4-linked-library)) is the first place where a path stored in the database (`source_files.rel_key`) reaches the filesystem. Controls:
+
+- **Configuration only.** The folder comes from `LINKED_LIBRARY_DIR` or the desktop app's `--linked-library-dir` sidecar argument; no endpoint sets it. `POST /library/scan` names no path. On servers no response carries the folder's path: status and waiting imports give its name.
+- **Containment check** on every read (`originals.LinkedFolder.local_path`): the key must be relative with no `..`; joined to the root, it must resolve (`Path.resolve`) inside the resolved root (case-normalised), to a regular file that isn't a symlink (`lstat`). Anything else is refused as missing and logged. Keys come from the scan's walk, which doesn't follow symlinks, so the check is a second line.
+- **Read-only by type.** `LinkedFolder` has no `put` or `delete`; images read from the folder have no `storage_key`, so deletion, purge and the orphan sweep (which only walk the store's shard folders) can't reach its files. The store and app data may not be or contain the folder (startup check), so purge can't empty it either.
+- **One interface.** File serving, group download, export and the backfills read originals only through `originals.original_path`; the worker resolves linked items through the same check rather than their stored absolute `source_path`.
+- **Server deployments** are documented with a read-only mount (`-v /srv/maps:/library:ro`), so even a bug can't write to the folder.
+
+Accepted: a file swapped for a symlink between the check and the read (a TOCTOU window) could be followed. That needs write access to the user's own maps folder, which already implies control of the files being served.
 
 ### 7. MEDIUM: CORS Configuration
 
@@ -163,7 +192,7 @@ Overrides that clear findings without waiting for upstream (drop them once the p
 ## Open Items
 
 1. Session-based authentication (Finding 1).
-2. Constrain the paths accepted by `system:change-storage-dirs` (Finding 6).
+2. Constrain the paths accepted by `library:apply` (Finding 6).
 3. CSRF protection alongside auth (Finding 9).
 
 Backlog priorities are tracked in [status-and-roadmap.md](status-and-roadmap.md).

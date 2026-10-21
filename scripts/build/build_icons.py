@@ -15,7 +15,7 @@ Writes:
     assets/icon.ico            Windows app icon, 16-256 px, from the full-bleed tile
     frontend/public/favicon.svg, docs/public/favicon.svg
     frontend/src/components/brand/markPaths.ts   the paths for the in-app, themed mark
-    electron/setup.html, electron/loading.html   inline SVG between <!-- brand-mark --> comments
+    electron/loading.html      inline SVG between <!-- brand-mark --> comments
 """
 
 from __future__ import annotations
@@ -259,8 +259,7 @@ def main() -> None:
     (ROOT / "frontend" / "src" / "components" / "brand" / "markPaths.ts").write_text(
         to_typescript()
     )
-    for page in ("setup.html", "loading.html"):
-        inject_inline_svg(ROOT / "electron" / page)
+    inject_inline_svg(ROOT / "electron" / "loading.html")
 
     icon = render(ICON, 1024)
     icon.save(ROOT / "assets" / "icon.png")

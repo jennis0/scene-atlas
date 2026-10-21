@@ -42,6 +42,7 @@ function makeImage(id: number, overrides: Partial<Image> = {}): Image {
   return {
     id,
     storage_key: `${id}.webp`,
+    file_state: 'ok',
     filename: `map_${id}.png`,
     author: 'Cartographer',
     name: `Map ${id}`,

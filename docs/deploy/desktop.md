@@ -38,11 +38,16 @@ xattr -dr com.apple.quarantine "/Applications/Scene Atlas.app"
 
 ## First Launch
 
-On first launch, Scene Atlas will:
+On first launch, Scene Atlas opens its setup steps:
 
-1. **Ask for storage locations.** Choose an *app data location* (database, thumbnails, search index, logs) and an *image library location* (Scene Atlas's managed copy of your images, plus backups). Both default to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. These are directories managed by Scene Atlas, not your existing image folder; files are copied into the library during import. If a folder you pick already holds other files, the app warns you and offers to choose another.
-2. **Walk through setup.** Choose a theme and text size, how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
-3. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images.
+1. **Appearance.** Choose a theme and text size.
+2. **Your library.** Start a new library, or use a folder of maps you already have. Scene Atlas reads that folder where it is and never changes, moves or deletes your files. You can also choose where two folders go:
+   - *Imported maps*: full-size copies of maps you import in the app, plus backups. Any large drive will do.
+   - *Search data*: the database, thumbnails and search index. Best on a fast drive.
+
+   A new library defaults to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. Pointing the step at an existing Scene Atlas library opens it. If you change the folders, the app restarts its backend in the same window.
+3. **The rest of setup.** Choose how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
+4. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images.
 
 ## System Requirements
 

@@ -9,7 +9,7 @@
     />
     <title>Scene Atlas</title>
     <style>
-      /* The app's fonts, bundled beside this page like setup.html's (OFL, see fonts/). */
+      /* The app's fonts, bundled beside this page (OFL, see fonts/), so it needs no network. */
       @font-face {
         font-family: 'Cinzel';
         font-weight: 400 900;
@@ -34,6 +34,7 @@
         --mark-page: hsl(222 22% 8%);
         --fg-muted: hsl(30 9% 34%);
         --danger: hsl(0 65% 35%);
+        --on-primary: hsl(222 22% 8%);
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -130,9 +131,43 @@
         color: var(--fg-muted);
         user-select: text;
       }
-      .hint {
+      #error .hint {
         color: var(--fg-muted);
         font-size: 13px;
+      }
+      #actions {
+        display: none;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 4px;
+      }
+      #actions button {
+        font: inherit;
+        font-size: 14px;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--fg);
+        cursor: pointer;
+      }
+      #actions button.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--on-primary);
+      }
+      #actions button:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+      #actions button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      @media (forced-colors: active) {
+        #actions button {
+          border-color: ButtonText;
+        }
       }
     </style>
   </head>
@@ -145,9 +180,13 @@
       <div id="error">
         <p id="summary" role="alert"></p>
         <pre id="detail"></pre>
-        <p class="hint">
+        <p class="hint" id="hint">
           Restart Scene Atlas to try again. The full log is at the path shown above.
         </p>
+        <div id="actions">
+          <button type="button" id="choose-folders" hidden>Choose folders…</button>
+          <button type="button" id="retry" class="primary" hidden>Try again</button>
+        </div>
       </div>
     </main>
     <script>
@@ -168,13 +207,41 @@
         return lines[0]
       }
 
-      window.electronAPI?.onBackendError((message) => {
+      const retry = document.getElementById('retry')
+      const chooseFolders = document.getElementById('choose-folders')
+      function disableActions() {
+        retry.disabled = true
+        chooseFolders.disabled = true
+      }
+      retry.addEventListener('click', () => {
+        disableActions()
+        void window.electronAPI.retryStartup()
+      })
+      chooseFolders.addEventListener('click', () => {
+        disableActions()
+        void window.electronAPI.chooseFoldersAgain()
+      })
+
+      window.electronAPI?.onBackendError((message, actions) => {
         clearTimeout(slow)
         status.style.display = 'none'
         // Shown before the text is set, so screen readers announce the alert.
         document.getElementById('error').style.display = 'block'
         document.getElementById('summary').textContent = summarise(message)
         document.getElementById('detail').textContent = message
+        // Folders that were refused or can't be used (design/library-setup.md §3.3): a
+        // drive to reconnect, or folders that moved.
+        const next = actions?.chooseFolders
+          ? 'Reconnect the drive and try again, or choose the folders again. '
+          : actions?.retry
+            ? ''
+            : 'Restart Scene Atlas to try again. '
+        document.getElementById('hint').textContent =
+          next + 'The full log is at the path shown above.'
+        retry.hidden = !actions?.retry
+        chooseFolders.hidden = !actions?.chooseFolders
+        document.getElementById('actions').style.display =
+          actions?.retry || actions?.chooseFolders ? 'flex' : 'none'
       })
     </script>
   </body>

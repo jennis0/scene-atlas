@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..library_identity import rewrite_markers
 from ..models import (
     Color,
     Image,
@@ -17,12 +18,15 @@ from ..models import (
     ImportGroup,
     ImportItem,
     ImportJob,
+    LibrarySource,
+    SourceFile,
     Tag,
     TagCategory,
     seed_tag_categories,
 )
 from ..models.schemas import UpdateCheckResponse
 from ..services.update_check import get_update_checker
+from ..storage_lock import LOCK_FILENAME
 from .dependencies import get_db
 from .rate_limits import limiter
 
@@ -105,6 +109,21 @@ def update_status():
 # Library purge (background job)
 
 
+def _empty_store(store: Path) -> None:
+    """Delete everything in the store except its lock file, which this process holds
+    open: Windows can't delete it, and elsewhere a second backend could then lock a new
+    one. The library marker goes too, and is written again afterwards."""
+    if not store.is_dir():
+        return
+    for entry in os.scandir(store):
+        if entry.name == LOCK_FILENAME:
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            shutil.rmtree(entry.path)
+        else:
+            os.unlink(entry.path)
+
+
 def _purge_library(
     db_engine,
     progress_fn: Callable[[int, int, str | None], None] | None = None,
@@ -112,7 +131,8 @@ def _purge_library(
     """Delete all images, metadata, thumbnails, and vectors.
 
     Runs as a background job via JobRunner so the API stays responsive
-    while potentially gigabytes of files are removed.
+    while potentially gigabytes of files are removed. The linked folder is never
+    touched: only its rows go, and its next scan adds its maps again.
     """
     from ..models import get_session_local
     from ..services.lancedb_service import get_lancedb_service
@@ -139,6 +159,8 @@ def _purge_library(
         db.query(ImportItem).delete()
         db.query(ImportGroup).delete()
         db.query(ImportJob).delete()
+        db.query(SourceFile).delete()
+        db.query(LibrarySource).delete()
         db.commit()
 
         _step("Deleting images and groups")
@@ -147,9 +169,8 @@ def _purge_library(
         db.commit()
 
         _step("Removing image files")
-        if settings.store_images_dir.exists():
-            shutil.rmtree(settings.store_images_dir)
-            settings.store_images_dir.mkdir(parents=True, exist_ok=True)
+        _empty_store(settings.store_images_dir)
+        rewrite_markers(db)
 
         _step("Removing thumbnail files")
         if settings.store_thumbnails_dir.exists():
@@ -174,11 +195,16 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     Submits a background job and returns immediately with a job ID.
     Refuses to run if any import jobs are currently active.
     """
-    from ..services.job_runner import get_job_runner
+    from ...pipeline.linked_scanner import get_linked_scanner
+    from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 
     runner = get_job_runner()
-    if runner.has_active_job("Purge library"):
+    if runner.has_active_job(PURGE_JOB_NAME):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
+    if get_linked_scanner().running:
+        raise HTTPException(
+            status_code=409, detail="Your maps folder is being checked; try again in a moment"
+        )
 
     active_imports = (
         db.query(ImportItem.job_id)
@@ -196,7 +222,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     job_id = runner.submit(
         _purge_library,
         request.app.state.db_engine,
-        name="Purge library",
+        name=PURGE_JOB_NAME,
     )
     return {"job_id": job_id, "message": "Library purge started"}
 

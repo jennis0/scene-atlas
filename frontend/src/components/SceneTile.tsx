@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { getThumbnailUrl } from '@/lib/api'
 import { VideoIndicator } from '@/components/ui/video-indicator'
+import { FileMissingMark } from '@/components/FileMissingMark'
 import type { Image } from '@/types'
 
 export interface SceneTileProps {
@@ -39,7 +40,14 @@ export function SceneTile({
 
   // One spoken name for the tile; the visible caption and image stay out of the
   // accessibility tree so it isn't read twice.
-  const label = [primaryText, variantText, secondaryText, authorText && `by ${authorText}`]
+  const missing = image.file_state === 'missing'
+  const label = [
+    primaryText,
+    variantText,
+    secondaryText,
+    authorText && `by ${authorText}`,
+    missing && 'file missing',
+  ]
     .filter(Boolean)
     .join(', ')
 
@@ -79,6 +87,7 @@ export function SceneTile({
           }}
         />
         {image.media_type === 'video' && <VideoIndicator />}
+        {missing && <FileMissingMark />}
       </div>
 
       <div
