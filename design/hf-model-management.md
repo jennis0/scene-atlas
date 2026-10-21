@@ -19,8 +19,7 @@ encoder) and hosted in a dedicated HF repo under the `jennis0` namespace.
 ## Model Registry
 
 `backend/app/services/model_registry.py` is the single source of truth for model
-metadata. It is used at runtime (download, selection, API responses) and by the export
-and publish scripts.
+metadata. It is used at runtime (download, selection, API responses).
 
 | Name   | HF repo                        | Architecture                    | Size  | Recommended for |
 |--------|--------------------------------|---------------------------------|-------|-----------------|
@@ -33,20 +32,16 @@ and publish scripts.
 
 Both ONNX files use fixed filenames (`clip_vision_encoder.onnx`,
 `clip_text_encoder.onnx`) across all models. `manifest.json` is the HF-side metadata
-file written by the publish script.
+file written by scene-atlas-learning's export.
 
-**Externally released models.** All three models are fine-tuned, quantised, evaluated
-and published by the release pipeline in scene-atlas-learning (`uv run release ...
---release <name>`), marked by `release_source` in the registry. Its repo holds the full
-`transformers` checkpoint at the root and the ONNX bundle (manifest, encoders,
-`tokenizer/`) under `onnx/`. Registry fields `hf_subfolder` and `hf_revision` make the
-downloader fetch only `onnx/*` at the release tag, so later pushes to `main` never change
-an installed model. `export_model_onnx.py` and `publish_models_hf.py` refuse these
-entries and skip them under `--all`, since re-exporting from the base model would
-overwrite the fine-tune. Since `large` moved to the fine-tuned release (2026-10-21,
-`siglip2-l-384-rc4`), no shipped model is built by these scripts; they remain only for
-exporting zero-shot base models locally (see
-[onnx-int8-quantisation.md](onnx-int8-quantisation.md)).
+**Model releases.** All three models are fine-tuned, quantised, evaluated and published
+by the release pipeline in scene-atlas-learning (`uv run release ... --release <name>`);
+this repo has no export or publish tooling. Each HF repo holds the full `transformers`
+checkpoint at the root and the ONNX bundle (manifest, encoders, `tokenizer/`) under
+`onnx/`. Registry fields `hf_subfolder` and `hf_revision` make the downloader fetch only
+`onnx/*` at the release tag, so later pushes to `main` never change an installed model.
+To ship a new release, bump `hf_revision` (and any metadata that changed) and copy the
+new image-type head in with `uv run release export-heads --release <name>`.
 
 `CLIPService` casts every input to the dtype the graph declares (`_cast_feed_to_inputs`):
 exports differ in whether `pixel_values` is float32 or float16, and ONNX Runtime rejects a
@@ -251,8 +246,8 @@ downloaded; on a fresh install with no DB entry, no model is downloaded at all),
 | Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
 Fallback path in `_default_models_dir()` (`clip_service.py`) checks `APP_DATA_DIR/models/<name>/` first,
-then `backend/models/<name>/`. This allows developers to test with models
-exported by `scripts/models/export_model_onnx.py` without a full HF download.
+then `backend/models/<name>/`. This allows developers to test a model bundle exported
+by scene-atlas-learning before it is published.
 
 ---
 

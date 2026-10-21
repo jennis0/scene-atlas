@@ -8,7 +8,7 @@ Scene Atlas supports three deployment modes. All modes must build on Windows and
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) for dependency management
 - **Node.js 24+** with npm (root `package.json` `engines`)
-- Python dependencies: `uv sync --extra dev --extra cpu` (a bare `uv sync` installs no ONNX Runtime; use `gpu`/`gpu-directml` instead of `cpu` for GPU inference, or `cpu-dev`/`gpu-dev` to add torch for model export)
+- Python dependencies: `uv sync --extra dev --extra cpu` (a bare `uv sync` installs no ONNX Runtime; use `gpu`/`gpu-directml` instead of `cpu` for GPU inference)
 - Root Node dependencies: `npm install` (installs the Husky git hooks)
 - ONNX models: `uv run python scripts/models/setup_models.py` (downloads the embedding model from HuggingFace)
 

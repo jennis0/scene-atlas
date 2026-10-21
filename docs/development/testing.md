@@ -71,26 +71,6 @@ Tests marked with `@pytest.mark.heavy` load the real CLIP ONNX model and run rea
 
 **Test fixture:** The `clip_service` fixture is `session`-scoped and also primes the module-level singleton, so both direct `CLIPService` usage and `get_clip_service()` code paths work.
 
-## ONNX Model Assessment
-
-Quality evaluation is integrated into `scripts/models/export_model_onnx.py` via the `--image-dir` flag. When provided, the export script runs a comprehensive quality assessment using the torch model (still loaded from the export phase) as reference.
-
-**When it runs:**
-
-- Locally: `make evaluate-onnx` or `uv run python scripts/models/export_model_onnx.py large --image-dir /path/to/images` (needs the internal `scripts/quantisation` package; the script exits with an error if it is missing, and small/medium are released by scene-atlas-learning, not this script)
-- Not in CI (requires real images and torch model; CI only does quick export)
-
-**What it checks:**
-- Cosine diffs (max, mean) for vision and text encoders vs torch reference
-- Top-5 set preservation and Spearman rank correlation on real images
-- Batch encoding consistency
-- Aspect ratio stress tests
-- Cross-modal ranking preservation
-- Inference timing and model sizes
-- Results written to `quantisation_quality` section of manifest.json
-
-**Thresholds:** fp32=0.001, fp16=0.001, int8=0.01
-
 ## E2E Tests (Playwright)
 
 Playwright tests validate critical user flows in a real browser against the full stack (real backend, real frontend, real CLIP model).
@@ -173,7 +153,6 @@ backend/tests/
 │   ├── test_model_download_service.py # Model downloads
 │   ├── test_tag_packs.py          # Tag pack import service
 │   ├── test_vocabulary.py         # Tag vocabulary loader
-│   ├── test_quantisation_utils.py # scripts.quantisation utils (needs untracked scripts/quantisation/)
 │   └── test_resource_detector.py  # compute_resource_defaults concurrency scaling
 ├── integration/                   # Real SQLite DB, mocked CLIP/LanceDB
 │   ├── test_ingest_pipeline.py    # IngestWorker driven by drain(): commit, dedup, recovery, system pause, reconciliation

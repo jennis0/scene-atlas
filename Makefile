@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-frontend test-all test-heavy evaluate-onnx \
+.PHONY: test test-unit test-integration test-frontend test-all test-heavy \
        test-cov test-e2e test-e2e-ui lint lint-fix format-check check ensure-model
 
 # ── Quick check (what pre-commit does) ─────────────────────────────────────
@@ -39,9 +39,6 @@ test-heavy: ensure-model
 # ── Model download ────────────────────────────────────────────────────────
 ensure-model:
 	@uv run python scripts/models/setup_models.py small
-
-evaluate-onnx:
-	uv run python scripts/models/export_model_onnx.py large --image-dir data/store/images
 
 test-e2e:
 	cd e2e && npx playwright test --project=chromium

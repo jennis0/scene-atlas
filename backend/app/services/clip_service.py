@@ -1,8 +1,8 @@
 """Embedding model service for generating image and text embeddings.
 
 Uses ONNX Runtime for inference with quantised models (CLIP, SigLIP2, etc.).
-The ONNX models are exported using ``scripts/models/export_model_onnx.py``
-and bundled into the sidecar.
+The ONNX models are exported and published by scene-atlas-learning and
+downloaded from HuggingFace (``model_download_service``).
 
 Model-specific parameters (image size, normalization, tokenizer config,
 embedding dimension) are read from a ``manifest.json`` file co-located

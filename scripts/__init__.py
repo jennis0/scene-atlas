@@ -1,1 +1,1 @@
-# Scripts package marker — enables `from scripts.quantisation import ...` imports.
+# Scripts package marker — enables `python -m scripts.<pkg>.<module>` imports.
