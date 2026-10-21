@@ -78,10 +78,11 @@ CUDA availability is probed with a separate check because `get_available_provide
 
 ### Fallback Strategy
 
-Two layers of protection:
+Three layers of protection:
 
-1. **Session-creation fallback** — if the GPU provider rejects the model at load time, `create_session_with_fallback()` catches the exception and recreates the session on CPU.
-2. **Runtime inference fallback** — if `.run()` fails on a GPU provider (e.g. DML command buffer exhaustion), `CLIPService._run_with_fallback()` replaces that session with a CPU session (it stays on CPU until the service is reloaded) and retries the failed inference.
+1. **CUDA load probe** — before CUDA is chosen, `check_cuda_libs()` loads each required CUDA library in a child process (`sys.executable -c`, once per backend run, Linux and non-frozen only). A library that can't be found is reported in the session-creation warning below. A child that crashes or hangs means CUDA isn't used: with a broken driver, loading the libraries can crash the dynamic loader itself, which ends the process with no exception to catch. Seen on 2026-10-21 under WSL after a GPU reset: `libcublas.so.12` pulled in `/usr/lib/wsl/lib/libcuda.so.1` and hit an `ld.so` assertion (`dl-setup_hash.c`), and `nvidia-smi` crashed the same way. Without the probe, the backend would die on its first CUDA session. With it, the backend logs the library names and uses the CPU until it restarts. Unit tests never load the host's CUDA libraries (an autouse fixture in `test_ort_providers.py`), so a broken driver can't crash the test run either.
+2. **Session-creation fallback** — if the GPU provider rejects the model at load time, `create_session_with_fallback()` catches the exception and recreates the session on CPU.
+3. **Runtime inference fallback** — if `.run()` fails on a GPU provider (e.g. DML command buffer exhaustion), `CLIPService._run_with_fallback()` replaces that session with a CPU session (it stays on CPU until the service is reloaded) and retries the failed inference.
 
 ### Known DirectML Limitations
 
@@ -108,7 +109,7 @@ Embedding batch size is `PipelineConfig.ingestion_batch_size` (default 16), over
 
 ### Key Files
 
-- `backend/app/services/ort_providers.py` — `resolve_providers()`, `get_session_options()`, `create_session_with_fallback()`, `is_gpu_provider()`, CUDA library check
+- `backend/app/services/ort_providers.py` — `resolve_providers()`, `get_session_options()`, `create_session_with_fallback()`, `is_gpu_provider()`, `check_cuda_libs()` (the CUDA load probe)
 - `backend/app/config.py` — `inference_device` setting
 - `backend/app/services/clip_service.py` — resolves providers per session; runtime CPU fallback and DML session recreation
 
