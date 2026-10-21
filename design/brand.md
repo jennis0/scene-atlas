@@ -64,7 +64,7 @@ The README screenshot (`docs/public/screenshots/search.webp`, dark and light the
 **Rules for the art in screenshots:**
 
 - Only openly licensed art, credited under the screenshot for whatever is visible in it: Moonlight Maps (CC BY-NC-SA 4.0: their licence covers all their works, paid ones included, for non-commercial use), Fantasy Atlas's free maps (CC BY-NC 4.0) and 2-Minute Tabletop's free maps (CC BY-NC 4.0, credit "Map by 2-Minute Tabletop"). Because Moonlight's licence is ShareAlike, the screenshot is shared under CC BY-NC-SA 4.0. The non-commercial licences hold only while Scene Atlas and its promotion stay free.
-- Thumbnails only: no screenshot shows an individual map at full size, so no screenshot works as a copy of a map. Captures are at 1x.
+- Thumbnails only, with one exception: a map under a licence that isn't ShareAlike (Fantasy Atlas, 2-Minute Tabletop) may be shown at viewer size when it's the only art in the shot and the caption names the map, the creator with a link, the licence with a link, and that it's shown in Scene Atlas (CC BY's "indicate changes"). The docs' viewer and group editor shots use Fantasy Atlas's *Campfire Stories* this way (user decision 2026-10-21). Moonlight maps stay thumbnail-sized, since a large one would put the whole shot under ShareAlike. Captures are at 1x.
 - Never commit the maps themselves.
 
 Other creators' terms, checked 2026-10-19, are in the project's research notes. In short: Elven Tower's Creative Commons Collection is CC BY 4.0 and Manea Roliste's packs are CC BY-NC 4.0, both usable. Czepeku, Neutral Party, Domille, Venatus and Seafoot need permission. Forgotten Adventures is personal use only. Tom Cartos's open licence has an AI clause that needs his confirmation first.
@@ -82,6 +82,28 @@ node scripts/demo/screenshots.mjs http://127.0.0.1:8123 /tmp/shots
 uv run python -m scripts.demo.split_screenshot /tmp/shots/search-dark.png /tmp/shots/search-light.png \
   docs/public/screenshots/search.webp
 ```
+
+### Docs screenshots
+
+The guide's other screenshots come from one Playwright spec, `e2e/screenshots/docs.spec.ts`, run against a demo instance. Re-run it when the UI they show changes, and before a release (releasing.md).
+
+Everything in them is the real app on the demo library except what only the desktop app provides: `window.electronAPI` (a stand-in with made-up `C:\Users\GM\…` and `D:\Battle Maps` paths) and `POST /library/inspect` for those paths, plus `setup-status` reporting setup unfinished for the library-step shot. The stand-in and the canned responses are typed with the frontend's own types (`ElectronAPI`, `InspectResult`, `SetupStatus`), and `e2e/` is type-checked in the pre-push hook and CI, so a change to the bridge or those responses fails the check rather than the screenshot. Elements are found by role and label, as in the E2E tests, so a renamed control fails the run.
+
+The demo library (`scripts/demo/docs_library.py`): Moonlight Maps and most of 2-Minute Tabletop imported; Fantasy Atlas copied into a linked folder, "My Maps"; two 2-Minute Tabletop packs with Tokens folders held back, which the run imports through the dialog (so the progress and report shots are real, with tokens skipped by Auto) and then undoes, so the run can be repeated. The Small model is linked in rather than downloaded.
+
+```bash
+W=/tmp/docs-demo
+uv run python -m scripts.demo.docs_library layout demo_maps $W [models dir]   # a worktree passes the main checkout's data/models
+cd frontend && npm run build && cd ..
+APP_DATA_DIR=$W/data IMAGE_LIBRARY_DIR=$W/images LINKED_LIBRARY_DIR="$W/linked/My Maps" \
+  EMBEDDING_MODEL=small CHECK_FOR_UPDATES=false \
+  uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8123 --no-proxy-headers
+uv run python -m scripts.demo.docs_library setup http://127.0.0.1:8123
+uv run python -m scripts.demo.import_library http://127.0.0.1:8123 $W/import $W/no-paintings   # ~15 min
+DEMO_URL=http://127.0.0.1:8123 DEMO_HELD=$W/held npm run docs:screenshots
+```
+
+`docs:screenshots` writes PNGs to `e2e/test-results-screenshots/png/` and converts them to `docs/public/screenshots/*.webp`; check them before committing. Each page credits the art visible in its shot under the image.
 
 ## Directions tried and rejected
 

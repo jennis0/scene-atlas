@@ -6,9 +6,11 @@ On a shared server, Library and Settings apply to everyone; Appearance is per de
 
 ## Library
 
+![The Library tab: image, group and storage totals, the linked Images folder with Check for changes and How often to check, Export library, and Delete library and Reset tags](/screenshots/settings-library.webp)
+
 - **Images, Groups and Storage**: how much is in the library, and how much disk it uses for images, search data and the rest.
 - **Export library**: download every image as a ZIP. See [Exporting](/guide/library#exporting).
-- **Your own folder** (only when one is linked): whether it's available, **Check for changes**, **How often to check**, **Remove missing images** and **Stop using this folder**. See [Using your own folder](/guide/library#using-your-own-folder).
+- **Images folder** (only when [your own folder](/guide/library#using-your-own-folder) is linked): whether it's available, **Check for changes**, **How often to check**, **Remove missing images** (when files have gone) and, in the desktop app, **Stop using this folder**. On a server, once `LINKED_LIBRARY_DIR` is unset, **Remove its images** clears out the folder's images. See [Using your own folder](/guide/library#using-your-own-folder).
 - **Delete library**: remove every image, tag and search entry. It can't be undone.
 - **Reset tags**: remove every tag from every image and go back to the Common tag pack. It can't be undone.
 
@@ -30,6 +32,8 @@ These choices affect only this device.
 ### Storage locations (desktop app)
 
 Where the library's folders are: **Search data**, **Imported images** and, if you use one, **Images folder** (your own folder). Choose a new folder, then **Restart now to apply**. Changing a folder doesn't move your files; see [Moving the library](/guide/library#moving-the-library).
+
+![Storage locations: Search data, Imported images and Images folder, each with Change; Images folder also has Stop using](/screenshots/settings-storage.webp)
 
 On a server, folders are set with environment variables; see the [Configuration Reference](/deploy/configuration#storage).
 

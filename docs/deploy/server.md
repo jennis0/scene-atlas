@@ -120,7 +120,7 @@ With plain Docker the same is `-v /srv/maps:/library:ro -e LINKED_LIBRARY_DIR=/l
 - Keep `IMAGE_DIR` outside the maps folder: Scene Atlas refuses to start if the image folder is the linked folder or contains it.
 - If the folder is missing (a NAS share that isn't mounted), the backend still starts: search and thumbnails work, and originals return 503 until it's back. Files are only marked missing when the folder is there and they aren't.
 - The folder's path is never shown to users; Settings shows its name and counts.
-- To stop using it, choose "Stop using this folder" in Settings (it removes the folder's maps from the library, never the files), then unset `LINKED_LIBRARY_DIR` and restart.
+- To stop using it, unset `LINKED_LIBRARY_DIR` and restart, then choose **Remove its images** in Settings → Library. That removes the folder's images from the library, never the files.
 
 ## Reverse Proxy
 

@@ -25,13 +25,15 @@ Scene Atlas's own files have generated names and no folder structure. Don't edit
 
 **Desktop app:** choose *Use a folder of images you already have* in the setup's library step, or set *Images folder* later in **Settings → Storage locations**.
 
+![The setup's library step with Use a folder of images you already have chosen: the folder, how many images it holds, and where Imported images and Search data will go](/screenshots/setup-library.webp)
+
 **Server:** set `LINKED_LIBRARY_DIR` and mount the folder read-only. See [Docker Server: your own maps folder](/deploy/server#your-own-maps-folder).
 
 You can link one folder. Its first scan adds every map and scene in it, using [Auto](/guide/importing#image-types) to sort them and to skip tokens and other art. A large folder takes a few hours; the gallery fills as images are added. Folder names become authors and groups in the same way as an import.
 
 ### Keeping up with changes
 
-Scene Atlas checks the folder for changes when it starts, then every 15 minutes. The desktop app also checks when you switch back to its window. To check straight away, or to change how often it checks, use **Settings → Library → Check for changes**.
+Scene Atlas checks the folder for changes when it starts, then every 15 minutes. The desktop app also checks when you switch back to its window. To check straight away, or to change how often it checks, use **Check for changes** under *Images folder* in **Settings → Library**.
 
 | You... | Scene Atlas... |
 |--------|----------------|
@@ -48,7 +50,9 @@ If the folder is on a drive or network share that isn't connected, a banner says
 
 ### Stop using the folder
 
-**Settings → Library → Stop using this folder** removes the folder's images from Scene Atlas, with their tags and groups. Your files are not touched. On a server, also unset `LINKED_LIBRARY_DIR` and restart.
+**Desktop app:** **Settings → Library → Stop using this folder** removes the folder's images from Scene Atlas, with their tags and groups. Your files are not touched.
+
+**Server:** unset `LINKED_LIBRARY_DIR` and restart. Settings then says the folder is no longer used; **Remove its images** in **Settings → Library** removes them from Scene Atlas.
 
 ## Backups
 

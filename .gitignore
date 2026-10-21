@@ -107,6 +107,8 @@ e2e/test-results-upgrade/
 e2e/playwright-report-upgrade/
 e2e/upgrade-report/
 e2e/blob-report/
+# Docs screenshots (e2e/screenshots): the PNGs before conversion, and the run's traces
+e2e/test-results-screenshots/
 
 # Stress test generated files
 stress_tests/.fixtures/

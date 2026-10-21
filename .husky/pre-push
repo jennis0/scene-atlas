@@ -96,6 +96,14 @@ npx tsc -p electron/tsconfig.json --noEmit || {
 }
 
 echo ""
+echo "=== E2E type check (tsc) ==="
+# Includes the docs screenshots' stand-in for the desktop bridge, typed against the frontend
+npx tsc -p e2e/tsconfig.json --noEmit || {
+  echo "❌ E2E type check failed."
+  exit 1
+}
+
+echo ""
 echo "=== Electron unit tests (node --test) ==="
 npm run --silent test:electron || {
   echo "❌ Electron unit tests failed."
