@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download the default embedding model from HuggingFace for Scene Atlas.
 
-Downloads pre-built ONNX files to APP_DATA_DIR/models/{name}/ using the
+Downloads pre-built ONNX files to SCENE_ATLAS_DATA_DIR/models/{name}/ using the
 model_download_service (writes version.json as a completion marker, consistent
 with is_model_downloaded() and the setup-status API).
 
@@ -22,7 +22,7 @@ if len(sys.argv) > 1:
 else:
     import os
 
-    _MODEL_NAME = os.environ.get("EMBEDDING_MODEL", _DEFAULT_MODEL)
+    _MODEL_NAME = os.environ.get("SCENE_ATLAS_EMBEDDING_MODEL", _DEFAULT_MODEL)
 
 
 def main() -> None:

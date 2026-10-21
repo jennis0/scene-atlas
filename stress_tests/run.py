@@ -161,9 +161,9 @@ class StressTestServer:
         self._link_models()
 
         env = os.environ.copy()
-        env["APP_DATA_DIR"] = str(self.data_dir)
-        env["IMAGE_LIBRARY_DIR"] = str(self.library_dir)
-        env["API_PORT"] = str(self.port)
+        env["SCENE_ATLAS_DATA_DIR"] = str(self.data_dir)
+        env["SCENE_ATLAS_IMAGES_DIR"] = str(self.library_dir)
+        env["SCENE_ATLAS_API_PORT"] = str(self.port)
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONFAULTHANDLER"] = "1"  # SIGABRT dumps every thread's stack to the log
         # The scheduler stays on: overdue maintenance runs 60 s after startup,

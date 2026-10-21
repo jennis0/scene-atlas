@@ -130,8 +130,8 @@ Tag categories define a vocabulary with optional aliases (e.g. "rainy" → "rain
 
 ### Model Selection
 
-Three models are offered, each hosted on HuggingFace and downloaded on demand to `APP_DATA_DIR/models/{name}/`. The active model is resolved in priority order:
-1. `EMBEDDING_MODEL` env var (dev/operator override)
+Three models are offered, each hosted on HuggingFace and downloaded on demand to `SCENE_ATLAS_DATA_DIR/models/{name}/`. The active model is resolved in priority order:
+1. `SCENE_ATLAS_EMBEDDING_MODEL` env var (dev/operator override)
 2. `active_model` key in `app_settings` DB (set via `POST /api/v1/models/active`)
 3. Auto-detect: GPU present → `medium`, CPU-only → `small`
 
@@ -141,13 +141,13 @@ Three models are offered, each hosted on HuggingFace and downloaded on demand to
 | `medium` | SigLIP2-base-patch16-384 fine-tune, w4a16 | 768 | jennis0/scene-atlas-medium | Default with GPU |
 | `large` | SigLIP2-large-patch16-384 fine-tune, w8a16 | 1024 | jennis0/scene-atlas-large | GPU strongly recommended |
 
-`clip_service._default_models_dir()` uses `APP_DATA_DIR/models/{name}/` when it contains a `manifest.json`. Otherwise, in a non-frozen (dev) run it falls back to `backend/models/{name}/`, so developers can test locally exported models without a HF download. Frozen builds never use the dev fallback.
+`clip_service._default_models_dir()` uses `SCENE_ATLAS_DATA_DIR/models/{name}/` when it contains a `manifest.json`. Otherwise, in a non-frozen (dev) run it falls back to `backend/models/{name}/`, so developers can test locally exported models without a HF download. Frozen builds never use the dev fallback.
 
-Each model directory (whether in APP_DATA_DIR or backend/models/) contains:
+Each model directory (whether in SCENE_ATLAS_DATA_DIR or backend/models/) contains:
 - `manifest.json` — model parameters (embedding dim, image size, normalization, tokenizer config)
 - `clip_vision_encoder.onnx` and `clip_text_encoder.onnx`
 - `tokenizer/` subdirectory
-- `version.json` — HF commit SHA + download timestamp (completion marker, APP_DATA_DIR only)
+- `version.json` — HF commit SHA + download timestamp (completion marker, SCENE_ATLAS_DATA_DIR only)
 
 ### Model Configuration Flow
 
@@ -157,13 +157,13 @@ Switching models creates a new LanceDB table — the old table is preserved (not
 
 ### Inference
 
-ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML → CPU (configurable via `INFERENCE_DEVICE` env var; see `ort_providers.py`). The model loads on a background thread at startup (`start_clip_background_load()`); `get_clip_service()` blocks until it is ready, and `get_clip_unavailable_reason()` reports a missing or failed model without blocking.
+ONNX Runtime with automatic provider selection: CUDA → DirectML → CoreML → CPU (configurable via `SCENE_ATLAS_INFERENCE_DEVICE` env var; see `ort_providers.py`). The model loads on a background thread at startup (`start_clip_background_load()`); `get_clip_service()` blocks until it is ready, and `get_clip_unavailable_reason()` reports a missing or failed model without blocking.
 
 ### Vector Database
 
 LanceDB runs **in-process** (disk-backed, memory-mapped, no Docker). Thread-safe: writes serialised via `RLock`, reads lock-free.
 
-- **Table:** `embeddings_{EMBEDDING_MODEL}` (model-scoped)
+- **Table:** `embeddings_{SCENE_ATLAS_EMBEDDING_MODEL}` (model-scoped)
 - **Distance metric:** Cosine distance (service converts to similarity by subtracting from 1.0)
 - **Score threshold:** model-dependent (configured per model in the model registry via `get_semantic_threshold()`)
 - **Candidate pool:** Image search: text candidates = limit×10, alias and semantic candidates = limit×3. Group search: max(limit×20, 1000) for all candidate types.

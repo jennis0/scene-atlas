@@ -3,7 +3,7 @@
 A self-hosted server asks GitHub for the latest release shortly after startup and then
 once a day, and keeps the answer in memory for ``GET /api/v1/system/updates``. Nothing
 here runs in the desktop app (Electron has its own updater) or when the admin sets
-``CHECK_FOR_UPDATES=false``: then no request is ever made.
+``SCENE_ATLAS_CHECK_FOR_UPDATES=false``: then no request is ever made.
 
 Requests are never made on behalf of a user. Every user behind the proxy shares one
 unauthenticated GitHub rate limit, so the API only ever returns the cached result.
@@ -257,7 +257,9 @@ class UpdateChecker:
         if not self._enabled or self._task is not None:
             return
         self._task = asyncio.create_task(self._run(first_delay, interval))
-        logger.info("Checking for updates daily (CHECK_FOR_UPDATES=false turns this off)")
+        logger.info(
+            "Checking for updates daily (SCENE_ATLAS_CHECK_FOR_UPDATES=false turns this off)"
+        )
 
     async def stop(self) -> None:
         if self._task is None:
@@ -274,7 +276,7 @@ _checker_lock = threading.Lock()
 
 def get_update_checker() -> UpdateChecker:
     """The process's checker, configured from settings on first use. It checks only in
-    server mode with CHECK_FOR_UPDATES on; the desktop app's updater lives in Electron."""
+    server mode with SCENE_ATLAS_CHECK_FOR_UPDATES on; the desktop app's updater lives in Electron."""
     global _checker
     with _checker_lock:
         if _checker is None:

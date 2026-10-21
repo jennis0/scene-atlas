@@ -405,7 +405,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 | `sweep_orphaned_store_files` | Scheduler, every 24 h | Deletes store files no image references. Only considers the `xx/yy/<key>` shard layout (so `.incoming/` and `backups/` are never touched), ignores files younger than 1 h, and deletes nothing if more than 25% of the store looks orphaned. |
 | `backup_database` | Scheduler, every 24 h | SQLite + LanceDB snapshot with rotation |
 
-Scheduled tasks are registered in `backend/app/main.py`. The scheduler (`backend/app/services/scheduler.py`) persists each task's last run under `{APP_DATA_DIR}/scheduler/` and runs overdue tasks shortly after startup, so short Electron sessions still get maintenance.
+Scheduled tasks are registered in `backend/app/main.py`. The scheduler (`backend/app/services/scheduler.py`) persists each task's last run under `{SCENE_ATLAS_DATA_DIR}/scheduler/` and runs overdue tasks shortly after startup, so short Electron sessions still get maintenance.
 
 Staging is never cleaned by file age alone, and active imports are never expired.
 
@@ -430,7 +430,7 @@ By default the library stores each file exactly as uploaded. Three settings chan
 - WebP is written with `exact=True`, so colour under transparent pixels survives. The ICC profile is carried over.
 - `content_hash` and `pixel_hash` always come from the upload; `stored_hash` and `file_size` describe the stored file. Dedup checks both byte hashes, so re-importing the original of a converted image is still caught.
 - Downloads take their extension from `storage_key` (`backend/pipeline/naming.py`, `ImageViewer.buildDownloadFilename`), so a converted map downloads as `.webp`.
-- The setup wizard's Stored format step (both modes) offers Original or WebP and saves it through `PATCH /settings/` ([first-run.md](first-run.md)). In server mode `CONVERT_TO_WEBP=1` seeds `webp` at first boot, which only changes the step's starting choice.
+- The setup wizard's Stored format step (both modes) offers Original or WebP and saves it through `PATCH /settings/` ([first-run.md](first-run.md)). In server mode `SCENE_ATLAS_CONVERT_TO_WEBP=1` seeds `webp` at first boot, which only changes the step's starting choice.
 
 ## 11. Testing
 
@@ -444,7 +444,7 @@ Environment / `.env` (`backend/app/config.py`):
 |---|---|---|
 | `max_import_items` | 50,000 | Files per import, across all manifest chunks |
 | `ingest_memory_budget_mb` | unset (auto) | Memory budget capacity |
-| `max_image_pixels` | 1,000,000,000 | Pillow `MAX_IMAGE_PIXELS` (set in `logging_config.py`) |
+| `max_image_pixels` | 1,000,000,000 | Pillow `SCENE_ATLAS_MAX_IMAGE_PIXELS` (set in `logging_config.py`) |
 | `pixel_hash_max_pixels` | 100,000,000 | JPEGs above this are decoded at reduced scale and skip the pixel hash |
 | `ingest_worker_enabled` | true | Start the worker in the lifespan (tests disable it) |
 | `supported_formats` | `.jpg .jpeg .png .webp` | Image extensions |
@@ -465,7 +465,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 | `enable_image_grid_detection` | true | Image-analysis grid detection for battlemaps |
 | `grid_analysis_max_dim` | 0 (full resolution) | Longest side analysed by grid detection; lowering it misses thin lines on high-dpi maps |
 | `num_dominant_colors`, `color_clustering_samples`, `color_kmeans_n_init` | 5, 5000, 3 | Colour extraction |
-| `stored_format`, `stored_quality`, `stored_lossless` | `original` (`webp` if chosen in the setup wizard, or seeded by `CONVERT_TO_WEBP=1` at first boot in server mode), 90, true | See [§10](#10-stored-format) |
+| `stored_format`, `stored_quality`, `stored_lossless` | `original` (`webp` if chosen in the setup wizard, or seeded by `SCENE_ATLAS_CONVERT_TO_WEBP=1` at first boot in server mode), 90, true | See [§10](#10-stored-format) |
 | `linked_rescan_minutes` | 15 | How often the linked folder is scanned (0, 5, 15 or 60; 0 = only at startup). Read at each timer wake, so changes apply without a restart ([§5.7](#57-linked-items)) |
 
 ## 13. Implementation notes
@@ -485,7 +485,7 @@ App settings (database, seeded on first boot by `seed_default_settings` in `back
 
 ## 15. Logging and CLI
 
-`backend/app/logging_config.py` `setup_logging(data_dir, debug)` is called once per entry point (`backend/app/main.py`, `backend/pyinstaller/entry.py`). Handlers: stdout and a `RotatingFileHandler` at `{APP_DATA_DIR}/logs/scene-atlas.log` (10 MB, 5 backups). Format `%(asctime)s %(levelname)-8s [%(name)s] %(message)s`. `debug` sets `DEBUG`, otherwise `INFO`. Modules use `logging.getLogger(__name__)`.
+`backend/app/logging_config.py` `setup_logging(data_dir, debug)` is called once per entry point (`backend/app/main.py`, `backend/pyinstaller/entry.py`). Handlers: stdout and a `RotatingFileHandler` at `{SCENE_ATLAS_DATA_DIR}/logs/scene-atlas.log` (10 MB, 5 backups). Format `%(asctime)s %(levelname)-8s [%(name)s] %(message)s`. `debug` sets `DEBUG`, otherwise `INFO`. Modules use `logging.getLogger(__name__)`.
 
 ### CLI entry points
 

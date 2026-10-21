@@ -41,13 +41,13 @@ xattr -dr com.apple.quarantine "/Applications/Scene Atlas.app"
 On first launch, Scene Atlas opens its setup steps:
 
 1. **Appearance.** Choose a theme, text size and how the app [updates](#updates).
-2. **Your library.** Start a new library, or use a folder of images you already have. Scene Atlas reads that folder where it is and never changes, moves or deletes your files. You can also choose where two folders go:
+2. **Your library.** Start a new library, or link a library of images you already have. Scene Atlas reads it where it is and never changes, moves or deletes your files. You can also choose where two folders go:
    - *Imported images*: full-size copies of images you import in the app, plus backups. Any large drive will do.
    - *Search data*: the database, thumbnails and search index. Best on a fast drive.
 
-   A new library defaults to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. With your own folder, *Imported images* defaults to a `Scene Atlas` folder inside it. Pointing the step at an existing Scene Atlas library opens it. See [Your Library](/guide/library) for how the folders fit together.
+   A new library defaults to `Scene Atlas` in your local app data folder on Windows (`%LOCALAPPDATA%\Scene Atlas`, which OneDrive never syncs) and to `Documents/Scene Atlas/` on macOS and Linux. With a linked library, *Imported images* defaults to a `Scene Atlas` folder inside it. Pointing the step at an existing Scene Atlas library opens it. See [Your Library](/guide/library) for how the folders fit together.
 3. **The rest of setup.** Choose how imported images are stored, which tag packs to start with, and a search model. A model is recommended for your hardware.
-4. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images. If you chose your own folder, its images start appearing then.
+4. **Open the gallery.** The model downloads from Hugging Face in the background; once it's ready, you can start importing images. If you linked a library, its images start appearing then.
 
 ## System Requirements
 
@@ -56,7 +56,7 @@ On first launch, Scene Atlas opens its setup steps:
 | OS | Windows 10 (64-bit), macOS 13 Ventura (Apple Silicon), or a 64-bit Linux desktop | |
 | RAM | 8 GB | 16 GB |
 | Search data disk | 2 GB plus a few percent of your library's size, for thumbnails and the search index | An SSD |
-| Imported images disk | The size of the images you import. Nothing extra for [your own folder](/guide/library#using-your-own-folder) | A slower, larger drive is fine |
+| Imported images disk | The size of the images you import. Nothing extra for a [linked library](/guide/library#linked-library) | A slower, larger drive is fine |
 | GPU | Not required | DirectX 12 GPU (Windows) or Apple Silicon (macOS) for faster import processing |
 | Internet | To download the search model on first launch, and for updates | |
 
@@ -73,7 +73,7 @@ Scene Atlas detects available GPU hardware automatically. You don't need an NVID
 - **Linux (desktop):** CPU inference only. NVIDIA CUDA is available via the Docker server.
 - **CPU** is always available as a fallback on all platforms.
 
-No manual configuration needed. To force a specific device, set `INFERENCE_DEVICE` in environment variables before launch.
+No manual configuration needed. To force a specific device, set `SCENE_ATLAS_INFERENCE_DEVICE` in environment variables before launch.
 
 ## Data Locations
 

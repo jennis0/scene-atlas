@@ -10,42 +10,42 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APP_MODE` | `server` | `server` for standalone/Docker, `app` when run as the desktop sidecar (set by the desktop app) |
-| `DEBUG` | `false` | Enable debug-level logging |
-| `PORT` | `8000` | **Docker only:** host port published by `docker-compose.yml`. For standalone runs, pass `--port` to uvicorn |
+| `SCENE_ATLAS_APP_MODE` | `server` | `server` for standalone/Docker, `app` when run as the desktop sidecar (set by the desktop app) |
+| `SCENE_ATLAS_DEBUG` | `false` | Enable debug-level logging |
+| `SCENE_ATLAS_PORT` | `8000` | **Docker only:** host port published by `docker-compose.yml`. For standalone runs, pass `--port` to uvicorn |
 
 ### Storage
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APP_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
-| `IMAGE_LIBRARY_DIR` | `./images`, or `<APP_DATA_DIR>/images` when only `APP_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
-| `LINKED_LIBRARY_DIR` | unset | A folder of your own maps that Scene Atlas reads where they are and never writes to. Optional; mount it read-only (e.g. `-v /srv/maps:/library:ro` with `LINKED_LIBRARY_DIR=/library`). It may be missing at startup: its maps then show as unavailable until it's back. See [Your own maps folder](/deploy/server#your-own-maps-folder) |
+| `SCENE_ATLAS_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
+| `SCENE_ATLAS_IMAGES_DIR` | `./images`, or `<SCENE_ATLAS_DATA_DIR>/images` when only `SCENE_ATLAS_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+| `SCENE_ATLAS_LINKED_LIBRARY_DIR` | unset | The linked library: a folder of your own maps that Scene Atlas reads where they are and never writes to. Optional; mount it read-only (e.g. `-v /srv/maps:/library:ro` with `SCENE_ATLAS_LINKED_LIBRARY_DIR=/library`). It may be missing at startup: its maps then show as unavailable until it's back. See [Linked library](/deploy/server#linked-library) |
 
-A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `IMAGE_LIBRARY_DIR` or move the folder.
+A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `SCENE_ATLAS_IMAGES_DIR` or move the folder.
 
-Each library is recognised by a `scene-atlas-library.json` file at the root of `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR`. The backend refuses to start if the two folders belong to different libraries, if `IMAGE_LIBRARY_DIR` doesn't hold the maps the database expects (for example a drive that isn't mounted), or if either folder is `LINKED_LIBRARY_DIR` or contains it. The log says which, on a line starting `STARTUP ERROR:`.
+Each library is recognised by a `scene-atlas-library.json` file at the root of `SCENE_ATLAS_DATA_DIR` and `SCENE_ATLAS_IMAGES_DIR`. The backend refuses to start if the two folders belong to different libraries, if `SCENE_ATLAS_IMAGES_DIR` doesn't hold the maps the database expects (for example a drive that isn't mounted), or if either folder is `SCENE_ATLAS_LINKED_LIBRARY_DIR` or contains it. The log says which, on a line starting `STARTUP ERROR:`.
 
 The database path, vector index, thumbnail and staging directories are always derived from these two roots and cannot be overridden individually.
 
-Only one Scene Atlas backend can use a given `APP_DATA_DIR` or `IMAGE_LIBRARY_DIR` at a time. A second backend pointed at either folder refuses to start with "Another Scene Atlas backend is already using the folder …". The lock is a `.backend.lock` file in each folder; it is released automatically when the backend exits, so a leftover file is harmless.
+Only one Scene Atlas backend can use a given `SCENE_ATLAS_DATA_DIR` or `SCENE_ATLAS_IMAGES_DIR` at a time. A second backend pointed at either folder refuses to start with "Another Scene Atlas backend is already using the folder …". The lock is a `.backend.lock` file in each folder; it is released automatically when the backend exits, so a leftover file is harmless.
 
 ::: info Docker deployments
-In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, this is mapped to `IMAGE_LIBRARY_DIR=/app/images`.
+In Docker, `SCENE_ATLAS_IMAGES_DIR` in `.env` is the folder on the host. Compose mounts it at `/app/images` and points the app there.
 :::
 
 ### Network
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
-| `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
+| `SCENE_ATLAS_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Reverse proxies (comma-separated IPs or CIDR networks, or `*`) whose `X-Forwarded-For` header is trusted for the client IP used by rate limits. See [Client IP addresses](/deploy/server#client-ip-addresses-and-rate-limits) |
+| `SCENE_ATLAS_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173","http://localhost:8000"]` (Docker Compose: `["http://localhost:8000"]`) | JSON array of allowed origins. Set to your domain when behind a reverse proxy |
 
 ### Updates
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHECK_FOR_UPDATES` | `true` | Server mode: ask GitHub (`api.github.com`) for the latest Scene Atlas release a minute after startup and then once a day, and show it to everyone in **Settings**. `false` makes no request. The desktop app ignores it and has its own setting |
+| `SCENE_ATLAS_CHECK_FOR_UPDATES` | `true` | Server mode: ask GitHub (`api.github.com`) for the latest Scene Atlas release a minute after startup and then once a day, and show it to everyone in **Settings**. `false` makes no request. The desktop app ignores it and has its own setting |
 
 The check sends no library data; GitHub sees the server's IP address and its Scene Atlas version (in the `User-Agent`).
 
@@ -57,29 +57,29 @@ Scene Atlas has **no built-in authentication**. In server mode, anyone who can r
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBEDDING_MODEL` | *(unset)* | Force the active model: `small`, `medium`, or `large`. If unset, the model chosen in the UI is used; on first run, `medium` is suggested when a GPU is available and `small` otherwise |
-| `INFERENCE_DEVICE` | `auto` | Inference device: `auto`, `cpu`, `cuda`, `directml`, `coreml` |
-| `CLIP_TEXT_CACHE_MAX` | `256` | Max cached text embeddings (LRU cache) |
+| `SCENE_ATLAS_EMBEDDING_MODEL` | *(unset)* | Force the active model: `small`, `medium`, or `large`. If unset, the model chosen in the UI is used; on first run, `medium` is suggested when a GPU is available and `small` otherwise |
+| `SCENE_ATLAS_INFERENCE_DEVICE` | `auto` | Inference device: `auto`, `cpu`, `cuda`, `directml`, `coreml` |
+| `SCENE_ATLAS_CLIP_TEXT_CACHE_MAX` | `256` | Max cached text embeddings (LRU cache) |
 
 ### Import
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP, the setup wizard's starting choice; used only when settings are first seeded |
-| `MAX_IMPORT_ITEMS` | `50000` | Most files a single uploaded import may contain |
-| `MAX_LOCAL_IMPORT_ITEMS` | `250000` | Most files a desktop import read from disk may contain, and most new files one scan of `LINKED_LIBRARY_DIR` adds |
-| `MAX_IMAGE_PIXELS` | `1000000000` | Largest image (in pixels) that will be decoded; larger files are rejected |
-| `PIXEL_HASH_MAX_PIXELS` | `100000000` | JPEGs above this size are decoded at reduced scale and skip the decoded-pixel duplicate check |
-| `INGEST_MEMORY_BUDGET_MB` | *(automatic)* | Memory reserved for concurrent image preparation. Automatic: half of RAM beyond a 2 GiB reserve |
+| `SCENE_ATLAS_CONVERT_TO_WEBP` | `0` | `1` seeds the Stored format setting as WebP, the setup wizard's starting choice; used only when settings are first seeded |
+| `SCENE_ATLAS_MAX_IMPORT_ITEMS` | `50000` | Most files a single uploaded import may contain |
+| `SCENE_ATLAS_MAX_LOCAL_IMPORT_ITEMS` | `250000` | Most files a desktop import read from disk may contain, and most new files one scan of `SCENE_ATLAS_LINKED_LIBRARY_DIR` adds |
+| `SCENE_ATLAS_MAX_IMAGE_PIXELS` | `1000000000` | Largest image (in pixels) that will be decoded; larger files are rejected |
+| `SCENE_ATLAS_PIXEL_HASH_MAX_PIXELS` | `100000000` | JPEGs above this size are decoded at reduced scale and skip the decoded-pixel duplicate check |
+| `SCENE_ATLAS_INGEST_MEMORY_BUDGET_MB` | *(automatic)* | Memory reserved for concurrent image preparation. Automatic: half of RAM beyond a 2 GiB reserve |
 
 ### Performance and Limits
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JOB_RETENTION_SECONDS` | `3600` | How long completed background job records are kept |
-| `RATE_LIMIT_ENABLED` | `true` | Enable per-client rate limits on expensive and destructive endpoints |
-| `RATE_LIMIT_EXPENSIVE` | `2/minute` | Limit for expensive operations |
-| `RATE_LIMIT_DESTRUCTIVE` | `1/minute` | Limit for destructive operations |
+| `SCENE_ATLAS_JOB_RETENTION_SECONDS` | `3600` | How long completed background job records are kept |
+| `SCENE_ATLAS_RATE_LIMIT_ENABLED` | `true` | Enable per-client rate limits on expensive and destructive endpoints |
+| `SCENE_ATLAS_RATE_LIMIT_EXPENSIVE` | `2/minute` | Limit for expensive operations |
+| `SCENE_ATLAS_RATE_LIMIT_DESTRUCTIVE` | `1/minute` | Limit for destructive operations |
 
 ## Runtime Settings
 
@@ -89,7 +89,7 @@ Runtime settings are stored in the database and seeded with the defaults below o
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
-| Stored format | `stored_format` | Original (WebP if `CONVERT_TO_WEBP=1`) | UI |
+| Stored format | `stored_format` | Original (WebP if `SCENE_ATLAS_CONVERT_TO_WEBP=1`) | UI |
 | Quality | `stored_quality` | 90 | UI |
 | Lossless WebP for PNGs | `stored_lossless` | On | UI |
 | Max file size | `max_import_file_size` | 2 GB | UI |
@@ -99,15 +99,15 @@ Runtime settings are stored in the database and seeded with the defaults below o
 
 Stored format is Original, WebP, JPEG or PNG and applies to new imports only (see [Importing](/guide/importing#stored-format)). Quality applies to WebP and JPEG (1-100); JPEG sources always use it.
 
-Despite their names, `max_import_files` and `max_import_total_size` apply to each ZIP archive, not to a whole import. The per-import file limits are the `MAX_IMPORT_ITEMS` and `MAX_LOCAL_IMPORT_ITEMS` environment variables.
+Despite their names, `max_import_files` and `max_import_total_size` apply to each ZIP archive, not to a whole import. The per-import file limits are the `SCENE_ATLAS_MAX_IMPORT_ITEMS` and `SCENE_ATLAS_MAX_LOCAL_IMPORT_ITEMS` environment variables.
 
-### Linked folder
+### Linked library
 
 | Setting | Key | Default | Where |
 |---------|-----|---------|-------|
 | Check for changes | `linked_rescan_minutes` | 15 | UI |
 
-How often `LINKED_LIBRARY_DIR` is scanned for added, moved and deleted maps: 5, 15 or 60 minutes, or 0 for only when the backend starts. "Check for changes" in Settings scans at any time. A scan that finds nothing new reads no files.
+How often `SCENE_ATLAS_LINKED_LIBRARY_DIR` is scanned for added, moved and deleted maps: 5, 15 or 60 minutes, or 0 for only when the backend starts. "Check for changes" in Settings scans at any time. A scan that finds nothing new reads no files.
 
 ### Grid Detection
 
@@ -139,11 +139,11 @@ The colour distance threshold is a CIE76 delta E between 0 and 100 (lower is str
 | Max job workers | `max_job_workers` | min(4, CPUs/2), at least 1 | API |
 | Scheduler enabled | `scheduler_enabled` | On | API (restart) |
 
-Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
+Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `SCENE_ATLAS_INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
 
 ## Model Details
 
-The active model is chosen in **Settings** (or forced with `EMBEDDING_MODEL`). The app downloads the selected model from HuggingFace on first use.
+The active model is chosen in **Settings** (or forced with `SCENE_ATLAS_EMBEDDING_MODEL`). The app downloads the selected model from HuggingFace on first use.
 
 | Value | Architecture | Embedding dimensions | Download size | Notes |
 |-------|-------------|---------------------|---------------|-------|
@@ -157,7 +157,7 @@ For how search ranks results and matches colours, see [How Search Works](/refere
 
 ## Inference Device
 
-The `INFERENCE_DEVICE` variable controls GPU acceleration:
+The `SCENE_ATLAS_INFERENCE_DEVICE` variable controls GPU acceleration:
 
 | Value | Behaviour |
 |-------|-----------|

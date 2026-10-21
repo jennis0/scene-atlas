@@ -79,7 +79,7 @@ jobs:
         if: steps.cache-onnx.outputs.cache-hit != 'true'
         run: uv run python scripts/models/setup_models.py
         env:
-          EMBEDDING_MODEL: small
+          SCENE_ATLAS_EMBEDDING_MODEL: small
       - name: Run unit tests with coverage
         # Tolerate exit 134 (SIGABRT): native C++ libs (torch, qdrant) can
         # crash during interpreter shutdown after all tests pass.
@@ -94,7 +94,7 @@ jobs:
           --cov-report=xml:coverage-backend.xml
           || test $? -eq 134
         env:
-          EMBEDDING_MODEL: small
+          SCENE_ATLAS_EMBEDDING_MODEL: small
       - name: Upload backend coverage
         uses: actions/upload-artifact@v7
         if: always()

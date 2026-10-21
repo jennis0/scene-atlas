@@ -21,7 +21,7 @@ If you run tabletop games, you probably have thousands of maps in nested folders
 ## Key Capabilities
 
 - **Search by description**, combined with names, authors and tags
-- **Your own folder, read in place**: no second copy, and new maps are picked up as you add them
+- **Link the library you already have**: no second copy, and new maps are picked up as you add them
 - **Automatic sorting** of maps and scenes, skipping tokens and other art
 - **Automatic grouping** of variants by folder and filename
 - **Grid detection** for square and hex grids, with an overlay to check it

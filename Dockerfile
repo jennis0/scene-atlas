@@ -35,8 +35,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # The default user. The published image is the same for everyone, so the user that must
-# write the IMAGE_DIR bind mount is picked at run time instead: docker-compose.yml runs
-# the container as APP_UID:APP_GID from .env (docs/deploy/server.md).
+# write the SCENE_ATLAS_IMAGES_DIR bind mount is picked at run time instead: docker-compose.yml runs
+# the container as SCENE_ATLAS_UID:SCENE_ATLAS_GID from .env (docs/deploy/server.md).
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
 
@@ -63,7 +63,7 @@ COPY --from=frontend-build /build/frontend/dist/ /app/frontend/dist/
 # Mount points for the data volume and image library. A fresh named volume copies this
 # directory's owner and mode, so /app/data is writable by whichever user the container
 # runs as; what that user creates inside is theirs alone. The image bind mount keeps its
-# host ownership (see APP_UID).
+# host ownership (see SCENE_ATLAS_UID).
 RUN mkdir -p /app/data /app/images && chown app:app /app/data /app/images \
     && chmod 0777 /app/data
 
@@ -76,5 +76,5 @@ USER app
 
 EXPOSE 8000
 
-# Proxy headers are handled by the app, trusting FORWARDED_ALLOW_IPS only.
+# Proxy headers are handled by the app, trusting SCENE_ATLAS_FORWARDED_ALLOW_IPS only.
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

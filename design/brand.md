@@ -73,7 +73,7 @@ Other creators' terms, checked 2026-10-19, are in the project's research notes. 
 
 ```bash
 uv run python -m scripts.demo.download_paintings /tmp/paintings     # CC0 scenes, optional
-APP_DATA_DIR=/tmp/demo/data IMAGE_LIBRARY_DIR=/tmp/demo/images \
+SCENE_ATLAS_DATA_DIR=/tmp/demo/data SCENE_ATLAS_IMAGES_DIR=/tmp/demo/images \
   uv run uvicorn backend.app.main:app --port 8123                   # a clean instance
 # set it up: POST /api/v1/models/medium/download, PUT /api/v1/tags/packs {"packs": ["common", "fantasy"]},
 # POST /api/v1/models/setup-complete, then restart so the model loads
@@ -95,8 +95,8 @@ The demo library (`scripts/demo/docs_library.py`): Moonlight Maps and most of 2-
 W=/tmp/docs-demo
 uv run python -m scripts.demo.docs_library layout demo_maps $W [models dir]   # a worktree passes the main checkout's data/models
 cd frontend && npm run build && cd ..
-APP_DATA_DIR=$W/data IMAGE_LIBRARY_DIR=$W/images LINKED_LIBRARY_DIR="$W/linked/My Maps" \
-  EMBEDDING_MODEL=small CHECK_FOR_UPDATES=false \
+SCENE_ATLAS_DATA_DIR=$W/data SCENE_ATLAS_IMAGES_DIR=$W/images SCENE_ATLAS_LINKED_LIBRARY_DIR="$W/linked/My Maps" \
+  SCENE_ATLAS_EMBEDDING_MODEL=small SCENE_ATLAS_CHECK_FOR_UPDATES=false \
   uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8123 --no-proxy-headers
 uv run python -m scripts.demo.docs_library setup http://127.0.0.1:8123
 uv run python -m scripts.demo.import_library http://127.0.0.1:8123 $W/import $W/no-paintings   # ~15 min

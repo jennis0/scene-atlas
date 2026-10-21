@@ -1,7 +1,7 @@
 """Start the built Docker image and check it serves the API and the UI.
 
 Runs it as an arbitrary user on a fresh data volume, so it also checks that the published
-image works for any APP_UID:APP_GID: the database must open in the volume, and the API
+image works for any SCENE_ATLAS_UID:SCENE_ATLAS_GID: the database must open in the volume, and the API
 must report the release version. With --compose, it is then started again through that
 docker-compose.yml with a .env like a user's, which catches mistakes in the Compose file's
 own settings. Runs in the Release workflow before the image is pushed.
@@ -24,7 +24,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-# Not the image's default user (1000), as an APP_UID other than the default would be.
+# Not the image's default user (1000), as a SCENE_ATLAS_UID other than the default would be.
 RUN_AS = "4321:4321"
 # The image docker-compose.yml runs, tagged SCENE_ATLAS_VERSION.
 COMPOSE_IMAGE = "ghcr.io/jennis0/scene-atlas"
@@ -90,7 +90,7 @@ def smoke_run(image: str, version: str, timeout: float) -> list[str]:
     volume = f"{name}-data"
     port = _free_port()
     with tempfile.TemporaryDirectory() as images:
-        # The bind mount stands in for IMAGE_DIR, which the user must own on the host.
+        # The bind mount stands in for SCENE_ATLAS_IMAGES_DIR, which the user must own on the host.
         Path(images).chmod(0o777)
         try:
             _docker(
@@ -98,9 +98,9 @@ def smoke_run(image: str, version: str, timeout: float) -> list[str]:
                 "--publish", f"127.0.0.1:{port}:8000",
                 "--volume", f"{volume}:/app/data",
                 "--volume", f"{images}:/app/images",
-                "--env", "APP_DATA_DIR=/app/data",
-                "--env", "IMAGE_LIBRARY_DIR=/app/images",
-                "--env", "APP_MODE=server",
+                "--env", "SCENE_ATLAS_DATA_DIR=/app/data",
+                "--env", "SCENE_ATLAS_IMAGES_DIR=/app/images",
+                "--env", "SCENE_ATLAS_APP_MODE=server",
                 image,
             )  # fmt: skip
             problems = _check(port, version, timeout)
@@ -131,7 +131,7 @@ def smoke_compose(image: str, version: str, timeout: float, compose_file: Path) 
         (root / "images").mkdir(mode=0o777)
         (root / "images").chmod(0o777)
         (root / ".env").write_text(
-            f"PORT=127.0.0.1:{port}\nAPP_UID={uid}\nAPP_GID={gid}\nSCENE_ATLAS_VERSION={tag}\n",
+            f"SCENE_ATLAS_PORT=127.0.0.1:{port}\nSCENE_ATLAS_UID={uid}\nSCENE_ATLAS_GID={gid}\nSCENE_ATLAS_VERSION={tag}\n",
             encoding="utf-8",
         )
         compose = ("compose", "--project-directory", directory, "--project-name", project)

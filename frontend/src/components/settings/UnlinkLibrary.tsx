@@ -9,12 +9,12 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { invalidateRemovedMapsQueries } from '@/lib/queryKeys'
 
 /**
- * Desktop app: "Stop using this folder", the way out of linking the wrong folder. After the
+ * Desktop app: "Unlink", the way out of linking the wrong folder. After the
  * user confirms the count, the folder's maps leave the library (DELETE /library/linked;
  * the files are never touched), then the desktop app drops the folder from its config and
  * restarts the backend, which reloads the page.
  */
-export function StopUsingFolder({ linked }: { linked: LinkedFolder }) {
+export function UnlinkLibrary({ linked }: { linked: LinkedFolder }) {
   const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -37,7 +37,7 @@ export function StopUsingFolder({ linked }: { linked: LinkedFolder }) {
       if (!outcome.error && outcome.restarted) return
       if (outcome.error) toast.error(outcome.error)
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Couldn't stop using this folder."))
+      toast.error(getApiErrorMessage(err, "Couldn't unlink this library."))
     }
     // The maps may be gone while the folder is still configured
     if (removed) invalidateRemovedMapsQueries(queryClient)
@@ -53,21 +53,21 @@ export function StopUsingFolder({ linked }: { linked: LinkedFolder }) {
         className="h-7 text-xs shrink-0"
         onClick={() => setConfirming(true)}
       >
-        Stop using
+        Unlink
       </Button>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Stop using this folder?"
+        title="Unlink this library?"
         description={
           <>
             This removes the {plural(linked.image_count, 'image')} in <strong>{linked.name}</strong>{' '}
-            from your library, with their names and tags. The files in the folder stay as they are.
+            from Scene Atlas, with their names and tags. The files in the folder stay as they are.
             Scene Atlas then restarts.
           </>
         }
-        confirmLabel="Stop using this folder"
-        loadingLabel="Stopping…"
+        confirmLabel="Unlink library"
+        loadingLabel="Unlinking…"
         onConfirm={() => void stop()}
         isLoading={busy}
       />

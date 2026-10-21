@@ -52,7 +52,7 @@ describe('setupSteps', () => {
     expect(setupSteps(NEW_LIBRARY)).toEqual(['appearance', 'format', 'tag-packs', 'model'])
   })
 
-  it('skips the model when one is already set up (e.g. EMBEDDING_MODEL)', () => {
+  it('skips the model when one is already set up (e.g. SCENE_ATLAS_EMBEDDING_MODEL)', () => {
     expect(setupSteps({ ...NEW_LIBRARY, needs_model: false })).toEqual([
       'appearance',
       'format',

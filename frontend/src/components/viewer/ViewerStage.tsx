@@ -10,7 +10,7 @@ const CANVAS_STYLE: React.CSSProperties = { background: 'hsl(var(--surface-canva
 /** Why the original can't be shown; the thumbnail stands in (design/library-setup.md §4.7) */
 const UNAVAILABLE: Record<Exclude<Image['file_state'], 'ok'>, string> = {
   missing: 'The original file is missing.',
-  offline: "The folder this image is in isn't available.",
+  offline: "The linked library isn't available.",
 }
 
 const NAV_BUTTON =

@@ -67,7 +67,7 @@ describe('LinkedFolderSection', () => {
     vi.mocked(libraryApi.status).mockResolvedValue({ library_id: 'lib', linked: null })
     renderWithProviders(<LinkedFolderSection open />)
     await waitFor(() => expect(libraryApi.status).toHaveBeenCalled())
-    expect(screen.queryByText('Images folder')).not.toBeInTheDocument()
+    expect(screen.queryByText('Linked library')).not.toBeInTheDocument()
   })
 
   it('shows the folder and checks it for changes on request', async () => {
@@ -123,11 +123,11 @@ describe('LinkedFolderSection', () => {
     vi.mocked(libraryApi.removeLinked).mockResolvedValue({ removed: 56214 })
     const user = userEvent.setup()
     renderWithProviders(<LinkedFolderSection open />)
-    await user.click(await screen.findByRole('button', { name: 'Stop using' }))
-    const dialog = screen.getByRole('dialog', { name: 'Stop using this folder?' })
+    await user.click(await screen.findByRole('button', { name: 'Unlink' }))
+    const dialog = screen.getByRole('dialog', { name: 'Unlink this library?' })
     expect(dialog).toHaveTextContent('removes the 56,214 images in Battle Maps')
     expect(libraryApi.removeLinked).not.toHaveBeenCalled()
-    await user.click(within(dialog).getByRole('button', { name: 'Stop using this folder' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Unlink library' }))
     await waitFor(() =>
       expect(window.electronAPI!.applyLibrary).toHaveBeenCalledWith({
         appData: DIRS.appData,
@@ -143,8 +143,8 @@ describe('LinkedFolderSection', () => {
     vi.mocked(libraryApi.removeLinked).mockRejectedValue(new Error('The library is busy.'))
     const user = userEvent.setup()
     renderWithProviders(<LinkedFolderSection open />)
-    await user.click(await screen.findByRole('button', { name: 'Stop using' }))
-    await user.click(screen.getByRole('button', { name: 'Stop using this folder' }))
+    await user.click(await screen.findByRole('button', { name: 'Unlink' }))
+    await user.click(screen.getByRole('button', { name: 'Unlink library' }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('The library is busy.'))
     expect(window.electronAPI!.applyLibrary).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -159,22 +159,22 @@ describe('LinkedFolderSection', () => {
     })
     const user = userEvent.setup()
     renderWithProviders(<LinkedFolderSection open />)
-    await user.click(await screen.findByRole('button', { name: 'Stop using' }))
+    await user.click(await screen.findByRole('button', { name: 'Unlink' }))
     vi.mocked(libraryApi.status).mockResolvedValue(withLinked({ state: 'detached' }))
-    await user.click(screen.getByRole('button', { name: 'Stop using this folder' }))
+    await user.click(screen.getByRole('button', { name: 'Unlink library' }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't save the settings."))
-    expect(await screen.findByRole('status')).toHaveTextContent('no longer used')
+    expect(await screen.findByRole('status')).toHaveTextContent('no longer linked')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('on a server, shows the state and counts but not the path or Stop using', async () => {
+  it('on a server, shows the state and counts but not the path or Unlink', async () => {
     mode.isApp = false
     vi.mocked(libraryApi.status).mockResolvedValue(withLinked({ path: null, missing_count: 3 }))
     renderWithProviders(<LinkedFolderSection open />)
     expect(await screen.findByText('Battle Maps')).toBeInTheDocument()
     expect(screen.getByText('3 images are missing')).toBeInTheDocument()
     expect(screen.queryByText('D:\\Battle Maps')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Stop using' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unlink' })).not.toBeInTheDocument()
   })
 
   it("offers to remove a detached folder's images", async () => {
@@ -182,7 +182,7 @@ describe('LinkedFolderSection', () => {
     vi.mocked(libraryApi.removeLinked).mockResolvedValue({ removed: 56214 })
     const user = userEvent.setup()
     renderWithProviders(<LinkedFolderSection open />)
-    expect(await screen.findByRole('status')).toHaveTextContent('no longer used')
+    expect(await screen.findByRole('status')).toHaveTextContent('no longer linked')
     expect(screen.queryByRole('button', { name: 'Check for changes' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Remove its images' }))
     await user.click(screen.getByRole('button', { name: 'Remove images' }))

@@ -22,7 +22,7 @@ const CHOICES: readonly { value: Choice; label: string; description: string }[] 
 ]
 
 /** The library's stored format (`stored_format`). Only Original and WebP are offered here;
- * Settings has JPEG, PNG and the quality options. On a server, CONVERT_TO_WEBP=1 only
+ * Settings has JPEG, PNG and the quality options. On a server, SCENE_ATLAS_CONVERT_TO_WEBP=1 only
  * changes the starting choice. */
 export function StoredFormatStep({ nav }: { nav: StepNav }) {
   const [saved, setSaved] = useState<AppSettings['stored_format'] | null>(null)

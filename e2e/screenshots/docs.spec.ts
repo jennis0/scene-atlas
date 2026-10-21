@@ -260,7 +260,7 @@ test("setup: your library (desktop)", async ({ page }) => {
   await page.getByRole("button", { name: "Continue" }).click();
   // Choosing the option opens the folder picker, which the stand-in answers
   await page
-    .getByText("Use a folder of images you already have", { exact: true })
+    .getByText("Link a library you already have", { exact: true })
     .click();
   await expect(page.getByText("Found 4,218 images.")).toBeVisible();
   // The wizard's column, without the empty window either side

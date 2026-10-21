@@ -104,7 +104,7 @@ function DesktopUpdates({
   )
 }
 
-/** Read-only: the server's admin upgrades it, and turns checks off with CHECK_FOR_UPDATES. */
+/** Read-only: the server's admin upgrades it, and turns checks off with SCENE_ATLAS_CHECK_FOR_UPDATES. */
 function ServerUpdates({ state }: { state: ServerUpdateStatus }) {
   const status = serverStatusText(state)
 

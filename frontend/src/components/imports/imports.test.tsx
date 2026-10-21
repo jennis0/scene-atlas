@@ -325,7 +325,7 @@ describe('ImportDialog: progress', () => {
 // ---------------------------------------------------------------------------
 
 describe('linked folder scans', () => {
-  it('have no Undo in their result: the folder is removed with "Stop using this folder"', async () => {
+  it('have no Undo in their result: the folder is removed with "Unlink"', async () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [
         jobSummary({ linked: true, status: 'completed', counts: counts({ done: 5, failed: 1 }) }),

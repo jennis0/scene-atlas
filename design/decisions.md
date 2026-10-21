@@ -402,8 +402,8 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 
 **Consequences:**
 - Adding a new model requires only: export script run + manifest generation (the export now lives in scene-atlas-learning; see ADR-016's status note)
-- Model switch in dev: set `EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if table is missing or has wrong count
-- All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `EMBEDDING_MODEL` env var
+- Model switch in dev: set `SCENE_ATLAS_EMBEDDING_MODEL` env var, restart server; auto-rebuild triggers if table is missing or has wrong count
+- All dev/build scripts (`setup_models.py`, `build_sidecar.py`, `export_model_onnx.py`, PyInstaller spec) respect `SCENE_ATLAS_EMBEDDING_MODEL` env var
 - sentencepiece adds ~1MB to production dependency footprint
 - Models directory structure: `backend/models/{model-name}/` (flat: ONNX files + manifest.json + tokenizer/)
 
@@ -420,13 +420,13 @@ Pipeline functions in `backend/pipeline/` are now plain Python functions — no 
 
 Key choices:
 
-1. **Download location:** `APP_DATA_DIR/models/{name}/` — user-owned, on fast storage, consistent with the split-storage spec. Dev fallback to `backend/models/{name}/` (still used by developers and CI).
+1. **Download location:** `SCENE_ATLAS_DATA_DIR/models/{name}/` — user-owned, on fast storage, consistent with the split-storage spec. Dev fallback to `backend/models/{name}/` (still used by developers and CI).
 
 2. **Completion marker:** `version.json` written *last*, after all files are verified. `is_model_downloaded()` checks only for `version.json` — any directory without it is treated as incomplete.
 
 3. **Atomic download:** Downloads go to a temp dir (`.tmp/{name}/`), files are verified, then the temp dir is renamed to the final location in a single filesystem operation. A crash mid-download leaves no unusable partial state.
 
-4. **Active model source:** `EMBEDDING_MODEL` env var → DB `app_settings.active_model` → auto-detect (GPU present → `medium`, CPU-only → `small`). The `active_model` DB key is intentionally not seeded on first boot so auto-detect runs on fresh installs.
+4. **Active model source:** `SCENE_ATLAS_EMBEDDING_MODEL` env var → DB `app_settings.active_model` → auto-detect (GPU present → `medium`, CPU-only → `small`). The `active_model` DB key is intentionally not seeded on first boot so auto-detect runs on fresh installs.
 
 5. **`active_model` not in `AppSettingsPatch`:** Switching the active model triggers a multi-step background job (download, service reload, re-embed). Routing it through the generic settings PATCH would obscure that intent and risk skipping the job. A dedicated `POST /api/v1/models/active` endpoint makes the side-effects explicit.
 
@@ -439,7 +439,7 @@ Key choices:
 **Consequences:**
 - Non-technical users can choose a model via the UI (or accept the hardware-aware default)
 - CI uses `huggingface_hub.snapshot_download` to fetch pre-built ONNX — no torch/transformers needed in CI
-- A fresh install with no model in `APP_DATA_DIR` starts the backend in a degraded state (CLIPService fails to load); web mode shows a blocking `ModelSetupScreen` overlay
+- A fresh install with no model in `SCENE_ATLAS_DATA_DIR` starts the backend in a degraded state (CLIPService fails to load); web mode shows a blocking `ModelSetupScreen` overlay
 - Stale embeddings from previous models are preserved in named LanceDB tables (`embeddings_{name}`) — user can delete via `DELETE /api/v1/models/{name}/embeddings`
 - The large model is never auto-recommended; it requires explicit selection
 
@@ -624,7 +624,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 **Decision:**
 
 1. **The backend checks, not the browser,** in server mode only: GitHub's `releases/latest` API, 60 s after startup and then every 24 h, in an asyncio task that never blocks startup. The desktop sidecar never checks; Electron does.
-2. **`CHECK_FOR_UPDATES` (default on) turns it off,** and then no outbound request is made at all. It is an environment setting for the admin, not a UI toggle, because there are no roles to keep users from changing it.
+2. **`SCENE_ATLAS_CHECK_FOR_UPDATES` (default on) turns it off,** and then no outbound request is made at all. It is an environment setting for the admin, not a UI toggle, because there are no roles to keep users from changing it.
 3. **The API only returns the cached answer** (`GET /system/updates`). There is no Check now: unauthenticated users could spend the server's 60-requests-an-hour GitHub limit.
 4. **Failures are quiet and keep the last good answer.** 404 (no release yet) counts as up to date; timeouts, offline hosts, rate limiting and malformed responses log one warning per streak.
 5. **Versions are compared by their release numbers,** and a stable release beats a prerelease of the same numbers. Prereleases are never offered. A running version that isn't a plain release (a dev build) is reported as `unknown` and never nags.
@@ -672,7 +672,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - `main` between releases reports the last release's version.
 - Server installs without a clone: the release carries `docker-compose.yml` and `env.example`. The GPU profile still builds from a checkout of a release tag.
 - The GHCR package must be made public once, by hand, after the first push.
-- Changing `APP_UID` after the first start needs a `chown -R` of the data volume.
+- Changing `SCENE_ATLAS_UID` after the first start needs a `chown -R` of the data volume.
 
 ## ADR-025: The user chooses how the desktop app updates
 
@@ -728,7 +728,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 4. **Library identity.** A `library_id` lives in the database, mirrored by `scene-atlas-library.json` markers in app data and the store, with hints to the other folders.
    - The startup check refuses folders that belong to different libraries, or a store without its database.
    - Pointing the wizard at a library reopens it.
-5. **Server mode gets the linked folder through `LINKED_LIBRARY_DIR`.** It comes from configuration, never from a client-named path. That's why it's acceptable on a server, where local folder import isn't.
+5. **Server mode gets the linked folder through `SCENE_ATLAS_LINKED_LIBRARY_DIR`.** It comes from configuration, never from a client-named path. That's why it's acceptable on a server, where local folder import isn't.
 6. **All original-file access goes through one source interface** (list, stat, local path, plus put and delete for the store only). Linked reads are checked to stay inside the root. This also keeps S3-compatible stores open for later.
 
 **Alternatives considered:**
@@ -746,3 +746,28 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - `images.storage_key` becomes nullable. Two deletion paths that mishandled a NULL key are fixed.
 - A library is recognised wherever its folders are. Moving it by hand works if the app is pointed at the new location; a proper Move library is still due before launch.
 - Without backups, losing app data still loses a library's metadata. Linked files can be rescanned, but stored files have generated names.
+
+## ADR-027: "Linked library", and SCENE_ATLAS_ environment variables
+
+**Date:** 2026-10-21
+**Status:** Accepted
+
+**Context:** The linked folder had four names: "Use a folder of images you already have" in setup, "Images folder" in Settings, "Your own folder" in the docs, and `LINKED_LIBRARY_DIR` in configuration. Environment variables had no prefix (`DEBUG`, `PORT`, `CORS_ORIGINS`), and Docker used `IMAGE_DIR` for the same folder standalone servers called `IMAGE_LIBRARY_DIR`. There are no users yet, so nothing needs to stay compatible.
+
+**Decision:**
+
+1. **"Linked library" is the user-facing name**, and leaving it is **Unlink**. It's an independent library that Scene Atlas links to, not a folder Scene Atlas owns. Setup offers "Link a library you already have".
+2. **Every environment variable starts with `SCENE_ATLAS_`.** Settings uses pydantic-settings' `env_prefix`; the few direct reads (`SCENE_ATLAS_EMBEDDING_MODEL`, `SCENE_ATLAS_CONVERT_TO_WEBP`) and Compose-only variables (`SCENE_ATLAS_PORT`, `SCENE_ATLAS_UID`, `SCENE_ATLAS_GID`) follow it.
+3. **The storage roots are named after their UI folders:** `SCENE_ATLAS_DATA_DIR` (Search data), `SCENE_ATLAS_IMAGES_DIR` (Imported images) and `SCENE_ATLAS_LINKED_LIBRARY_DIR`. The `Settings` fields were renamed to `data_dir` and `images_dir` to match, so every variable is exactly `SCENE_ATLAS_` plus a field name, with no aliases (an alias plus `populate_by_name` also accepted `SCENE_ATLAS_IMAGE_LIBRARY_DIR`).
+4. **Docker uses the same name as the app.** `.env`'s `SCENE_ATLAS_IMAGES_DIR` is the host folder; Compose mounts it at `/app/images` and sets the container's own value. `.env` isn't copied into the image, so the two never meet.
+
+**Alternatives considered:**
+
+- **"Linked folder" or "Watched folder".** Rejected: "folder" undersells a collection the user maintains themselves, and a watched folder in other apps usually means files are copied in.
+- **An `SA_` prefix.** Rejected: too short to be unambiguous, and `SCENE_ATLAS_VERSION` already used the long form.
+- **Accept the old names with a deprecation warning.** Rejected: no users yet.
+
+**Consequences:**
+
+- Every `.env`, systemd unit and compose override written before this must be renamed.
+- `SCENE_ATLAS_APP_MODE` keeps the field name after the prefix, so it reads a little redundantly.

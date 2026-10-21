@@ -481,9 +481,9 @@ class TestRaiseDownloadErrorMapping:
 
 
 def _make_settings(data_dir: Path):
-    """Return a minimal settings mock with app_data_dir pointing at tmp_path."""
+    """Return a minimal settings mock with data_dir pointing at tmp_path."""
     settings = MagicMock()
-    settings.app_data_dir = data_dir
+    settings.data_dir = data_dir
     return settings
 
 

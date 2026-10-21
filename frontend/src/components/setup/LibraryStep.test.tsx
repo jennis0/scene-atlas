@@ -51,8 +51,8 @@ function renderStep() {
 const continueButton = () => screen.getByRole('button', { name: 'Continue' })
 const pickLinked = async (user: ReturnType<typeof userEvent.setup>, folder: string) => {
   api.chooseFolder.mockResolvedValueOnce(folder)
-  await user.click(await screen.findByRole('radio', { name: /Use a folder of images/ }))
-  await user.click(screen.getByRole('button', { name: 'Choose your images folder' }))
+  await user.click(await screen.findByRole('radio', { name: /Link a library you already have/ }))
+  await user.click(screen.getByRole('button', { name: 'Choose the linked library' }))
 }
 
 describe('LibraryStep', () => {
@@ -101,7 +101,7 @@ describe('LibraryStep', () => {
     renderStep()
     await screen.findByRole('radio', { name: 'Start a new library' })
     expect(screen.queryByText(LINKED_EXPLAINER)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: /Use a folder of images/ }))
+    await user.click(screen.getByRole('radio', { name: /Link a library you already have/ }))
     expect(screen.getByText(LINKED_EXPLAINER)).toBeVisible()
     expect(screen.getByText('No folder chosen')).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
@@ -237,7 +237,7 @@ describe('LibraryStep', () => {
     expect(await screen.findByText('E:\\Atlas\\data')).toBeInTheDocument()
 
     api.chooseFolder.mockResolvedValueOnce('D:\\Other')
-    await user.click(screen.getByRole('button', { name: 'Choose your images folder' }))
+    await user.click(screen.getByRole('button', { name: 'Choose the linked library' }))
     expect(await screen.findByText(DEFAULTS.appData)).toBeInTheDocument()
     expect(screen.getByText('D:\\Other\\Scene Atlas')).toBeInTheDocument()
     await waitFor(() => expect(continueButton()).toBeEnabled())
@@ -260,7 +260,7 @@ describe('LibraryStep', () => {
     renderStep()
     // The radio renders before the folders arrive; it's checked once they have
     expect(await screen.findByText('E:\\data')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Use a folder of images/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Link a library you already have/ })).toBeChecked()
     await waitFor(() => expect(continueButton()).toBeEnabled())
     await user.click(continueButton())
     expect(api.applyLibrary).toHaveBeenCalledWith({
@@ -291,9 +291,9 @@ describe('LibraryStep', () => {
 
     expect(await screen.findByText('This folder already has images in it.')).toBeInTheDocument()
     await waitFor(() => expect(continueButton()).toBeEnabled())
-    await user.click(screen.getByRole('button', { name: 'Use it as your existing folder' }))
+    await user.click(screen.getByRole('button', { name: 'Link it instead' }))
 
-    expect(screen.getByRole('radio', { name: /Use a folder of images/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Link a library you already have/ })).toBeChecked()
     expect(screen.getByText('D:\\Battle Maps')).toBeInTheDocument()
     expect(screen.getByText('D:\\Battle Maps\\Scene Atlas')).toBeInTheDocument()
     await waitFor(() =>
@@ -309,7 +309,7 @@ describe('LibraryStep', () => {
     await waitFor(() => expect(continueButton()).toBeEnabled())
     await user.click(continueButton())
     expect(screen.getByRole('button', { name: 'Working…' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Choose your images folder' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Choose the linked library' })).toBeDisabled()
     expect(onNext).not.toHaveBeenCalled()
   })
 

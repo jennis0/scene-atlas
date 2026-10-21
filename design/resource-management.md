@@ -107,10 +107,10 @@ A zip that fails `check_zip_safety` becomes one failed `archive` item rather tha
 
 | Constant | Default | Used by |
 |----------|---------|---------|
-| `CLIP_TEXT_CACHE_MAX` | 256 | Text embedding LRU (`clip_service.py`) |
-| `JOB_RETENTION_SECONDS` | 3600 | Finished JobRunner records (`job_runner.py`) |
-| `INGEST_MEMORY_BUDGET_MB` | unset (automatic) | MemoryBudget |
-| `MAX_IMPORT_ITEMS` | 50000 | Imports API |
+| `SCENE_ATLAS_CLIP_TEXT_CACHE_MAX` | 256 | Text embedding LRU (`clip_service.py`) |
+| `SCENE_ATLAS_JOB_RETENTION_SECONDS` | 3600 | Finished JobRunner records (`job_runner.py`) |
+| `SCENE_ATLAS_INGEST_MEMORY_BUDGET_MB` | unset (automatic) | MemoryBudget |
+| `SCENE_ATLAS_MAX_IMPORT_ITEMS` | 50000 | Imports API |
 
 ## Settings Sources
 

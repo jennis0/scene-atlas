@@ -7,7 +7,7 @@ Scene Atlas runs as a desktop app or as a server you open in a browser.
 | For | Using it on your own computer | A home server or NAS, used from anywhere | Servers without Docker |
 | Install | An installer | `docker compose` | Python and Node.js from source |
 | Imports | Read straight from your disk | Uploaded from the browser | Uploaded from the browser |
-| Your own folder | Chosen in setup or Settings | A read-only mount | An environment variable |
+| Linked library | Chosen in setup or Settings | A read-only mount | An environment variable |
 | Sign-in | Not needed | Add a reverse proxy | Add a reverse proxy |
 | GPU | DirectML (Windows), CoreML (Mac) | NVIDIA | NVIDIA, DirectML or CoreML |
 
@@ -19,7 +19,7 @@ Search, groups, tags and everything else in the gallery are the same in each.
 2. Install and open it. The installers aren't signed yet, so [Windows and macOS warn you the first time](/deploy/desktop#first-launch-warnings).
 3. Follow the setup:
    - **Appearance**: theme, text size and how the app updates.
-   - **Your library**: start a new library, or use a folder of images you already have. See [Your Library](/guide/library).
+   - **Your library**: start a new library, or link a library of images you already have. See [Your Library](/guide/library).
    - **Stored format**: keep imported images as they are, or convert them to WebP to save space.
    - **Tag packs**: ready-made tags for the genres you play.
    - **Search model**: a model is recommended for your computer. It downloads in the background once you finish.

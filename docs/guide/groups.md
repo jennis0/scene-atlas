@@ -45,7 +45,7 @@ To join two groups, use **Merge into…** on a group card and search for the gro
 
 ### Deleting
 
-**Delete** on a group card deletes the group and all its images. Delete one image from its tile menu or the viewer. Files in [your own folder](/guide/library#using-your-own-folder) are never deleted; only Scene Atlas's record of them is.
+**Delete** on a group card deletes the group and all its images. Delete one image from its tile menu or the viewer. Files in a [linked library](/guide/library#linked-library) are never deleted; only Scene Atlas's record of them is.
 
 ## Bulk Editing
 

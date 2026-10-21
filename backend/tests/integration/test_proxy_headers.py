@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app
 
-TRUSTED_PROXY = ("127.0.0.1", 40000)  # FORWARDED_ALLOW_IPS default
+TRUSTED_PROXY = ("127.0.0.1", 40000)  # SCENE_ATLAS_FORWARDED_ALLOW_IPS default
 UNTRUSTED_PEER = ("203.0.113.7", 40000)
 LIMITED = "/api/v1/system/library"  # rate_limit_destructive: 1/minute
 

@@ -100,7 +100,7 @@ def test_startup_opens_a_new_library(roots):
         pass
     store_marker = li.read_marker(roots / "images")
     assert store_marker is not None
-    assert li.read_marker(settings.app_data_dir).library_id == store_marker.library_id  # type: ignore[union-attr]
+    assert li.read_marker(settings.data_dir).library_id == store_marker.library_id  # type: ignore[union-attr]
     # A second start opens the same library.
     with TestClient(app):
         pass

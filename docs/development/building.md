@@ -123,7 +123,7 @@ npm run electron:build                        # tsc + electron-builder
 | Backend log | `{userData}/backend.log` (rotated to `backend.log.1`) |
 | Updater log | `{userData}/updater.log` |
 | App data / image library dirs | A first launch writes the defaults (`%LOCALAPPDATA%\Scene Atlas\data` and `...\images` on Windows, `Documents/Scene Atlas/...` elsewhere) as a provisional library; the setup wizard's library step can replace them. Passed to the sidecar as `--app-data-dir` / `--image-library-dir` |
-| Linked folder (`linkedLibraryDir`) | Optional: the user's own images folder, read in place. Chosen in the setup wizard or Settings; passed as `--linked-library-dir`. In `npm run electron:dev` the folders are only saved to the config: the dev backend ignores them (set `APP_DATA_DIR`, `IMAGE_LIBRARY_DIR`, `LINKED_LIBRARY_DIR` for it) |
+| Linked library (`linkedLibraryDir`) | Optional: the user's own images folder, read in place. Chosen in the setup wizard or Settings; passed as `--linked-library-dir`. In `npm run electron:dev` the folders are only saved to the config: the dev backend ignores them (set `SCENE_ATLAS_DATA_DIR`, `SCENE_ATLAS_IMAGES_DIR`, `SCENE_ATLAS_LINKED_LIBRARY_DIR` for it) |
 
 The config also holds the update choice, window state and display preferences; see [design/electron.md](https://github.com/jennis0/scene-atlas/blob/main/design/electron.md#config-storage) for the full shape.
 

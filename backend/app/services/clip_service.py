@@ -155,7 +155,7 @@ def _default_models_dir() -> Path:
     """
     model_name = _get_active_model_name()
     # 1. User data dir (HF downloads) — primary path for both frozen and dev
-    data_models = _settings.app_data_dir / "models" / model_name
+    data_models = _settings.data_dir / "models" / model_name
     if data_models.exists() and (data_models / "manifest.json").exists():
         return data_models
     # 2. Dev fallback (local exports in backend/models/) — not available in frozen builds
@@ -169,7 +169,7 @@ def _default_models_dir() -> Path:
 def _get_active_model_name() -> str:
     """Resolve the active model name from env var → DB → auto-detect.
 
-    1. EMBEDDING_MODEL env var (operator override)
+    1. SCENE_ATLAS_EMBEDDING_MODEL env var (operator override)
     2. active_model key in app_settings DB
     3. Auto-detect: GPU present → medium, CPU-only → small
 
@@ -180,7 +180,7 @@ def _get_active_model_name() -> str:
     yet initialised, auto-detect silently activates.
     """
     # 1. Env var override
-    env = os.environ.get("EMBEDDING_MODEL", "")
+    env = os.environ.get("SCENE_ATLAS_EMBEDDING_MODEL", "")
     if env:
         return env
 
@@ -317,7 +317,7 @@ class CLIPService:
         logger.info("Loading ONNX models from %s", models_dir)
 
         # Resolve execution providers — explicit device param takes priority
-        # over the global INFERENCE_DEVICE setting (used by scripts that pass
+        # over the global SCENE_ATLAS_INFERENCE_DEVICE setting (used by scripts that pass
         # device directly).
         inference_device = device if device is not None else _settings.inference_device
         gpu_providers = resolve_providers(inference_device)

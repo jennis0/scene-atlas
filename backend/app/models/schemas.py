@@ -612,7 +612,7 @@ class LinkedRemoved(BaseModel):
 # Updates (server mode, ADR-023)
 
 
-# disabled: no checks (desktop app, or CHECK_FOR_UPDATES=false); pending: no check has
+# disabled: no checks (desktop app, or SCENE_ATLAS_CHECK_FOR_UPDATES=false); pending: no check has
 # succeeded yet; up_to_date: no newer release, or none published yet; available:
 # latest_version is newer; unknown: the running version isn't a release (a dev build), so
 # it isn't compared

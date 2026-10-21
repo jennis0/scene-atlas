@@ -28,7 +28,7 @@ class ModelDownloadError(Exception):
 
 def get_model_dir(name: str) -> Path:
     """Return the target directory for a downloaded model: DATA_DIR/models/{name}/"""
-    return _settings.app_data_dir / "models" / name
+    return _settings.data_dir / "models" / name
 
 
 def get_version_info(name: str) -> dict | None:
@@ -77,7 +77,7 @@ def check_disk_space(model_name: str) -> tuple[bool, int, int]:
         )
 
     needed_mb = int(entry["approx_size_mb"] * _DISK_SPACE_MULTIPLIER)
-    models_dir = _settings.app_data_dir / "models"
+    models_dir = _settings.data_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(models_dir)
     available_mb = int(usage.free / (1024 * 1024))
@@ -137,7 +137,7 @@ def download_model(name: str, progress_fn=None) -> dict:
 
     repo_id = entry["hf_repo"]
     model_dir = get_model_dir(name)
-    tmp_dir = _settings.app_data_dir / "models" / ".tmp" / name
+    tmp_dir = _settings.data_dir / "models" / ".tmp" / name
 
     # Phase 1: get commit SHA before download (avoids post-download race condition)
     if progress_fn:

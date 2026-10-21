@@ -30,7 +30,7 @@ uv run python -m stress_tests run --all                         # full load
 ## How it works
 
 Each scenario:
-1. Gets a **fresh server process** (`uvicorn backend.app.main:app` on a free port) with its own `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` under `stress_tests/results/_work_<timestamp>/<scenario>/`. It never touches the repo's `data/` or `images/`.
+1. Gets a **fresh server process** (`uvicorn backend.app.main:app` on a free port) with its own `SCENE_ATLAS_DATA_DIR` and `SCENE_ATLAS_IMAGES_DIR` under `stress_tests/results/_work_<timestamp>/<scenario>/`. It never touches the repo's `data/` or `images/`.
 2. Waits until `GET /health` answers, warms the model with a search, and waits until `GET /imports` reports the queue is not system-paused.
 3. Runs the scenario with `httpx.AsyncClient`, using the real upload protocol (design §7):
 

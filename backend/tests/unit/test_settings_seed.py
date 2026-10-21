@@ -24,20 +24,20 @@ def fresh_db():
 class TestStoredFormatSeed:
     def test_defaults_to_original(self, fresh_db):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("CONVERT_TO_WEBP", None)
+            os.environ.pop("SCENE_ATLAS_CONVERT_TO_WEBP", None)
             seed_default_settings(fresh_db)
         row = fresh_db.query(AppSetting).filter_by(key="stored_format").first()
         assert row is not None
         assert json.loads(row.value_json) == "original"
 
     def test_original_when_env_is_off(self, fresh_db):
-        with patch.dict(os.environ, {"CONVERT_TO_WEBP": "0"}):
+        with patch.dict(os.environ, {"SCENE_ATLAS_CONVERT_TO_WEBP": "0"}):
             seed_default_settings(fresh_db)
         row = fresh_db.query(AppSetting).filter_by(key="stored_format").first()
         assert json.loads(row.value_json) == "original"
 
     def test_webp_when_env_is_on(self, fresh_db):
-        with patch.dict(os.environ, {"CONVERT_TO_WEBP": "1"}):
+        with patch.dict(os.environ, {"SCENE_ATLAS_CONVERT_TO_WEBP": "1"}):
             seed_default_settings(fresh_db)
         row = fresh_db.query(AppSetting).filter_by(key="stored_format").first()
         assert json.loads(row.value_json) == "webp"

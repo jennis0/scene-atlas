@@ -1,4 +1,4 @@
-"""Exclusive per-storage-root lock: one backend per APP_DATA_DIR and IMAGE_LIBRARY_DIR.
+"""Exclusive per-storage-root lock: one backend per SCENE_ATLAS_DATA_DIR and SCENE_ATLAS_IMAGES_DIR.
 
 Two backends on one root corrupt each other: startup recovery clears
 ``.incoming/`` and re-queues items the other process is processing, and the

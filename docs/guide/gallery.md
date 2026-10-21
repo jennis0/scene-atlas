@@ -65,7 +65,7 @@ Animated maps play in the viewer, looped. Tiles for videos carry a small video m
 
 ### Missing Files
 
-If an image's file has gone from [your own folder](/guide/library#keeping-up-with-changes), its tile shows **File missing**. The viewer still shows its thumbnail and details, but it can't be downloaded.
+If an image's file has gone from a [linked library](/guide/library#keeping-up-with-changes), its tile shows **File missing**. The viewer still shows its thumbnail and details, but it can't be downloaded.
 
 ## Keyboard Shortcuts
 

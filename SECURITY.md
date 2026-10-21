@@ -27,6 +27,6 @@ Key points:
 ## Deployment Recommendations
 
 - Always run behind a reverse proxy (nginx, Caddy) with HTTPS
-- Configure `CORS_ORIGINS` to match your actual frontend URL
+- Configure `SCENE_ATLAS_CORS_ORIGINS` to match your actual frontend URL
 - Do not expose the backend port (8000) directly to the internet
 - Use firewall rules to restrict access to trusted IPs

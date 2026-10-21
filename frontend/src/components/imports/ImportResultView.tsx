@@ -144,7 +144,7 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
       status={job ? statusLine(job, groups, sharedAuthor) : 'Loading'}
       footer={
         <>
-          {/* A linked folder's maps leave with "Stop using this folder", not Undo */}
+          {/* A linked folder's maps leave with "Unlink", not Undo */}
           {!job?.linked && (
             <TextButton
               tone="outline-danger"

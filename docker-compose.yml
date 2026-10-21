@@ -19,34 +19,36 @@
 #   - scene-atlas-data (named volume) — database, vector index, thumbnails.
 #     Managed by the app; users should not need to touch this directly.
 #   - images (bind mount) — original image library. Defaults to ./images
-#     in the project root. Set IMAGE_DIR in .env to point elsewhere,
-#     e.g. IMAGE_DIR=/mnt/nas/battlemaps
+#     in the project root. Set SCENE_ATLAS_IMAGES_DIR in .env to point elsewhere,
+#     e.g. SCENE_ATLAS_IMAGES_DIR=/mnt/nas/battlemaps
 #
 # See README.md and .env.example for full configuration reference.
 
 x-common: &common
-  # The user the container runs as; must be able to write IMAGE_DIR (`id -u` / `id -g`).
-  user: "${APP_UID:-1000}:${APP_GID:-1000}"
+  # The user the container runs as; must be able to write SCENE_ATLAS_IMAGES_DIR
+  # (`id -u` / `id -g`).
+  user: "${SCENE_ATLAS_UID:-1000}:${SCENE_ATLAS_GID:-1000}"
   ports:
-    - "${PORT:-8000}:8000"
+    - "${SCENE_ATLAS_PORT:-8000}:8000"
   volumes:
     - scene-atlas-data:/app/data
-    - ${IMAGE_DIR:-./images}:/app/images
-    # Your own maps folder (LINKED_LIBRARY_DIR, a read-only mount) goes in a
+    # .env's SCENE_ATLAS_IMAGES_DIR is the host folder; the app sees it as /app/images.
+    - ${SCENE_ATLAS_IMAGES_DIR:-./images}:/app/images
+    # Your own maps folder (SCENE_ATLAS_LINKED_LIBRARY_DIR, a read-only mount) goes in a
     # docker-compose.override.yml, so updating this file keeps it (docs/deploy/server.md).
   environment: &common-env
-    APP_DATA_DIR: /app/data
-    IMAGE_LIBRARY_DIR: /app/images
-    APP_MODE: server
+    SCENE_ATLAS_DATA_DIR: /app/data
+    SCENE_ATLAS_IMAGES_DIR: /app/images
+    SCENE_ATLAS_APP_MODE: server
     # Quoted as a whole: quotes inside the default would reach the app, and it isn't JSON.
-    CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:8000"]}'
+    SCENE_ATLAS_CORS_ORIGINS: '${SCENE_ATLAS_CORS_ORIGINS:-["http://localhost:8000"]}'
     # Proxies trusted to report the client IP; set to your proxy's address as seen
     # from the container (see docs/deploy/server.md).
-    FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
-    INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
-    DEBUG: ${DEBUG:-false}
+    SCENE_ATLAS_FORWARDED_ALLOW_IPS: ${SCENE_ATLAS_FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
+    SCENE_ATLAS_INFERENCE_DEVICE: ${SCENE_ATLAS_INFERENCE_DEVICE:-auto}
+    SCENE_ATLAS_DEBUG: ${SCENE_ATLAS_DEBUG:-false}
     # Daily check for a newer release, shown in Settings; false makes no request.
-    CHECK_FOR_UPDATES: ${CHECK_FOR_UPDATES:-true}
+    SCENE_ATLAS_CHECK_FOR_UPDATES: ${SCENE_ATLAS_CHECK_FOR_UPDATES:-true}
   restart: unless-stopped
 
 services:
@@ -75,7 +77,7 @@ services:
         EXTRA: gpu
     environment:
       <<: *common-env
-      INFERENCE_DEVICE: cuda
+      SCENE_ATLAS_INFERENCE_DEVICE: cuda
     deploy:
       resources:
         reservations:

@@ -32,7 +32,7 @@ _MODEL_SPECS = {
 }
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-# Where models live, since conftest points APP_DATA_DIR (CLIPService's default) at a
+# Where models live, since conftest points SCENE_ATLAS_DATA_DIR (CLIPService's default) at a
 # throwaway folder: downloaded by scripts/models/setup_models.py into ./data/models (as
 # the Release workflow does), or exported into backend/models.
 _MODEL_ROOTS = (_REPO_ROOT / "data" / "models", _REPO_ROOT / "backend" / "models")

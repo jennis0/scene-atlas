@@ -9,7 +9,7 @@ Scene Atlas uses ONNX Runtime for ML inference (CLIP/SigLIP2 embedding models) d
 
 ## Decision
 
-The execution provider is selected by the `inference_device` setting (`INFERENCE_DEVICE` env var; `backend/app/config.py`). Values: `auto` (default), `cpu`, `cuda`, `directml`, `coreml`. `auto` uses the best available provider and falls back to CPU, so a GPU is used without configuration whenever the installed onnxruntime package supports it. Set `cpu` to force CPU.
+The execution provider is selected by the `inference_device` setting (`SCENE_ATLAS_INFERENCE_DEVICE` env var; `backend/app/config.py`). Values: `auto` (default), `cpu`, `cuda`, `directml`, `coreml`. `auto` uses the best available provider and falls back to CPU, so a GPU is used without configuration whenever the installed onnxruntime package supports it. Set `cpu` to force CPU.
 
 An explicit provider that is unavailable, or an unknown value, logs a warning and resolves to CPU.
 
@@ -131,7 +131,7 @@ Windows caches D3D12 PSOs after first run, so later launches are fast. Because t
 - CoreML is opportunistic (no guarantee, no extra dependencies)
 - Linux desktop builds are CPU-only (CUDA would require a user-installed toolkit + cuDNN)
 - TensorRT excluded (engine building overhead, overkill for these model sizes)
-- The deprecated `CLIP_DEVICE` env var is ignored; if set, a warning pointing to `INFERENCE_DEVICE` is logged at startup
+- The deprecated `CLIP_DEVICE` env var is ignored; if set, a warning pointing to `SCENE_ATLAS_INFERENCE_DEVICE` is logged at startup
 
 ## Validation
 

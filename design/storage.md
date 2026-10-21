@@ -11,7 +11,7 @@ Schema changes are Alembic migrations in `backend/alembic/versions/`, applied by
 
 ## SQLite Database
 
-**Location:** `{APP_DATA_DIR}/battlemap.db` (`settings.database_url` is always derived from `app_data_dir`). Connections use WAL mode, `busy_timeout=10000` and `synchronous=NORMAL`.
+**Location:** `{SCENE_ATLAS_DATA_DIR}/battlemap.db` (`settings.database_url` is always derived from `data_dir`). Connections use WAL mode, `busy_timeout=10000` and `synchronous=NORMAL`.
 
 ### Schema
 
@@ -195,7 +195,7 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 
 ## LanceDB Vector Store
 
-- **Mode:** embedded, `lancedb.connect("{APP_DATA_DIR}/lancedb")`; memory-mapped from disk, no server process.
+- **Mode:** embedded, `lancedb.connect("{SCENE_ATLAS_DATA_DIR}/lancedb")`; memory-mapped from disk, no server process.
 - **Table:** `embeddings_{model_name}` — one table per model; switching models uses a new table.
 - **Vector size:** depends on the model — 512 (small, CLIP ViT-B/32), 768 (medium, SigLIP2-base), 1024 (large, SigLIP2-large). `settings.vector_size` is set from the model manifest at startup.
 - **Distance:** cosine; the service returns `1 - distance` as similarity.
@@ -208,20 +208,20 @@ LanceDB is linked to SQLite by `image_id`. Vectors are written after the SQLite 
 
 Two storage roots, so originals can live on a different volume:
 
-- **`APP_DATA_DIR`** — SQLite, LanceDB, thumbnails, staging, config, scheduler state, logs, models.
-- **`IMAGE_LIBRARY_DIR`** — original files and backups.
+- **`SCENE_ATLAS_DATA_DIR`** — SQLite, LanceDB, thumbnails, staging, config, scheduler state, logs, models.
+- **`SCENE_ATLAS_IMAGES_DIR`** — original files and backups.
 
 | Content | Path |
 |---------|------|
-| Originals | `{IMAGE_LIBRARY_DIR}/ab/cd/<key>` (the library root is the image store root) |
-| Thumbnails | `{APP_DATA_DIR}/store/thumbnails/ab/cd/<key>` |
-| Staging | `{APP_DATA_DIR}/staging/{job_id}/{staging_key}` |
+| Originals | `{SCENE_ATLAS_IMAGES_DIR}/ab/cd/<key>` (the library root is the image store root) |
+| Thumbnails | `{SCENE_ATLAS_DATA_DIR}/store/thumbnails/ab/cd/<key>` |
+| Staging | `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}` |
 | Ingest temp files | `{store_root}/.incoming/` (one per store) |
-| Backups | `{IMAGE_LIBRARY_DIR}/backups/{YYYYmmdd_HHMMSS}/` |
+| Backups | `{SCENE_ATLAS_IMAGES_DIR}/backups/{YYYYmmdd_HHMMSS}/` |
 
 ### Library identity
 
-A library is its database and its store, plus an optional linked folder (`LINKED_LIBRARY_DIR`; the user's own maps, never written). The plan is [library-setup.md](library-setup.md); the code is `backend/app/library_identity.py`.
+A library is its database and its store, plus an optional linked folder (`SCENE_ATLAS_LINKED_LIBRARY_DIR`; the user's own maps, never written). The plan is [library-setup.md](library-setup.md); the code is `backend/app/library_identity.py`.
 
 - **`library_id`**: a UUID in `app_settings`, created for a new library, or for a library from before IDs the first time it opens. The database is authoritative.
 - **Markers**: `scene-atlas-library.json` at the root of the app data folder and of the store: `{"format": 1, "library_id", "role": "app_data" | "store", "hints"}`. Hints are the other folders' last-known paths; a store inside its linked folder records the linked folder as a relative path (`".."`). When app data and the store are one folder, only the store marker is written. A marker that can't be parsed counts as no marker.
@@ -244,7 +244,7 @@ The walk used by local imports and the linked folder scan (`ingest_local.walk_fi
 
 ### Linked folder
 
-The linked folder (`settings.linked_library_dir`, from `LINKED_LIBRARY_DIR` or the desktop app's `--linked-library-dir`) holds the user's own maps. They are read where they are and never written, moved or deleted. Plan: [library-setup.md §4](library-setup.md#4-linked-library); ingest side: [ingestion.md §5.7](ingestion.md#57-linked-items).
+The linked folder (`settings.linked_library_dir`, from `SCENE_ATLAS_LINKED_LIBRARY_DIR` or the desktop app's `--linked-library-dir`) holds the user's own maps. They are read where they are and never written, moved or deleted. Plan: [library-setup.md §4](library-setup.md#4-linked-library); ingest side: [ingestion.md §5.7](ingestion.md#57-linked-items).
 
 - **Reading originals.** Every original, stored or linked, is read through the source interface in `backend/app/services/originals.py`: `original_path(image)` returns the file or raises `OriginalUnavailable` (`missing`, or `offline` with a reason). The store is `ImageStore` (`local_path`, `put`, `delete`); the linked folder is `LinkedFolder` (`list`, `local_path`), which has no `put` or `delete`. `LinkedFolder.local_path` is the containment check: the key must be relative with no `..`, and joined to the root it must resolve inside the root to a regular file that isn't a symlink. File serving, the thumbnail fallback, group download, library export and the backfills all go through it; nothing else builds a path to an original.
 - **Rows.** `library_sources` is the folder; `source_files` records what became of each of its files, so a rescan never reads a file it has seen. Images read from the folder have `storage_key` NULL and `source_file_id` set. `backend/app/services/linked_files.py` keeps the rows in step: item outcomes are written back, removing an image marks its file `removed` (rescans leave it out; files recorded as its duplicates too), and a missing image takes over a file with its bytes (a move).
@@ -277,7 +277,7 @@ The filesystem is a blob store; `storage_key` and `thumbnail_key` are the author
 
 ### Staging
 
-Bytes uploaded for an import are stored per job at `{APP_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_key` is server-generated (`uuid4().hex` + the item's lower-cased extension) and stored on `ImportItem.staging_key`; client-supplied paths are never used as filesystem paths.
+Bytes uploaded for an import are stored per job at `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}`. `staging_key` is server-generated (`uuid4().hex` + the item's lower-cased extension) and stored on `ImportItem.staging_key`; client-supplied paths are never used as filesystem paths.
 
 - **Per-file upload** (`PUT …/items/{item_id}/content`) streams to `.{staging_key}.part` in the job directory, hashes and MIME-checks it, then renames it to `{staging_key}`.
 - **Archive upload** (`PUT …/archives`) streams the zip to `.{uuid}.zip.part`, extracts each member to `{staging_key}.part` then `{staging_key}`, and deletes the zip.
@@ -296,6 +296,6 @@ By default the library keeps each upload's original bytes. The `stored_format` s
 
 ## Backups
 
-`pipeline/maintenance.py:backup_database()` runs every 24 h. Each run writes a SQLite snapshot (sqlite3 backup API, consistent while writes continue) and a LanceDB copy into `{IMAGE_LIBRARY_DIR}/backups/{timestamp}/`, then rotates: the 7 most recent backups are kept, plus one per 7-day window for up to 4 older ones. Rotation only counts and deletes directories named `YYYYmmdd_HHMMSS`; anything else in `backups/` is left alone.
+`pipeline/maintenance.py:backup_database()` runs every 24 h. Each run writes a SQLite snapshot (sqlite3 backup API, consistent while writes continue) and a LanceDB copy into `{SCENE_ATLAS_IMAGES_DIR}/backups/{timestamp}/`, then rotates: the 7 most recent backups are kept, plus one per 7-day window for up to 4 older ones. Rotation only counts and deletes directories named `YYYYmmdd_HHMMSS`; anything else in `backups/` is left alone.
 
 **Pre-migration snapshots.** Migrations are one-way, so before `init_db()` applies pending migrations to an Alembic-managed, file-backed SQLite database it writes a SQLite snapshot (same backup API) to `backups/pre-migration/{timestamp}_{from_rev}/battlemap.db` and keeps the 5 most recent (`maintenance.backup_before_migration`). This is the way back after an app update: reinstall the old version and restore that file. Fresh databases, pre-Alembic stamping, databases at head, and databases at a revision the build doesn't know (from a newer version; the upgrade fails anyway) get none. LanceDB is not included: no migration touches it. If the snapshot fails, `init_db()` raises `MigrationBackupError` ("Could not back up the database before migrating it: …") and startup stops without migrating. The snapshot is taken in a separate connection before the migration transaction opens; the storage lock keeps other writers out.

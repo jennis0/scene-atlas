@@ -14,7 +14,7 @@ import { useLibraryStatus } from '@/hooks/useLibraryStatus'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import type { InspectResult } from '@/lib/api/libraryApi'
 import type { RestartPromptProps } from './RestartBadge'
-import { StopUsingFolder } from './StopUsingFolder'
+import { UnlinkLibrary } from './UnlinkLibrary'
 
 type Pending = Partial<Record<LibraryFolderKind, string>>
 
@@ -174,15 +174,15 @@ export function StorageSection({ open }: { open: boolean }) {
         restart={restart}
       />
       <StoragePathRow
-        label="Images folder"
-        description="Your own folder of images, read where it is."
+        label="Linked library"
+        description="A folder of images you already have, read where it is."
         current={dirs?.linked}
         pending={pending.linked}
         empty="None"
         browseLabel={dirs?.linked ? 'Change' : 'Choose'}
         onBrowse={() => void browse('linked')}
         restart={restart}
-        extra={dirs?.linked && status?.linked && <StopUsingFolder linked={status.linked} />}
+        extra={dirs?.linked && status?.linked && <UnlinkLibrary linked={status.linked} />}
       />
 
       {changed && (

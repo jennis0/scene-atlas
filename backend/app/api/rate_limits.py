@@ -4,7 +4,7 @@ Kept in its own module to avoid circular imports between main.py and
 the API route modules that apply per-endpoint limits.
 
 get_remote_address reads request.client, which main.py's ProxyHeadersMiddleware
-sets from X-Forwarded-For on connections from FORWARDED_ALLOW_IPS only.
+sets from X-Forwarded-For on connections from SCENE_ATLAS_FORWARDED_ALLOW_IPS only.
 See design/security.md.
 """
 

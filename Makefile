@@ -28,7 +28,7 @@ test-unit:
 	uv run python -m pytest backend/tests/unit -v
 
 test-integration: ensure-model
-	EMBEDDING_MODEL=small uv run python -m pytest backend/tests/integration -v
+	SCENE_ATLAS_EMBEDDING_MODEL=small uv run python -m pytest backend/tests/integration -v
 
 test-frontend:
 	cd frontend && npx vitest run
@@ -49,5 +49,5 @@ test-e2e-ui:
 # ── Coverage ───────────────────────────────────────────────────────────────
 test-cov: ensure-model
 	uv run python -m pytest backend/tests/unit --cov --cov-report=
-	EMBEDDING_MODEL=small uv run python -m pytest backend/tests/integration --cov --cov-append --cov-report=term-missing
+	SCENE_ATLAS_EMBEDDING_MODEL=small uv run python -m pytest backend/tests/integration --cov --cov-append --cov-report=term-missing
 	cd frontend && npx vitest run --coverage

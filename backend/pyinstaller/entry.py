@@ -2,7 +2,7 @@
 
 Sets environment variables BEFORE importing any backend.app modules,
 because importing config.py immediately constructs Settings() and
-computes all derived paths from app_data_dir / image_library_dir.
+computes all derived paths from data_dir / images_dir.
 
 Includes crash supervision: if uvicorn crashes, it restarts with
 exponential backoff. Gives up after 10 crashes in 5 minutes and exits
@@ -98,24 +98,24 @@ def main():
     from pathlib import Path
 
     for label, dirpath in [
-        ("APP_DATA_DIR", args.app_data_dir),
-        ("IMAGE_LIBRARY_DIR", args.image_library_dir),
+        ("SCENE_ATLAS_DATA_DIR", args.app_data_dir),
+        ("SCENE_ATLAS_IMAGES_DIR", args.image_library_dir),
     ]:
         if not Path(dirpath).exists():
             print(f"ERROR: {label} does not exist: {dirpath}", file=sys.stderr)
             sys.exit(1)
 
     # Must set env vars before any backend.app import triggers Settings()
-    os.environ["APP_DATA_DIR"] = args.app_data_dir
-    os.environ["IMAGE_LIBRARY_DIR"] = args.image_library_dir
+    os.environ["SCENE_ATLAS_DATA_DIR"] = args.app_data_dir
+    os.environ["SCENE_ATLAS_IMAGES_DIR"] = args.image_library_dir
     if args.linked_library_dir:
-        os.environ["LINKED_LIBRARY_DIR"] = args.linked_library_dir
+        os.environ["SCENE_ATLAS_LINKED_LIBRARY_DIR"] = args.linked_library_dir
     else:
-        os.environ.pop("LINKED_LIBRARY_DIR", None)
-    os.environ["VALIDATE_ROOTS"] = "1"  # Settings() will raise if roots don't exist
-    os.environ["API_PORT"] = str(args.port)
-    os.environ["API_HOST"] = "127.0.0.1"
-    os.environ["APP_MODE"] = "app"
+        os.environ.pop("SCENE_ATLAS_LINKED_LIBRARY_DIR", None)
+    os.environ["SCENE_ATLAS_VALIDATE_ROOTS"] = "1"  # Settings() will raise if roots don't exist
+    os.environ["SCENE_ATLAS_API_PORT"] = str(args.port)
+    os.environ["SCENE_ATLAS_API_HOST"] = "127.0.0.1"
+    os.environ["SCENE_ATLAS_APP_MODE"] = "app"
 
     from backend.app.logging_config import setup_logging
 

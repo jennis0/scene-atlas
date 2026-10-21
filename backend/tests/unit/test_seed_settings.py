@@ -79,7 +79,7 @@ def test_seed_matches_schema_defaults(db_session, monkeypatch):
     """The seed covers every AppSettings field and uses its defaults, so the two can't drift."""
     from backend.app.models.schemas import AppSettings
 
-    monkeypatch.delenv("CONVERT_TO_WEBP", raising=False)
+    monkeypatch.delenv("SCENE_ATLAS_CONVERT_TO_WEBP", raising=False)
     seed_default_settings(db_session)
     seeded = {row.key: json.loads(row.value_json) for row in db_session.query(AppSetting)}
     expected = AppSettings().model_dump(exclude={"active_model"})

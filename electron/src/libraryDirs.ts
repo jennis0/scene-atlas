@@ -16,11 +16,11 @@ import {
 export type FolderKind = 'appData' | 'store' | 'linked'
 
 export interface LibraryDirs {
-  /** Database, search index, thumbnails, logs (the backend's APP_DATA_DIR) */
+  /** Database, search index, thumbnails, logs (the backend's SCENE_ATLAS_DATA_DIR) */
   appData: string
-  /** Imported originals, backups and the marker (IMAGE_LIBRARY_DIR) */
+  /** Imported originals, backups and the marker (SCENE_ATLAS_IMAGES_DIR) */
   store: string
-  /** The user's own maps folder: read-only, and may be offline (LINKED_LIBRARY_DIR) */
+  /** The user's own maps folder: read-only, and may be offline (SCENE_ATLAS_LINKED_LIBRARY_DIR) */
   linked: string | null
 }
 
@@ -56,10 +56,10 @@ export function parseLibraryDirs(
     return { error: 'Each folder must be a full path.' }
   }
   if (linked && isSameOrInside(linked, store, platform)) {
-    return { error: "The Imported images folder can't be your images folder, or contain it." }
+    return { error: "The Imported images folder can't be the linked library, or contain it." }
   }
   if (linked && isSameOrInside(linked, appData, platform)) {
-    return { error: "The Search data folder can't be your images folder, or contain it." }
+    return { error: "The Search data folder can't be the linked library, or contain it." }
   }
   return { dirs: { appData, store, linked } }
 }
@@ -136,7 +136,7 @@ export function unavailableLinkedError(dirs: LibraryDirs): string | null {
   const { linked } = dirs
   if (!linked || fs.existsSync(linked)) return null
   const inside = [dirs.appData, dirs.store].some((dir) => isSameOrInside(dir, linked))
-  return inside ? `Your images folder isn't available: ${linked}` : null
+  return inside ? `The linked library isn't available: ${linked}` : null
 }
 
 /** True when *dir* doesn't exist or has nothing in it (a file isn't empty). */

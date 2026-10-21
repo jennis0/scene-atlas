@@ -6,7 +6,7 @@ From the demo maps folder, builds under <work dir>:
               for import_library.py
     held/2 Minute Tabletop/<pack>/   two packs with tokens (copies), imported through the
               UI by the screenshot run so the import dialog and its report are real
-    linked/My Maps/Fantasy Atlas/<map>/*.jpg   copies: the linked folder (LINKED_LIBRARY_DIR).
+    linked/My Maps/Fantasy Atlas/<map>/*.jpg   copies: the linked folder (SCENE_ATLAS_LINKED_LIBRARY_DIR).
               Copies, because the linked scan skips symlinks
     data/models/<name>   symlinks to downloaded models (default: the repo's data/models;
               a worktree passes its main checkout's), so nothing is downloaded

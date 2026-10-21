@@ -19,7 +19,7 @@ const STORE_IN_LINKED = 'Scene Atlas'
 const LINKED_EXPLAINER =
   'Scene Atlas adds the maps and scenes in this folder, and any you add to it later. ' +
   'Tokens and other art are skipped. Your files are never changed, moved or deleted. ' +
-  'Images you import in the app go in the Imported images folder, not into your own folders.'
+  'Images you import in the app go in the Imported images folder, not into the linked library.'
 
 /** *name* inside *base*, with the platform's separator */
 function joinPath(base: string, name: string): string {
@@ -194,7 +194,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
     <SetupFrame
       nav={nav}
       title="Set up your library"
-      description="Start a new library, or use a folder of images you already have."
+      description="Start a new library, or link a folder of images you already have."
       primary={{
         onClick: () => void handleContinue(),
         label: found?.setup_completed ? 'Open library' : undefined,
@@ -219,7 +219,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
               name="setup-library"
               choice={{
                 value: 'linked',
-                label: 'Use a folder of images you already have',
+                label: 'Link a library you already have',
                 description: choice === 'linked' ? <p>{LINKED_EXPLAINER}</p> : undefined,
                 footer:
                   choice === 'linked' ? (
@@ -231,7 +231,7 @@ export function LibraryStep({ nav }: { nav: StepNav }) {
                           <Button
                             size="sm"
                             variant="outline"
-                            aria-label="Choose your images folder"
+                            aria-label="Choose the linked library"
                             onClick={() => void pick('linked')}
                           >
                             Choose
@@ -381,7 +381,7 @@ function StoreNotes({
               onClick={onUseAsLinked}
               className="font-medium text-primary hover:underline"
             >
-              Use it as your existing folder
+              Link it instead
             </button>
           )}
         </p>

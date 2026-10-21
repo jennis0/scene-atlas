@@ -57,7 +57,7 @@ Integration tests and heavy tests need a real ONNX model. `make test-integration
 
 ```bash
 make ensure-model       # download small model if not present
-make test-integration   # integration tests with EMBEDDING_MODEL=small
+make test-integration   # integration tests with SCENE_ATLAS_EMBEDDING_MODEL=small
 make test-heavy         # heavy tests with real CLIP inference
 ```
 
@@ -80,7 +80,7 @@ Playwright tests validate critical user flows in a real browser against the full
 - Dual webServer config: Playwright starts both backend and frontend automatically
 - Real CLIP model (no mocking) -- loads in a background thread, server responds immediately
 - Test data seeded via the import API using real encrypted fixture images (decrypted at runtime from Git LFS). Without `E2E_IMAGE_KEY`, set `E2E_IMAGE_DIR` to a local folder of your own (non-commercial) images to seed from instead
-- The backend runs against an isolated `e2e/.tmp-data` (`APP_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. The suite starts its own backend on port 18000 and Vite on 15173 (`E2E_BACKEND_PORT`, `E2E_FRONTEND_PORT`), with Vite's `/api` proxy pointed at that backend through `API_PROXY_TARGET`, so it never reuses a development backend on :8000 or writes test data into its library. Locally, servers already listening on those ports are reused
+- The backend runs against an isolated `e2e/.tmp-data` (`SCENE_ATLAS_DATA_DIR`; library in `.tmp-data/library`). The project's `data/models` is linked in so the model isn't downloaded twice. The suite starts its own backend on port 18000 and Vite on 15173 (`E2E_BACKEND_PORT`, `E2E_FRONTEND_PORT`), with Vite's `/api` proxy pointed at that backend through `API_PROXY_TARGET`, so it never reuses a development backend on :8000 or writes test data into its library. Locally, servers already listening on those ports are reused
 - Serial execution (`workers: 1`) -- tests share backend state
 - Chromium only in CI; Firefox/WebKit available locally via `--project` flag
 
@@ -131,7 +131,7 @@ backend/tests/
 │   ├── test_image_hashes.py       # SHA-256, pixel hash, pHash
 │   ├── test_memory_budget.py      # Memory-aware prepare admission
 │   ├── test_stored_format.py      # Stored-format conversion rules
-│   ├── test_settings_seed.py      # CONVERT_TO_WEBP → stored_format seeding
+│   ├── test_settings_seed.py      # SCENE_ATLAS_CONVERT_TO_WEBP → stored_format seeding
 │   ├── test_fts_service.py        # FTS5 full-text search
 │   ├── test_grid_detector.py      # GridDetector service
 │   ├── test_grid_v3.py            # Grid detection v3 on synthetic images
@@ -142,8 +142,8 @@ backend/tests/
 │   ├── test_scheduler.py          # Periodic task scheduler
 │   ├── test_lancedb_service.py    # LanceDBService against a real tmp LanceDB
 │   ├── test_clip_service.py       # CLIPService module helpers
-│   ├── test_config_mode.py        # APP_MODE config detection
-│   ├── test_config_roots.py       # APP_DATA_DIR + IMAGE_LIBRARY_DIR split
+│   ├── test_config_mode.py        # SCENE_ATLAS_APP_MODE config detection
+│   ├── test_config_roots.py       # SCENE_ATLAS_DATA_DIR + SCENE_ATLAS_IMAGES_DIR split
 │   ├── test_database_pragmas.py   # SQLite pragmas
 │   ├── test_logging_config.py     # Logging configuration
 │   ├── test_security_headers.py   # SecurityHeadersMiddleware

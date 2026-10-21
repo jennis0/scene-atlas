@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     global library_refused
     # Configure logging first so all startup messages go to our handlers.
-    setup_logging(settings.app_data_dir, debug=settings.debug)
+    setup_logging(settings.data_dir, debug=settings.debug)
 
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
     lock_wait = DESKTOP_LOCK_WAIT_SECS if settings.app_mode == "app" else 0
     storage_locks = []
     try:
-        for root in (settings.app_data_dir, settings.image_library_dir):
+        for root in (settings.data_dir, settings.images_dir):
             # A missing store isn't created here. The library check below refuses it
             # if the database has files there (e.g. an unmounted drive); otherwise it's
             # a new, empty store, created and locked once the check has passed.
@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
     # Before anything touches either root: the folders must belong to one library
     # (design/library-setup.md §3.3). Read-only; open_library() below finishes it.
     library_dirs = {
-        "app_data": settings.app_data_dir,
+        "app_data": settings.data_dir,
         "store": settings.store_images_dir,
         "linked": settings.linked_library_dir,
     }
@@ -166,7 +166,7 @@ async def lifespan(app: FastAPI):
         session.close()
 
     # A store the check allowed to be created (a new library) is locked like the others.
-    library_root = settings.image_library_dir.resolve()
+    library_root = settings.images_dir.resolve()
     if library_root.is_dir() and all(lock.root != library_root for lock in storage_locks):
         storage_locks.append(acquire_storage_lock(library_root))
 
@@ -260,7 +260,7 @@ async def lifespan(app: FastAPI):
     # startup, so short desktop sessions still get maintenance.
     from .services.scheduler import Scheduler
 
-    scheduler = Scheduler(settings.app_data_dir / "scheduler")
+    scheduler = Scheduler(settings.data_dir / "scheduler")
     if app_config.scheduler_enabled:
         from ..pipeline.ingest_maintenance import run_ingest_maintenance
         from ..pipeline.maintenance import backup_database, sweep_orphaned_store_files
@@ -284,8 +284,8 @@ async def lifespan(app: FastAPI):
     _default_cors = {"http://localhost:3000", "http://localhost:5173", "http://localhost:8000"}
     if settings.app_mode == "server" and set(settings.cors_origins) == _default_cors:
         logger.warning(
-            "CORS origins are still set to localhost defaults but APP_MODE=server. "
-            "Set CORS_ORIGINS in your .env to your actual frontend origin."
+            "CORS origins are still set to localhost defaults but SCENE_ATLAS_APP_MODE=server. "
+            "Set SCENE_ATLAS_CORS_ORIGINS in your .env to your actual frontend origin."
         )
 
     # CLIP is still loading in the background — the app is usable immediately;
@@ -671,9 +671,9 @@ if __name__ == "__main__":
 
     # Set env vars so Settings() picks them up (must happen before re-import)
     if args.data_dir:
-        os.environ["APP_DATA_DIR"] = args.data_dir
+        os.environ["SCENE_ATLAS_DATA_DIR"] = args.data_dir
     if args.port:
-        os.environ["API_PORT"] = str(args.port)
+        os.environ["SCENE_ATLAS_API_PORT"] = str(args.port)
 
     host = settings.api_host
     port = args.port or settings.api_port

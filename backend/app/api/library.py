@@ -127,13 +127,13 @@ def library_status(db: Session = Depends(get_db)):
 
 
 def _require_linked(db: Session) -> None:
-    """409 unless a linked folder is configured and in use (not detached by "Stop using
+    """409 unless a linked folder is configured and in use (not detached by "Unlink
     this folder" while the configuration still names it)."""
     source = current_source(db)
     if settings.linked_library_dir is None or (
         source is not None and source.state == SOURCE_DETACHED
     ):
-        raise HTTPException(status_code=409, detail="No images folder is linked")
+        raise HTTPException(status_code=409, detail="No library is linked")
 
 
 @router.post("/scan", status_code=202, response_model=LibraryScanStarted)
@@ -172,16 +172,16 @@ def remove_missing(db: Session = Depends(get_db)):
 @router.delete("/linked", response_model=LinkedRemoved)
 @write_locked
 def stop_using_linked_folder(db: Session = Depends(get_db)):
-    """Stop using the linked folder: remove every map read from it and forget its files.
+    """Unlink the linked folder: remove every map read from it and forget its files.
     The folder itself is never touched. The source is detached until the configuration
-    drops the folder (the desktop app restarts; on a server, unset ``LINKED_LIBRARY_DIR``).
+    drops the folder (the desktop app restarts; on a server, unset ``SCENE_ATLAS_LINKED_LIBRARY_DIR``).
     """
     source = current_source(db)
     if source is None:
         return LinkedRemoved(removed=0)
     if get_linked_scanner().running:
         raise HTTPException(
-            status_code=409, detail="Your images folder is being checked; try again"
+            status_code=409, detail="The linked library is being checked; try again"
         )
     for job in open_linked_jobs(db, source.id):
         q.cancel_job(db, job.id)

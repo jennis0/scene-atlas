@@ -495,7 +495,7 @@ def scan_linked_folder() -> ScanResult:
     with write_session() as db:
         source = ensure_source(db, str(folder.root))
         source_id = source.id
-        if source.state == SOURCE_DETACHED:  # "Stop using this folder", until restart
+        if source.state == SOURCE_DETACHED:  # "Unlink", until restart
             return ScanResult("detached")
         _discard_unsealed(db, source_id)
         if not available:
@@ -518,7 +518,7 @@ def scan_linked_folder() -> ScanResult:
         source = db.get(LibrarySource, source_id)
         if source is None or _purging():
             return ScanResult("busy")
-        if source.state == SOURCE_DETACHED:  # "Stop using this folder" meanwhile
+        if source.state == SOURCE_DETACHED:  # "Unlink" meanwhile
             return ScanResult("detached")
         result = apply_diff(db, source, folder, diff, settings.max_local_import_items)
     if result.job_id is not None:

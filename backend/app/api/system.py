@@ -68,11 +68,10 @@ def system_info(db: Session = Depends(get_db)):
     images_bytes = _dir_size(settings.store_images_dir)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
     vector_db_bytes = _dir_size(settings.vector_db_path)
-    db_path = settings.app_data_dir / "battlemap.db"
+    db_path = settings.data_dir / "battlemap.db"
     db_bytes = db_path.stat().st_size if db_path.exists() else 0
     total_bytes = sum(
-        _dir_size(root)
-        for root in _distinct_roots(settings.app_data_dir, settings.image_library_dir)
+        _dir_size(root) for root in _distinct_roots(settings.data_dir, settings.images_dir)
     )
 
     result = {
@@ -91,8 +90,8 @@ def system_info(db: Session = Depends(get_db)):
     # Only expose filesystem paths in desktop mode — avoid leaking
     # internal server structure when running behind a reverse proxy.
     if settings.app_mode == "app":
-        result["app_data_path"] = str(settings.app_data_dir)
-        result["image_library_path"] = str(settings.image_library_dir)
+        result["app_data_path"] = str(settings.data_dir)
+        result["image_library_path"] = str(settings.images_dir)
     return result
 
 
@@ -203,7 +202,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
     if get_linked_scanner().running:
         raise HTTPException(
-            status_code=409, detail="Your maps folder is being checked; try again in a moment"
+            status_code=409, detail="The linked library is being checked; try again in a moment"
         )
 
     active_imports = (

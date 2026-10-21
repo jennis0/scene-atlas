@@ -8,5 +8,5 @@ REPO_DATA = Path(__file__).resolve().parents[3] / "data"
 
 
 def test_storage_roots_are_outside_the_repo_data_dir():
-    for root in (settings.app_data_dir, settings.image_library_dir):
+    for root in (settings.data_dir, settings.images_dir):
         assert not Path(root).resolve().is_relative_to(REPO_DATA.resolve())

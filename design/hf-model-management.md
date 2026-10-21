@@ -6,7 +6,7 @@
 ## Overview
 
 Scene Atlas ships without bundled ONNX models. On first boot the user selects an
-embedding model, which is downloaded from HuggingFace and stored in `APP_DATA_DIR/models/`.
+embedding model, which is downloaded from HuggingFace and stored in `SCENE_ATLAS_DATA_DIR/models/`.
 The active model is persisted to the database and can be changed at any time; switching
 triggers a background job that reloads both the CLIP service and the LanceDB table,
 then re-embeds all scenes.
@@ -59,7 +59,7 @@ without a mask; a padding mask collapses retrieval), and its `tokenizer.json` lo
 `_get_active_model_name()` in `clip_service.py` resolves the active model name via a
 three-step priority chain:
 
-1. **`EMBEDDING_MODEL` env var** — operator override, bypasses DB entirely. Useful for
+1. **`SCENE_ATLAS_EMBEDDING_MODEL` env var** — operator override, bypasses DB entirely. Useful for
    dev environments and testing.
 2. **`active_model` key in `app_settings` DB** — the normal runtime path after the user
    has chosen a model.
@@ -85,7 +85,7 @@ call once the service is running.
 **Storage layout:**
 
 ```
-APP_DATA_DIR/
+SCENE_ATLAS_DATA_DIR/
   models/
     small/
       manifest.json
@@ -241,11 +241,11 @@ downloaded; on a fresh install with no DB entry, no model is downloaded at all),
 
 | Mode | Model storage | First-boot flow | Notes |
 |------|--------------|-----------------|-------|
-| Electron | `APP_DATA_DIR` managed by Electron | Setup wizard, as in server mode | See First-Boot Experience |
-| Web / server | Operator-controlled `APP_DATA_DIR` | Setup wizard | `EMBEDDING_MODEL` env var presets the model (the model step is skipped) |
-| Dev | `APP_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
+| Electron | `SCENE_ATLAS_DATA_DIR` managed by Electron | Setup wizard, as in server mode | See First-Boot Experience |
+| Web / server | Operator-controlled `SCENE_ATLAS_DATA_DIR` | Setup wizard | `SCENE_ATLAS_EMBEDDING_MODEL` env var presets the model (the model step is skipped) |
+| Dev | `SCENE_ATLAS_DATA_DIR` or `backend/models/<name>/` fallback | Same as web | Fallback path allows testing with locally exported models |
 
-Fallback path in `_default_models_dir()` (`clip_service.py`) checks `APP_DATA_DIR/models/<name>/` first,
+Fallback path in `_default_models_dir()` (`clip_service.py`) checks `SCENE_ATLAS_DATA_DIR/models/<name>/` first,
 then `backend/models/<name>/`. This allows developers to test a model bundle exported
 by scene-atlas-learning before it is published.
 

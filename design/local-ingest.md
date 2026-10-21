@@ -6,7 +6,7 @@ specified in detail and **built** (branch `feature/local-folder-ingest`); featur
 | # | Feature | What it is | Status |
 |---|---|---|---|
 | 1 | **Local folder import** | In the desktop app, an import from files or folders on this computer reads them where they are and copies them into the library. No upload. Chosen automatically; the user sees the same import dialog. | Built |
-| 2 | **Linked library** (in-place) | One folder configured at the app level stays where it is; the library references it instead of copying. Rescans pick up new, moved and missing files. Desktop and server (via `LINKED_LIBRARY_DIR`). | Planned: [library-setup.md](library-setup.md) supersedes §8 |
+| 2 | **Linked library** (in-place) | One folder configured at the app level stays where it is; the library references it instead of copying. Rescans pick up new, moved and missing files. Desktop and server (via `SCENE_ATLAS_LINKED_LIBRARY_DIR`). | Planned: [library-setup.md](library-setup.md) supersedes §8 |
 | 3 | **Drop folder** | A folder watched by the server; files dropped in are imported, then removed. The server-mode replacement for feature 1. | Outline ([§9](#9-feature-3-drop-folder-outline)) |
 
 Features 2 and 3 build on feature 1's server-side reading. Feature 1 also stands alone: a USB
@@ -40,7 +40,7 @@ seconds instead of minutes to start a 50k-file import.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Where it's available | **Desktop app only** (`APP_MODE=app`). Server mode keeps browser upload; feature 3 covers it later. | In server mode the client and the files are on different machines, and an endpoint that reads server paths named by a client is a file-read primitive. |
+| Where it's available | **Desktop app only** (`SCENE_ATLAS_APP_MODE=app`). Server mode keeps browser upload; feature 3 covers it later. | In server mode the client and the files are on different machines, and an endpoint that reads server paths named by a client is a file-read primitive. |
 | How it's chosen | **Automatically**: in the desktop app, picks and drops that have local paths use it; anything else uploads as today. | Same dialog, same review; nothing to learn. |
 | Copy or reference | **Copy** into the store, exactly as an upload ends up. Referencing in place is feature 2, configured at the app level, never per import. | Keeps the store's invariant (it owns every file it serves) for feature 1. |
 | Who enumerates | **The server**, from the roots the user picked (folders and files). | Native `os.scandir` lists 60k files in seconds; the renderer takes minutes and holds a `File` each. |
@@ -256,7 +256,7 @@ whose path, size and mtime are unchanged.
 **Superseded** by [library-setup.md §4](library-setup.md#4-linked-library), which is what was
 built (backend: [ingestion.md §5.7](ingestion.md#57-linked-items),
 [storage.md](storage.md#linked-folder)). Notable changes from this outline: one linked folder,
-available on servers too (`LINKED_LIBRARY_DIR`, an env var rather than a client-named path);
+available on servers too (`SCENE_ATLAS_LINKED_LIBRARY_DIR`, an env var rather than a client-named path);
 files are tracked in `source_files` rows rather than on the image; scans also run on a timer;
 Undo is refused for a scan, and "Stop using this folder" removes its maps. The outline is kept
 for its reasoning.

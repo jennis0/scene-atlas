@@ -995,14 +995,14 @@ def dismiss_finished_imports(db: Session = Depends(get_db)):
 @write_locked
 def undo_import(job_id: str, db: Session = Depends(get_db)):
     """Undo: delete every image this import created, then the import itself. Not for a
-    scan of the linked folder, whose maps leave with "Stop using this folder"."""
+    scan of the linked folder, whose maps leave with "Unlink"."""
     _job_or_404(db, job_id)
     try:
         deleted, pending = q.undo_job(db, job_id)
     except q.LinkedJobError:
         raise HTTPException(
             status_code=409,
-            detail="Maps from your linked folder can't be undone; stop using the folder instead",
+            detail="Maps from the linked library can't be undone; unlink the library instead",
         ) from None
     except q.JobBusyError:
         db.commit()  # keep the cancellation; the in-flight batch finishes shortly

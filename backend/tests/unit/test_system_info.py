@@ -57,7 +57,7 @@ class TestDistinctRoots:
         assert _distinct_roots(tmp_path, tmp_path) == [tmp_path.resolve()]
 
     def test_library_inside_data(self, tmp_path: Path):
-        """The server default when only APP_DATA_DIR is set."""
+        """The server default when only SCENE_ATLAS_DATA_DIR is set."""
         assert _distinct_roots(tmp_path, tmp_path / "images") == [tmp_path.resolve()]
 
     def test_data_inside_library(self, tmp_path: Path):

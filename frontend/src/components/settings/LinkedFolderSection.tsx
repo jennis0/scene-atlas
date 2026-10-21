@@ -18,7 +18,7 @@ import { settingsApi } from '@/lib/api/settingsApi'
 import { isApp } from '@/lib/appMode'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateRemovedMapsQueries } from '@/lib/queryKeys'
-import { StopUsingFolder } from './StopUsingFolder'
+import { UnlinkLibrary } from './UnlinkLibrary'
 
 /** linked_rescan_minutes (design/library-setup.md §4.3) */
 const RESCAN_OPTIONS = [
@@ -37,7 +37,7 @@ export function LinkedFolderSection({ open }: { open: boolean }) {
       <div className="border-t border-border/50" />
       <section aria-labelledby="linked-folder-title" className="space-y-3">
         <p id="linked-folder-title" className="section-label">
-          Images folder
+          Linked library
         </p>
         <FolderState linked={linked} />
         {linked.state !== 'detached' && <RescanControls linked={linked} />}
@@ -51,10 +51,10 @@ export function LinkedFolderSection({ open }: { open: boolean }) {
         ) : (
           isApp && (
             <ActionRow
-              title="Stop using this folder"
-              detail="Removes its images from your library. The files stay."
+              title="Unlink this library"
+              detail="Removes its images from Scene Atlas. The files stay."
             >
-              <StopUsingFolder linked={linked} />
+              <UnlinkLibrary linked={linked} />
             </ActionRow>
           )
         )}
@@ -69,7 +69,7 @@ function stateText(linked: LinkedFolder): string {
     case 'offline':
       return `${linked.name} isn't available. Reconnect it, then check for changes.`
     case 'detached':
-      return 'This folder is no longer used.'
+      return 'This library is no longer linked.'
     default:
       return linked.last_scan_at
         ? `${plural(linked.image_count, 'image')}. Last checked ${new Date(
@@ -212,7 +212,7 @@ function RemoveDetachedMaps({ linked }: { linked: LinkedFolder }) {
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Remove this folder's images?"
+        title="Remove this library's images?"
         description={
           <>
             This removes the {plural(linked.image_count, 'image')} from{' '}

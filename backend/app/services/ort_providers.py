@@ -1,6 +1,6 @@
 """ONNX Runtime execution provider resolution with session-creation fallback.
 
-Selects the best available provider based on user preference (``INFERENCE_DEVICE``
+Selects the best available provider based on user preference (``SCENE_ATLAS_INFERENCE_DEVICE``
 env var) and what ONNX Runtime actually supports at runtime.  Falls back to CPU
 if the requested GPU provider fails during ``InferenceSession`` construction.
 

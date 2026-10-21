@@ -65,8 +65,8 @@ STARTUP_MESSAGES: dict[Refusal, str] = {
         "This image folder belongs to a library whose search data folder isn't here."
     ),
     STORE_LACKS_MAPS: "The image folder doesn't contain this library's images.",
-    STORE_HOLDS_LINKED: "The image folder can't be your images folder or contain it.",
-    APP_DATA_HOLDS_LINKED: "The search data folder can't be your images folder or contain it.",
+    STORE_HOLDS_LINKED: "The image folder can't be the linked library or contain it.",
+    APP_DATA_HOLDS_LINKED: "The search data folder can't be the linked library or contain it.",
 }
 WIZARD_MESSAGES: dict[Refusal, str] = {
     DIFFERENT_LIBRARY: "These folders belong to different libraries.",
@@ -74,8 +74,8 @@ WIZARD_MESSAGES: dict[Refusal, str] = {
         "This library's search data folder is missing. Choose it, or pick another folder."
     ),
     STORE_LACKS_MAPS: "This Imported images folder doesn't have this library's images.",
-    STORE_HOLDS_LINKED: "The Imported images folder can't be your images folder or a folder above it.",
-    APP_DATA_HOLDS_LINKED: "The Search data folder can't be your images folder or a folder above it.",
+    STORE_HOLDS_LINKED: "The Imported images folder can't be the linked library or a folder above it.",
+    APP_DATA_HOLDS_LINKED: "The Search data folder can't be the linked library or a folder above it.",
 }
 WIZARD_DATABASE_UNREADABLE = "This search data folder's database can't be read."
 WIZARD_STORE_HAS_MAPS = "This folder already has images in it."
@@ -175,7 +175,7 @@ def rewrite_markers(db: Session) -> None:
         return
     write_markers(
         library_id,
-        app_data=settings.app_data_dir,
+        app_data=settings.data_dir,
         store=settings.store_images_dir,
         linked=settings.linked_library_dir,
     )

@@ -138,7 +138,7 @@ def _plain_key(key: str) -> bool:
 
 def linked_folder() -> LinkedFolder | None:
     """The configured linked folder, or None. Only configuration names it (sidecar
-    arguments or ``LINKED_LIBRARY_DIR``), never a request."""
+    arguments or ``SCENE_ATLAS_LINKED_LIBRARY_DIR``), never a request."""
     root = settings.linked_library_dir
     return LinkedFolder(root) if root is not None else None
 
@@ -187,7 +187,7 @@ def original_path(image: Image) -> Path:
             raise OriginalUnavailable("missing", MISSING_REASON) from None
     folder = linked_folder()
     if folder is None:
-        raise OriginalUnavailable("offline", "The images folder isn't linked")
+        raise OriginalUnavailable("offline", "No library is linked")
     row = image.source_file
     if row is None:
         raise OriginalUnavailable("missing", MISSING_REASON)

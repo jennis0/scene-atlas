@@ -297,7 +297,7 @@ Embedding service for CLIP ViT-B/32, SigLIP2-base and SigLIP2-large via ONNX Run
 
 ### Model registry and downloads
 
-`model_registry.py` is the static registry of model specs (names, HF repos, hardware recommendations). `model_download_service.py` downloads to `APP_DATA_DIR/models/{name}/` via temp-dir → rename; `version.json` marks completion.
+`model_registry.py` is the static registry of model specs (names, HF repos, hardware recommendations). `model_download_service.py` downloads to `SCENE_ATLAS_DATA_DIR/models/{name}/` via temp-dir → rename; `version.json` marks completion.
 
 ### LanceDBService
 
@@ -357,7 +357,7 @@ Reads/writes the `app_settings` table (runtime tuning, feature flags, import lim
 
 ### Scheduler
 
-Asyncio scheduler; each task runs in the default executor. A task stopped by shutdown (`ShutdownRequested`) isn't recorded as run. Last successful run times are persisted under `APP_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
+Asyncio scheduler; each task runs in the default executor. A task stopped by shutdown (`ShutdownRequested`) isn't recorded as run. Last successful run times are persisted under `SCENE_ATLAS_DATA_DIR/scheduler`, so overdue tasks run 60 s after startup. Registered when `scheduler_enabled`:
 
 | Task | Interval | Function |
 |------|----------|----------|
@@ -368,7 +368,7 @@ Asyncio scheduler; each task runs in the default executor. A task stopped by shu
 
 ### Update check
 
-`services/update_check.py` ([ADR-023](decisions.md#adr-023-server-mode-update-check)). In server mode with `check_for_updates` on, an asyncio task started in the lifespan asks GitHub's `releases/latest` API for the latest release 60 s after startup and then every 24 h (the fetch runs in a thread: stdlib `http.client` to a fixed host and path, so no URL or scheme comes from data; 10 s timeout, 1 MB cap). The answer is kept in memory; `GET /system/updates` only reads it, so users can't spend the server's unauthenticated GitHub rate limit. Otherwise (desktop sidecar, `CHECK_FOR_UPDATES=false`) no request is ever made and the status is `disabled`; Electron has its own updater ([electron.md](electron.md#updates)).
+`services/update_check.py` ([ADR-023](decisions.md#adr-023-server-mode-update-check)). In server mode with `check_for_updates` on, an asyncio task started in the lifespan asks GitHub's `releases/latest` API for the latest release 60 s after startup and then every 24 h (the fetch runs in a thread: stdlib `http.client` to a fixed host and path, so no URL or scheme comes from data; 10 s timeout, 1 MB cap). The answer is kept in memory; `GET /system/updates` only reads it, so users can't spend the server's unauthenticated GitHub rate limit. Otherwise (desktop sidecar, `SCENE_ATLAS_CHECK_FOR_UPDATES=false`) no request is ever made and the status is `disabled`; Electron has its own updater ([electron.md](electron.md#updates)).
 
 - **Versions.** `parse_version` accepts `1.2.3`, `1.2.3-pre.1` (semver) and `1.2.3b1` / `rc1` / `a1` (PEP 440), with an optional leading `v`. Only the release numbers and whether it is a prerelease are kept. A stable release is newer if its numbers are higher, or equal to a running prerelease's. Prereleases (and drafts) from GitHub are never offered. A running version that doesn't parse (a dev build such as `1.2.3.dev4+g…`) is `unknown` and never compared.
 - **Failures.** 404 (no release published yet, or a private repository) is a successful check with no latest version. Timeouts, offline / air-gapped hosts, rate limiting (403/429) and malformed responses keep the last good result; the first failure of a streak logs a warning, later ones log at debug. A newer version is logged once at info.
@@ -378,7 +378,7 @@ Asyncio scheduler; each task runs in the default executor. A task stopped by shu
 
 Two sources:
 
-- **`backend/app/config.py`** (`pydantic-settings`, env vars or `.env`, case-insensitive) — infrastructure and service constants.
+- **`backend/app/config.py`** (`pydantic-settings`, env vars or `.env`, case-insensitive) — infrastructure and service constants. Each key is read from `SCENE_ATLAS_<KEY>` (ADR-027), e.g. `data_dir` from `SCENE_ATLAS_DATA_DIR`.
 - **`app_settings` table** — runtime tuning (concurrency, import limits, algorithm parameters), edited via `PATCH /api/v1/settings`. See [resource-management.md](resource-management.md).
 
 `config.py` keys:
@@ -388,18 +388,18 @@ Two sources:
 | `app_mode` | `server` | `app` when run as the Electron sidecar |
 | `check_for_updates` | `True` | Server mode only: daily update check against GitHub ([Update check](#update-check)); `False` makes no request. Tests and E2E set it off |
 | `debug` | `False` | Debug logging; uvicorn reload when run via `main.py` |
-| `app_data_dir` | `<repo>/data` | Fast storage root |
-| `image_library_dir` | `<repo>/images`; `{app_data_dir}/images` when only `APP_DATA_DIR` is set (`default_image_library_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root |
-| `linked_library_dir` | `None` | The linked folder (`LINKED_LIBRARY_DIR`, or the sidecar's `--linked-library-dir`). Read-only; need not exist. Empty means unset |
+| `data_dir` | `<repo>/data` | Fast storage root (Search data) |
+| `images_dir` | `<repo>/images`; `{data_dir}/images` when only `SCENE_ATLAS_DATA_DIR` is set (`default_images_dir`: a data dir with a database but no `images/` keeps `<repo>/images`, with a warning) | Originals + backups root (Imported images) |
+| `linked_library_dir` | `None` | The linked library (`SCENE_ATLAS_LINKED_LIBRARY_DIR`, or the sidecar's `--linked-library-dir`). Read-only; need not exist. Empty means unset |
 | `validate_roots` | `False` | Fail startup if roots are missing (frozen entry point) |
-| `database_url` | derived | Always `sqlite:///{app_data_dir}/battlemap.db` |
+| `database_url` | derived | Always `sqlite:///{data_dir}/battlemap.db` |
 | `store_thumbnails_dir`, `staging_dir`, `vector_db_path`, `store_images_dir`, `backups_dir` | derived | From the two roots |
 | `vector_size` | `512` | Overwritten at startup from the model manifest's `embedding_dim` |
 | `inference_device` | `auto` | `auto` / `cpu` / `cuda` / `directml` / `coreml` |
 | `clip_text_cache_max` | `256` | Text embedding LRU size |
 | `job_retention_seconds` | `3600` | How long finished JobRunner records are kept |
 | `thumbnail_sizes` | `[(150,150), (400,400), (800,800)]` | small / medium / large |
-| `max_image_pixels` | `1_000_000_000` | Pillow `MAX_IMAGE_PIXELS`; above it decoding fails as a decompression bomb |
+| `max_image_pixels` | `1_000_000_000` | Pillow `SCENE_ATLAS_MAX_IMAGE_PIXELS`; above it decoding fails as a decompression bomb |
 | `pixel_hash_max_pixels` | `100_000_000` | JPEGs above this are decoded at reduced scale and skip the pixel hash |
 | `ingest_memory_budget_mb` | `None` | MemoryBudget capacity; `None` = automatic |
 | `max_import_items` | `50_000` | Max files per import job, across all manifest chunks |
@@ -415,12 +415,12 @@ Two sources:
 
 Derived values are `cached_property`s, not fields, so no env var can set them (`DATABASE_URL`, `STAGING_DIR` etc. are ignored). Each is computed once on first access; tests assign them to redirect storage. `__init__` creates the thumbnail, staging and LanceDB directories inside the roots.
 
-Other environment variables: `EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `CONVERT_TO_WEBP` (server mode: `1` seeds the `stored_format` setting as `webp` at first boot, the setup wizard's starting choice; the desktop app doesn't use it).
+Other environment variables: `SCENE_ATLAS_EMBEDDING_MODEL` (operator override of the active model, read by `clip_service.py`; otherwise `app_settings.active_model`), `SCENE_ATLAS_CONVERT_TO_WEBP` (server mode: `1` seeds the `stored_format` setting as `webp` at first boot, the setup wizard's starting choice; the desktop app doesn't use it).
 
 ## Startup Sequence (`main.py` lifespan)
 
 1. `setup_logging()` — console + rotating file handlers; sets Pillow's pixel limit to `max_image_pixels` and turns `DecompressionBombWarning` into an error.
-2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `APP_DATA_DIR` and, if it exists, `IMAGE_LIBRARY_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
+2. Lock both storage roots (`storage_lock.py`): an OS lock on `<root>/.backend.lock` in `SCENE_ATLAS_DATA_DIR` and, if it exists, `SCENE_ATLAS_IMAGES_DIR`. If another process holds either, startup fails with `StorageLockedError` (uvicorn exits with code 3). The desktop sidecar (`SCENE_ATLAS_APP_MODE=app`) waits up to 30 s first, so a relaunch can outlast the previous sidecar's graceful shutdown. Filesystems without lock support (some network shares) log a warning and run unguarded.
 3. Library check (`check_library`, [storage.md](storage.md#library-identity)): reads the database (read-only), the store's marker and the linked folder setting, and refuses with `LibraryMismatchError` (logged as `STARTUP ERROR: …`, locks released) if the folders don't belong to one library. Nothing is created before it passes.
 4. `get_engine()` + `init_db()` — runs Alembic migrations (stamps pre-Alembic databases at head). Pending migrations are preceded by a SQLite snapshot in `backups/pre-migration/`; if it fails, startup stops unmigrated ([storage.md](storage.md#backups)).
 5. `seed_tag_categories()`, `seed_default_settings()` (first boot only), `backfill_search_text()`, then read app settings. `open_library()` creates `library_id` if needed, creates an empty store if there's none, and writes both markers; a store created here is then locked. `reconcile_linked_source()` brings the linked folder's row in line with the configuration (online, offline or detached).

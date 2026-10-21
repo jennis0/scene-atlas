@@ -231,7 +231,7 @@ describe('ImageViewer', () => {
   describe('originals that cannot be read', () => {
     it.each([
       ['missing', 'The original file is missing.'],
-      ['offline', "The folder this image is in isn't available."],
+      ['offline', "The linked library isn't available."],
     ] as const)('shows the thumbnail when the file is %s, and no download', (file_state, text) => {
       setup(makeImage({ file_state }))
       expect(screen.getByRole('status')).toHaveTextContent(text)

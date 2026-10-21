@@ -48,7 +48,7 @@ describe('StorageSection', () => {
     expect(await screen.findByText('C:\\data')).toBeInTheDocument()
     expect(screen.getByText('C:\\images')).toBeInTheDocument()
     expect(screen.getByText('None')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choose images folder' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose linked library folder' })).toBeInTheDocument()
     expect(inspect).not.toHaveBeenCalled()
     // Nothing to restart for until a folder changes
     expect(screen.getAllByText('Applies after a restart')).toHaveLength(3)
@@ -81,7 +81,7 @@ describe('StorageSection', () => {
     const user = userEvent.setup()
     renderWithProviders(<StorageSection open />)
     await screen.findByText('None')
-    await user.click(screen.getByRole('button', { name: 'Choose images folder' }))
+    await user.click(screen.getByRole('button', { name: 'Choose linked library folder' }))
     await waitFor(() =>
       expect(inspect).toHaveBeenCalledWith({
         app_data: 'C:\\data',

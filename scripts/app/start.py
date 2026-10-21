@@ -103,7 +103,7 @@ def main() -> None:
             "0.0.0.0",  # noqa: S104 — LAN access in dev; Electron/Docker set their own host
             "--port",
             "8000",
-            "--no-proxy-headers",  # the app handles them (FORWARDED_ALLOW_IPS)
+            "--no-proxy-headers",  # the app handles them (SCENE_ATLAS_FORWARDED_ALLOW_IPS)
         ],
     )
 

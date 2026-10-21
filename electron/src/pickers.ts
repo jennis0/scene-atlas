@@ -21,7 +21,7 @@ async function openDialog(
 const FOLDER_PICKER_TITLES: Record<FolderKind, string> = {
   appData: 'Choose Search Data Folder',
   store: 'Choose Imported Images Folder',
-  linked: 'Choose Your Images Folder',
+  linked: 'Choose Linked Library Folder',
 }
 
 /** One of the library's folders (design/library-setup.md). A plain picker: the setup

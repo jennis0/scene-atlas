@@ -9,7 +9,7 @@ everything that happens to their files and images:
   is that image's file, moved: the image is repointed to it (§4.4);
 - ``forget_images``: removing an image marks its file ``removed``, so rescans leave it
   out (§4.6);
-- ``remove_images``: "Remove missing maps" and "Stop using this folder" (§4.7).
+- ``remove_images``: "Remove missing maps" and "Unlink" (§4.7).
 
 The rows never reach the disk; reading a file is ``services.originals``' job. No
 function here commits: callers own the transaction.

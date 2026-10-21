@@ -720,7 +720,7 @@ def seed_default_settings(session):
 
     Values are the AppSettings schema defaults, except the concurrency settings
     (computed by resource_detector from CPU count and RAM) and the stored format
-    (seeded from CONVERT_TO_WEBP, which sets the setup wizard's starting choice).
+    (seeded from SCENE_ATLAS_CONVERT_TO_WEBP, which sets the setup wizard's starting choice).
     """
     from backend.app.models.schemas import AppSettings
     from backend.app.resource_detector import compute_resource_defaults
@@ -734,7 +734,7 @@ def seed_default_settings(session):
     resource_defaults = compute_resource_defaults()
     for key in ("max_concurrent_prepare", "max_concurrent_heavy_requests", "max_job_workers"):
         defaults[key] = resource_defaults[key]
-    if os.environ.get("CONVERT_TO_WEBP", "0") == "1":
+    if os.environ.get("SCENE_ATLAS_CONVERT_TO_WEBP", "0") == "1":
         defaults["stored_format"] = "webp"
 
     for key, value in defaults.items():

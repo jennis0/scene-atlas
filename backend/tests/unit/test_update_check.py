@@ -392,9 +392,9 @@ class TestConfiguredChecker:
     def test_env_var_turns_checks_off(self, monkeypatch):
         from backend.app.config import Settings
 
-        monkeypatch.setenv("CHECK_FOR_UPDATES", "false")
+        monkeypatch.setenv("SCENE_ATLAS_CHECK_FOR_UPDATES", "false")
         assert Settings().check_for_updates is False
-        monkeypatch.delenv("CHECK_FOR_UPDATES")
+        monkeypatch.delenv("SCENE_ATLAS_CHECK_FOR_UPDATES")
         assert Settings(_env_file=None).check_for_updates is True  # pyright: ignore[reportCallIssue]
 
 

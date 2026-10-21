@@ -90,7 +90,7 @@ export function ImportJobRow({
         {job.status === 'paused' && (
           <RowAction label="Resume" onClick={onResume} icon={<Play className="h-3 w-3" />} />
         )}
-        {/* A linked folder's maps leave with "Stop using this folder", not Undo */}
+        {/* A linked folder's maps leave with "Unlink", not Undo */}
         {finished && job.counts.done > 0 && !job.linked && (
           <RowAction label="Undo import" onClick={onUndo} icon={<Undo2 className="h-3 w-3" />} />
         )}

@@ -47,14 +47,14 @@ Open `http://localhost:8000` in your browser.
 Set environment variables or create a `.env` file:
 
 ```bash
-APP_DATA_DIR=./data
-IMAGE_LIBRARY_DIR=./images
-CORS_ORIGINS=["http://localhost:8000"]
-# Optional: your own maps folder, read in place and never written to
-# LINKED_LIBRARY_DIR=/srv/maps
+SCENE_ATLAS_DATA_DIR=./data
+SCENE_ATLAS_IMAGES_DIR=./images
+SCENE_ATLAS_CORS_ORIGINS=["http://localhost:8000"]
+# Optional: a linked library of your own maps, read in place and never written to
+# SCENE_ATLAS_LINKED_LIBRARY_DIR=/srv/maps
 ```
 
-`IMAGE_LIBRARY_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing collection: use `LINKED_LIBRARY_DIR` for that, and keep `IMAGE_LIBRARY_DIR` outside it. See [Your Library](/guide/library).
+`SCENE_ATLAS_IMAGES_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing collection: use `SCENE_ATLAS_LINKED_LIBRARY_DIR` for that, and keep `SCENE_ATLAS_IMAGES_DIR` outside it. See [Your Library](/guide/library).
 
 See the [Configuration Reference](/deploy/configuration) for all settings.
 
@@ -73,8 +73,8 @@ After=network.target
 Type=simple
 User=scene-atlas
 WorkingDirectory=/opt/scene-atlas
-Environment=APP_DATA_DIR=/var/lib/scene-atlas
-Environment=IMAGE_LIBRARY_DIR=/var/lib/scene-atlas/images
+Environment=SCENE_ATLAS_DATA_DIR=/var/lib/scene-atlas
+Environment=SCENE_ATLAS_IMAGES_DIR=/var/lib/scene-atlas/images
 ExecStart=/opt/scene-atlas/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5
@@ -89,9 +89,9 @@ sudo systemctl enable --now scene-atlas
 
 ## Reverse Proxy
 
-The same configurations from the [Docker Server guide](/deploy/server#reverse-proxy) apply, including the authentication requirement. Run uvicorn with `--host 127.0.0.1` so only the proxy can reach it, point your proxy at `localhost:8000`, and update `CORS_ORIGINS` to match your domain.
+The same configurations from the [Docker Server guide](/deploy/server#reverse-proxy) apply, including the authentication requirement. Run uvicorn with `--host 127.0.0.1` so only the proxy can reach it, point your proxy at `localhost:8000`, and update `SCENE_ATLAS_CORS_ORIGINS` to match your domain.
 
-Scene Atlas reads the client IP from `X-Forwarded-For` on connections from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`, which fits a proxy on the same machine); see [Client IP addresses and rate limits](/deploy/server#client-ip-addresses-and-rate-limits). The commands on this page pass `--no-proxy-headers` so that uvicorn leaves those headers to the app; otherwise uvicorn applies its own trust list, which ignores `.env`.
+Scene Atlas reads the client IP from `X-Forwarded-For` on connections from `SCENE_ATLAS_FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`, which fits a proxy on the same machine); see [Client IP addresses and rate limits](/deploy/server#client-ip-addresses-and-rate-limits). The commands on this page pass `--no-proxy-headers` so that uvicorn leaves those headers to the app; otherwise uvicorn applies its own trust list, which ignores `.env`.
 
 ## Updating
 
@@ -110,13 +110,13 @@ Database migrations run automatically on startup.
 
 ```bash
 # Set the device explicitly
-INFERENCE_DEVICE=cuda uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
+SCENE_ATLAS_INFERENCE_DEVICE=cuda uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 The automatic provider chain is: CUDA, DirectML, CoreML, CPU.
 
 ## Starting Over With an Empty Library
 
-This deletes your library. Stop the server, then delete both `APP_DATA_DIR` (default `data/`: database, search index, thumbnails) and `IMAGE_LIBRARY_DIR` (default `images/`: stored files and backups). Both are recreated on the next start.
+This deletes your library. Stop the server, then delete both `SCENE_ATLAS_DATA_DIR` (default `data/`: database, search index, thumbnails) and `SCENE_ATLAS_IMAGES_DIR` (default `images/`: stored files and backups). Both are recreated on the next start.
 
 Delete them together: stored files are named by their content and can't be used without the database. Check first that neither setting points at a folder holding anything else, such as your own map collection.

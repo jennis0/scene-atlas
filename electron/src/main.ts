@@ -234,7 +234,7 @@ handleTrusted('library:apply', (_event, raw) => {
     currentDirs = next
     console.warn(
       '[electron] Library folders saved to the config; the dev backend ignores them. ' +
-        'Restart it with APP_DATA_DIR, IMAGE_LIBRARY_DIR and LINKED_LIBRARY_DIR to use them.',
+        'Restart it with SCENE_ATLAS_DATA_DIR, SCENE_ATLAS_IMAGES_DIR and SCENE_ATLAS_LINKED_LIBRARY_DIR to use them.',
     )
     return { error: null, restarted: false }
   }

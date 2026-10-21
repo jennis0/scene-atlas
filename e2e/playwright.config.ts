@@ -66,11 +66,11 @@ export default defineConfig({
       reuseExistingServer: !isCI,
       // An isolated data dir and library, so tests never touch a real library.
       env: {
-        APP_DATA_DIR: dataDir,
-        IMAGE_LIBRARY_DIR: path.join(dataDir, "library"),
-        API_HOST: "127.0.0.1",
+        SCENE_ATLAS_DATA_DIR: dataDir,
+        SCENE_ATLAS_IMAGES_DIR: path.join(dataDir, "library"),
+        SCENE_ATLAS_API_HOST: "127.0.0.1",
         // Test runs never contact GitHub for the server-mode update check
-        CHECK_FOR_UPDATES: "false",
+        SCENE_ATLAS_CHECK_FOR_UPDATES: "false",
       },
       cwd: path.resolve(__dirname, ".."),
     },

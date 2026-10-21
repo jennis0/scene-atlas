@@ -80,7 +80,7 @@ export const libraryApi = {
     return data
   },
 
-  /** "Stop using this folder": remove every map read from it (never touches files) */
+  /** "Unlink": remove every map read from it (never touches files) */
   removeLinked: async (): Promise<{ removed: number }> => {
     const { data } = await api.delete<{ removed: number }>('/library/linked')
     return data

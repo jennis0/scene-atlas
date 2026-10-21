@@ -46,7 +46,7 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     """
     logger = logging.getLogger(__name__)
     if db_path is None:
-        db_path = settings.app_data_dir / "battlemap.db"
+        db_path = settings.data_dir / "battlemap.db"
     backup_path = backup_dir / db_path.name
     backup_path.parent.mkdir(parents=True, exist_ok=True)
 

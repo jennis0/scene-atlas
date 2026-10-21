@@ -108,13 +108,13 @@ jobs:
         if: steps.cache-onnx.outputs.cache-hit != 'true'
         run: uv run python scripts/models/setup_models.py
         env:
-          EMBEDDING_MODEL: small
+          SCENE_ATLAS_EMBEDDING_MODEL: small
       - name: Backend integration tests
         run: >
           uv run python -m pytest backend/tests/integration/ -v
           || test $? -eq 134
         env:
-          EMBEDDING_MODEL: small
+          SCENE_ATLAS_EMBEDDING_MODEL: small
       - name: Backend heavy tests (real CLIP)
         run: uv run python -m pytest -m heavy -v
 

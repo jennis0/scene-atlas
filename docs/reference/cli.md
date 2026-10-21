@@ -1,6 +1,6 @@
 # Command-Line Tools
 
-Maintenance commands for standalone servers and source checkouts. Run them from the repository root with `uv run`. They use the same configuration as the server (environment variables or `.env`), so set `APP_DATA_DIR` and `IMAGE_LIBRARY_DIR` as you do for the server.
+Maintenance commands for standalone servers and source checkouts. Run them from the repository root with `uv run`. They use the same configuration as the server (environment variables or `.env`), so set `SCENE_ATLAS_DATA_DIR` and `SCENE_ATLAS_IMAGES_DIR` as you do for the server.
 
 ::: warning
 Stop the server first. Only one Scene Atlas process can use a library at a time.

@@ -3,7 +3,7 @@
 A real maps folder in tmp_path, scanned and processed through the real HTTP API,
 SQLite, LanceDB and filesystem; embeddings are faked, scans run on the test's thread and
 the worker is driven with ``drain()``. The test client runs in server mode, with the
-folder set as ``LINKED_LIBRARY_DIR`` would set it.
+folder set as ``SCENE_ATLAS_LINKED_LIBRARY_DIR`` would set it.
 """
 
 from __future__ import annotations

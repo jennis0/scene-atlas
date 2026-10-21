@@ -37,7 +37,7 @@ git checkout v<version>   # the latest release, from https://github.com/jennis0/
 docker compose --profile gpu up -d
 ```
 
-The GPU profile sets `INFERENCE_DEVICE=cuda` and reserves one NVIDIA GPU.
+The GPU profile sets `SCENE_ATLAS_INFERENCE_DEVICE=cuda` and reserves one NVIDIA GPU.
 
 ## Configuration
 
@@ -45,48 +45,48 @@ Settings go in a `.env` file next to `docker-compose.yml`:
 
 ```bash
 # Port for the web UI and API
-PORT=8000
+SCENE_ATLAS_PORT=8000
 
 # Host path for managed image storage (Scene Atlas writes its file structure here)
-IMAGE_DIR=./images
+SCENE_ATLAS_IMAGES_DIR=./images
 
-# User and group the container runs as; must own IMAGE_DIR (run `id -u` / `id -g`)
-APP_UID=1000
-APP_GID=1000
+# User and group the container runs as; must own SCENE_ATLAS_IMAGES_DIR (run `id -u` / `id -g`)
+SCENE_ATLAS_UID=1000
+SCENE_ATLAS_GID=1000
 
 # Release to run (e.g. 0.2.0); leave unset to follow the latest release
 SCENE_ATLAS_VERSION=
 
 # CORS origins (set to your domain if behind a reverse proxy)
-CORS_ORIGINS=["http://localhost:8000"]
+SCENE_ATLAS_CORS_ORIGINS=["http://localhost:8000"]
 
 # Proxies trusted to report the client IP (see Reverse Proxy below)
-FORWARDED_ALLOW_IPS=127.0.0.1,::1
+SCENE_ATLAS_FORWARDED_ALLOW_IPS=127.0.0.1,::1
 
 # AI model size: small, medium, or large (optional; overrides the model chosen in the UI)
-EMBEDDING_MODEL=small
+SCENE_ATLAS_EMBEDDING_MODEL=small
 
 # Enable debug logging
-DEBUG=false
+SCENE_ATLAS_DEBUG=false
 
 # Daily check for a newer release, shown in Settings (false: never contact GitHub)
-CHECK_FOR_UPDATES=true
+SCENE_ATLAS_CHECK_FOR_UPDATES=true
 ```
 
 ::: warning
-`IMAGE_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI, or link the collection read-only (see [Your own maps folder](#your-own-maps-folder)).
+`SCENE_ATLAS_IMAGES_DIR` is where Scene Atlas stores imported images in its own file structure. Do not point it at your existing image collection. Import your images through the web UI, or link the collection read-only (see [Linked library](#linked-library)).
 :::
 
 ::: info Container user
-The container runs as an unprivileged user (UID/GID `APP_UID`/`APP_GID`, default 1000), not root. Create `IMAGE_DIR` before the first start and make sure that user owns it, e.g. `mkdir -p images && sudo chown 1000:1000 images`; if Docker creates the directory itself it is owned by root and imports fail with a permission error. Set `APP_UID`/`APP_GID` before the first start: the data volume's files belong to that user, so changing it later means `chown -R` on the volume as well as `IMAGE_DIR`.
+The container runs as an unprivileged user (UID/GID `SCENE_ATLAS_UID`/`SCENE_ATLAS_GID`, default 1000), not root. Create `SCENE_ATLAS_IMAGES_DIR` before the first start and make sure that user owns it, e.g. `mkdir -p images && sudo chown 1000:1000 images`; if Docker creates the directory itself it is owned by root and imports fail with a permission error. Set `SCENE_ATLAS_UID`/`SCENE_ATLAS_GID` before the first start: the data volume's files belong to that user, so changing it later means `chown -R` on the volume as well as `SCENE_ATLAS_IMAGES_DIR`.
 
-Installs created before this change ran as root, so their `scene-atlas-data` volume is root-owned. Start from a fresh volume (`docker compose down -v`, after taking a backup) or `chown -R` the volume and `IMAGE_DIR` to the new user.
+Installs created before this change ran as root, so their `scene-atlas-data` volume is root-owned. Start from a fresh volume (`docker compose down -v`, after taking a backup) or `chown -R` the volume and `SCENE_ATLAS_IMAGES_DIR` to the new user.
 :::
 
 See the [Configuration Reference](/deploy/configuration) for all settings.
 
 ::: info Docker vs standalone variable names
-In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. Inside the container, it's mapped to `IMAGE_LIBRARY_DIR=/app/images`. In standalone (non-Docker) deployments, use `IMAGE_LIBRARY_DIR` directly.
+In Docker, use `SCENE_ATLAS_IMAGES_DIR` in your `.env` to set the host-side bind mount path. Inside the container, it's mapped to `SCENE_ATLAS_IMAGES_DIR=/app/images`. In standalone (non-Docker) deployments, use `SCENE_ATLAS_IMAGES_DIR` directly.
 :::
 
 ## Volumes
@@ -94,15 +94,15 @@ In Docker, use `IMAGE_DIR` in your `.env` to set the host-side bind mount path. 
 | Volume | Type | Path in container | Purpose |
 |--------|------|-------------------|---------|
 | `scene-atlas-data` | Named | `/app/data` | Database, vector index, thumbnails, logs |
-| `IMAGE_DIR` | Bind mount | `/app/images` | Managed image storage and backups |
+| `SCENE_ATLAS_IMAGES_DIR` | Bind mount | `/app/images` | Managed image storage and backups |
 
 ::: warning
-The named volume `scene-atlas-data` contains your database and search index. The built-in backups are written to the image bind mount, so back up `IMAGE_DIR` (or both) with your normal backup tooling.
+The named volume `scene-atlas-data` contains your database and search index. The built-in backups are written to the image bind mount, so back up `SCENE_ATLAS_IMAGES_DIR` (or both) with your normal backup tooling.
 :::
 
-## Your own maps folder
+## Linked library
 
-Scene Atlas can read an existing collection where it is, without copying it: set `LINKED_LIBRARY_DIR` to the folder. It is scanned when the backend starts and then every 15 minutes (Settings → Library: "Check for changes", and how often), and maps added, moved or deleted there are picked up. Scene Atlas never writes to it, so mount it read-only. See [Your Library](/guide/library#using-your-own-folder) for how it behaves.
+Scene Atlas can link to an existing collection and read it where it is, without copying it: set `SCENE_ATLAS_LINKED_LIBRARY_DIR` to the folder. It is scanned when the backend starts and then every 15 minutes (Settings → Library: "Check for changes", and how often), and maps added, moved or deleted there are picked up. Scene Atlas never writes to it, so mount it read-only. See [Your Library](/guide/library#linked-library) for how it behaves.
 
 Add a `docker-compose.override.yml` next to `docker-compose.yml`. Compose reads it automatically, and it survives downloading a new `docker-compose.yml`:
 
@@ -112,19 +112,19 @@ services:
     volumes:
       - /srv/maps:/library:ro
     environment:
-      LINKED_LIBRARY_DIR: /library
+      SCENE_ATLAS_LINKED_LIBRARY_DIR: /library
 ```
 
-With plain Docker the same is `-v /srv/maps:/library:ro -e LINKED_LIBRARY_DIR=/library`.
+With plain Docker the same is `-v /srv/maps:/library:ro -e SCENE_ATLAS_LINKED_LIBRARY_DIR=/library`.
 
-- Keep `IMAGE_DIR` outside the maps folder: Scene Atlas refuses to start if the image folder is the linked folder or contains it.
+- Keep `SCENE_ATLAS_IMAGES_DIR` outside the maps folder: Scene Atlas refuses to start if the image folder is the linked library or contains it.
 - If the folder is missing (a NAS share that isn't mounted), the backend still starts: search and thumbnails work, and originals return 503 until it's back. Files are only marked missing when the folder is there and they aren't.
 - The folder's path is never shown to users; Settings shows its name and counts.
-- To stop using it, unset `LINKED_LIBRARY_DIR` and restart, then choose **Remove its images** in Settings → Library. That removes the folder's images from the library, never the files.
+- To unlink it, unset `SCENE_ATLAS_LINKED_LIBRARY_DIR` and restart, then choose **Remove its images** in Settings → Library. That removes its images from Scene Atlas, never the files.
 
 ## Reverse Proxy
 
-Scene Atlas serves everything on a single port, so proxy setup is straightforward. The proxy must also handle authentication (see the warning at the top of this page), and the container port should only be reachable by the proxy. `docker-compose.yml` publishes `${PORT}` on all interfaces; if the proxy runs on the same host, set `PORT=127.0.0.1:8000` in `.env` to bind to loopback only.
+Scene Atlas serves everything on a single port, so proxy setup is straightforward. The proxy must also handle authentication (see the warning at the top of this page), and the container port should only be reachable by the proxy. `docker-compose.yml` publishes `${SCENE_ATLAS_PORT}` on all interfaces; if the proxy runs on the same host, set `SCENE_ATLAS_PORT=127.0.0.1:8000` in `.env` to bind to loopback only.
 
 The examples below show TLS and forwarding only; add an authentication layer before using them.
 
@@ -167,25 +167,25 @@ atlas.example.com {
 }
 ```
 
-After configuring your proxy, update `CORS_ORIGINS`:
+After configuring your proxy, update `SCENE_ATLAS_CORS_ORIGINS`:
 
 ```bash
-CORS_ORIGINS=["https://atlas.example.com"]
+SCENE_ATLAS_CORS_ORIGINS=["https://atlas.example.com"]
 ```
 
 ### Client IP addresses and rate limits
 
-A few expensive and destructive endpoints are rate limited per client IP address. Behind a proxy, every request arrives from the proxy, so Scene Atlas takes the client address from the `X-Forwarded-For` header instead, but only on connections from an address listed in `FORWARDED_ALLOW_IPS`. From any other address the header is ignored, so clients can't fake it.
+A few expensive and destructive endpoints are rate limited per client IP address. Behind a proxy, every request arrives from the proxy, so Scene Atlas takes the client address from the `X-Forwarded-For` header instead, but only on connections from an address listed in `SCENE_ATLAS_FORWARDED_ALLOW_IPS`. From any other address the header is ignored, so clients can't fake it.
 
-The default, `127.0.0.1,::1`, suits a proxy on the same machine as a [standalone](/deploy/standalone) install. In Docker, connections from a proxy on the host arrive from the Docker network's gateway, not from `127.0.0.1`, so set `FORWARDED_ALLOW_IPS` in `.env`:
+The default, `127.0.0.1,::1`, suits a proxy on the same machine as a [standalone](/deploy/standalone) install. In Docker, connections from a proxy on the host arrive from the Docker network's gateway, not from `127.0.0.1`, so set `SCENE_ATLAS_FORWARDED_ALLOW_IPS` in `.env`:
 
 ```bash
 # Proxy on the host: the gateway of the compose network
 # (docker network inspect scene-atlas_default --format '{{(index .IPAM.Config 0).Gateway}}')
-FORWARDED_ALLOW_IPS=172.18.0.1
+SCENE_ATLAS_FORWARDED_ALLOW_IPS=172.18.0.1
 
 # Proxy in another container on the same network: its address, or the network's subnet
-FORWARDED_ALLOW_IPS=172.18.0.0/16
+SCENE_ATLAS_FORWARDED_ALLOW_IPS=172.18.0.0/16
 ```
 
 Entries are IP addresses or CIDR networks, comma-separated. If the proxy isn't listed, Scene Atlas still works, but all users share one rate-limit allowance. Use `*` (trust everyone) only if nothing but the proxy can reach the port.
@@ -200,7 +200,7 @@ When the scheduler is enabled (the default), Scene Atlas backs up every 24 hours
 - The 7 most recent snapshots are kept
 - Up to 4 older snapshots are kept, one per week
 
-Each backup contains the SQLite database (`battlemap.db`) and a LanceDB vector index snapshot. They are written to `/app/images/backups/<timestamp>/`, i.e. `IMAGE_DIR/backups/` on the host.
+Each backup contains the SQLite database (`battlemap.db`) and a LanceDB vector index snapshot. They are written to `/app/images/backups/<timestamp>/`, i.e. `SCENE_ATLAS_IMAGES_DIR/backups/` on the host.
 
 To restore: stop the container, copy `battlemap.db` from a backup into the data volume as `/app/data/battlemap.db`, and restart. Schema migrations are applied automatically on startup. Images imported after that backup are lost; see [Restoring a backup](/guide/library#restoring-a-backup).
 

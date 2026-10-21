@@ -12,11 +12,11 @@ from backend.tests.unit.test_storage_lock import _hold_in_child, child_can_lock
 @pytest.fixture(autouse=True)
 def _no_ingest_worker(monkeypatch):
     monkeypatch.setattr(settings, "ingest_worker_enabled", False)
-    settings.image_library_dir.mkdir(parents=True, exist_ok=True)
+    settings.images_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _roots():
-    return [settings.app_data_dir, settings.image_library_dir]
+    return [settings.data_dir, settings.images_dir]
 
 
 def test_lifespan_holds_locks_until_shutdown():

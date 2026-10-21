@@ -23,9 +23,9 @@ A library has three places, each with one job.
 
 | | Holds | Access | Desktop default | Server |
 |---|---|---|---|---|
-| **App data** | Database, search index, thumbnails, models, logs, staging. It grows to several GB. | Writable, and always a local disk because it holds SQLite | `%LOCALAPPDATA%\Scene Atlas\data` (Windows), `~/Documents/Scene Atlas/data` | `APP_DATA_DIR` |
-| **Store** | Originals of imported (copied) maps, `backups/`, and the library marker | Writable | `…/Scene Atlas/images` for a new library; `<linked folder>/Scene Atlas` when a folder is linked | `IMAGE_LIBRARY_DIR` |
-| **Linked folder** (optional, one) | The user's existing maps | **Read-only.** Scanned, never written, moved or deleted | none | `LINKED_LIBRARY_DIR`, typically a read-only mount |
+| **App data** | Database, search index, thumbnails, models, logs, staging. It grows to several GB. | Writable, and always a local disk because it holds SQLite | `%LOCALAPPDATA%\Scene Atlas\data` (Windows), `~/Documents/Scene Atlas/data` | `SCENE_ATLAS_DATA_DIR` |
+| **Store** | Originals of imported (copied) maps, `backups/`, and the library marker | Writable | `…/Scene Atlas/images` for a new library; `<linked folder>/Scene Atlas` when a folder is linked | `SCENE_ATLAS_IMAGES_DIR` |
+| **Linked folder** (optional, one) | The user's existing maps | **Read-only.** Scanned, never written, moved or deleted | none | `SCENE_ATLAS_LINKED_LIBRARY_DIR`, typically a read-only mount |
 
 The rules are the same in both modes. The only difference is where the desktop wizard puts the store by default.
 
@@ -59,14 +59,14 @@ The library step has to come **before** Stored format and Tag packs. Each wizard
 Your library
 
 (•) Start a new library
-( ) Use a folder of images you already have
+( ) Link a library you already have
       D:\Battle Maps                                [Choose]
       Found 56,214 images.
 
       Scene Atlas adds the maps and scenes in this folder, and any
       you add to it later. Tokens and other art are skipped. Your
       files are never changed, moved or deleted. Images you import in
-      the app go in the Imported images folder, not into your own folders.
+      the app go in the Imported images folder, not into the linked library.
 
 Imported images  D:\Battle Maps\Scene Atlas         [Change]
                  Stores full resolution images. It can be stored on any large drive.
@@ -74,9 +74,9 @@ Search data      C:\Users\…\Scene Atlas\data        [Change]
                  Stores metadata and thumbnails. Best on a fast drive.
 ```
 
-Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics. Labels and messages about the library's folders and their contents say "images", not "maps", here and in Settings, the gallery and the viewer, because the folder holds scenes too (user decision 2026-10-20). The explanatory paragraph still names maps and scenes, since that's what it adds.
+Copy follows [first-run.md](first-run.md#copy): short and plain, with no explanation of mechanics. The feature is called **Linked library** everywhere users see it (setup, Settings, docs), and leaving it is **Unlink** (user decision 2026-10-21, ADR-027). It is the user's own, independent library, which Scene Atlas links to. Code still says "linked folder" (`LinkedFolder`, `library_sources`). Labels and messages about the library's folders and their contents say "images", not "maps", here and in Settings, the gallery and the viewer, because the folder holds scenes too (user decision 2026-10-20). The explanatory paragraph still names maps and scenes, since that's what it adds.
 
-The paragraph under "Use a folder of images you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
+The paragraph under "Link a library you already have" is the exception. It shows only when that option is selected, because the linked library behaves differently from an import, and users need to know four things before choosing it (user decision 2026-10-19):
 
 - What's added: maps and scenes. Auto image type skips tokens and other art, so the copy mustn't promise "everything".
 - That files added later are picked up too (§4.3).
@@ -92,7 +92,7 @@ The paragraph under "Use a folder of images you already have" is the exception. 
 | A Scene Atlas library with a matching search data folder | "Scene Atlas library found." The other folders are filled in from the marker's hints (§3.2). | "Open library" |
 | A Scene Atlas library whose search data folder isn't found | "This library's search data folder is missing. Choose it, or pick another folder." | Blocked until it's resolved |
 | Folders from two different libraries | "These folders belong to different libraries." | Blocked |
-| A maps folder chosen under "Start a new library" | "This folder already has images in it." with a link: "Use it as your existing folder" | Allowed (today's warning, made actionable) |
+| A maps folder chosen under "Start a new library" | "This folder already has images in it." with a link: "Link it instead" | Allowed (today's warning, made actionable) |
 
 **Continue on the library step:**
 
@@ -333,7 +333,7 @@ From the inventory of every caller of `get_image_store()`:
 | `safe_delete_image` | Fix: it counts references with `storage_key == None`, which compiles to `IS NULL` and would call `image_store.delete(None)` |
 | `delete_image_rows` | Fix: thumbnails of images without a `storage_key` are never deleted |
 | Removing a linked image (delete, group edit) | Delete the row, thumbnails and vector, never the file. Set the `source_files` row to `removed`, so rescans don't bring it back. There's no "show removed files" view yet |
-| Undo import | Hidden for linked jobs. Removing the folder's maps is done with "Stop using this folder" |
+| Undo import | Hidden for linked jobs. Removing the folder's maps is done with "Unlink" |
 | Cancel on a linked job | Stops it. Its pending rows are deleted, so the next scan offers those files again. Excluding subfolders is later work |
 | Library purge | Deletes `library_sources`/`source_files` rows with the rest. Never touches the linked folder. Rewrites the store marker |
 | Orphan sweep | Unchanged: it only walks shard folders |
@@ -349,14 +349,14 @@ From the inventory of every caller of `get_image_store()`:
   - the folder's state;
   - "Check for changes", and how often to check (§4.3);
   - a missing count with "Remove missing maps";
-  - "Stop using this folder", which removes that folder's maps from the library after confirming the count. This is the way out of linking the wrong folder.
+  - "Unlink", which removes that folder's maps from the library after confirming the count. This is the way out of linking the wrong folder.
 
   On a server, Settings shows the state and counts but never the path.
 
 ## 5. Server mode
 
-- `LINKED_LIBRARY_DIR` names the linked folder. Docker docs recommend a read-only mount, for example `-v /srv/maps:/library:ro`.
-- The store stays at `IMAGE_LIBRARY_DIR`. It can't be inside a read-only mount, so the desktop's "store inside the folder" default doesn't apply on servers.
+- `SCENE_ATLAS_LINKED_LIBRARY_DIR` names the linked folder. Docker docs recommend a read-only mount, for example `-v /srv/maps:/library:ro`.
+- The store stays at `SCENE_ATLAS_IMAGES_DIR`. It can't be inside a read-only mount, so the desktop's "store inside the folder" default doesn't apply on servers.
 - The rules in §1 and §3.3 apply unchanged. There's no wizard step: the scan starts at startup.
 - `POST /library/inspect` doesn't exist in server mode. "Check for changes" does, because it names no path.
 - This reverses local-ingest.md's "linked library is desktop only". That stance was about **client-named** paths, and an env var isn't one.
@@ -369,7 +369,7 @@ From the inventory of every caller of `get_image_store()`:
 |---|---|
 | App data | Change: today's repoint-and-restart, with the move-files-yourself warning until Move library exists |
 | Store | Change: the same |
-| Linked folder | Change (restart, then a scan reconciles by relative path), Stop using |
+| Linked library | Change (restart, then a scan reconciles by relative path), Unlink |
 
 All three run the same inspect check as the wizard. Restarts use the in-window backend restart (§2.2).
 
@@ -418,14 +418,14 @@ Each phase leaves main working, but the feature ships as one PR from `feature/li
    - `library_id`, markers, the startup check (§3.3) with tests for every row;
    - stopping `get_image_store()` from creating roots;
    - `POST /library/inspect`;
-   - the `--linked-library-dir` / `LINKED_LIBRARY_DIR` setting.
+   - the `--linked-library-dir` / `SCENE_ATLAS_LINKED_LIBRARY_DIR` setting.
 2. **Linked library core** (backend):
    - migration: `library_sources`, `source_files`, `images.source_file_id`, nullable `storage_key`, `import_items.source_file_id`;
    - the source interface, the walker shared with local import, scan and diff;
    - processing linked items, moves and duplicates, write-back to `source_files`;
    - scans at startup, on the `linked_rescan_minutes` timer (a setting, default 15), on window focus (a desktop IPC event to a scan endpoint, rate-limited to once a minute) and on demand, never two at once;
    - offline and detached states.
-3. **Everything that touches originals** (backend): the §4.6 table, including the two deletion bugs, `file_state` in the API, purge, export, removing images and "Stop using this folder".
+3. **Everything that touches originals** (backend): the §4.6 table, including the two deletion bugs, `file_state` in the API, purge, export, removing images and "Unlink".
 4. **Electron:**
    - remove the storage window;
    - provisional default config and `libraryChosen`;
@@ -450,7 +450,7 @@ The backend, Electron and frontend are built in parallel against these contracts
 **Sidecar arguments** (`backend/pyinstaller/entry.py`):
 
 - `--linked-library-dir <path>` is optional, alongside `--app-data-dir` and `--image-library-dir`.
-- `entry.py` sets `LINKED_LIBRARY_DIR` from it. The backend setting is `settings.linked_library_dir: Path | None`.
+- `entry.py` sets `SCENE_ATLAS_LINKED_LIBRARY_DIR` from it. The backend setting is `settings.linked_library_dir: Path | None`.
 - Unlike the other two folders, the linked folder doesn't have to exist (§3.3: offline).
 
 **Backend HTTP** (prefix `/api/v1`):
@@ -461,7 +461,7 @@ The backend, Electron and frontend are built in parallel against these contracts
 | `GET /library/status` | both | `LibraryStatus`, below. Cheap: counts come from indexed queries |
 | `POST /library/scan` | both | Body `{reason: "manual" \| "focus"}`. 202 `{started: bool}`. `focus` is ignored (`started: false`) if a scan ran in the last 60 s, or when `linked_rescan_minutes` is 0. `manual` always runs unless a scan is already running. 409 if no linked folder is configured |
 | `POST /library/linked/remove-missing` | both | 200 `{removed: int}`. Removes images whose linked file is missing (rows, thumbnails, vectors), and sets their `source_files` rows to `removed` |
-| `DELETE /library/linked` | both | 200 `{removed: int}`. "Stop using this folder": removes every image from the linked source and deletes its `source_files` rows. The source is marked `detached`. The desktop then drops the folder from its config and restarts; on a server the admin unsets the env var |
+| `DELETE /library/linked` | both | 200 `{removed: int}`. "Unlink": removes every image from the linked source and deletes its `source_files` rows. The source is marked `detached`. The desktop then drops the folder from its config and restarts; on a server the admin unsets the env var |
 
 ```ts
 type InspectOutcome = 'new' | 'open' | 'error'
@@ -554,5 +554,5 @@ applyLibrary(dirs: { appData: string; store: string; linked: string | null }): P
 ## 11. Open questions
 
 - **Rescans at startup on a large, slow folder.** About 3 s natively for 60k files, which is fine. A network share could be much slower. Measure before adding a progress state.
-- **"Show removed files".** No view yet, so a removed linked map can't come back without "Stop using" and relinking the folder. Add one if users ask.
+- **"Show removed files".** No view yet, so a removed linked map can't come back without unlinking and relinking the folder. Add one if users ask.
 - **Excluding subfolders** (for example `Tokens/`). Cancel isn't durable, by design. If needed, this becomes a list on `library_sources`.

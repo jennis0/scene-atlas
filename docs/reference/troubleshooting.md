@@ -6,7 +6,7 @@
 |------------|-----|
 | Desktop app | `backend.log` and `updater.log` in the app's settings folder (`%APPDATA%\Scene Atlas`, `~/Library/Application Support/Scene Atlas` or `~/.config/Scene Atlas`), and `logs/scene-atlas.log` in *Search data* |
 | Docker | `docker compose logs -f` |
-| Standalone | `logs/scene-atlas.log` in `APP_DATA_DIR` |
+| Standalone | `logs/scene-atlas.log` in `SCENE_ATLAS_DATA_DIR` |
 
 Startup refusals start with `STARTUP ERROR:` and say what's wrong.
 
@@ -16,9 +16,9 @@ Startup refusals start with `STARTUP ERROR:` and say what's wrong.
 
 **"The image folder belongs to a different library"**, **"…doesn't contain this library's images"** or **"…whose search data folder isn't here"**: *Search data* and *Imported images* don't match. This usually means a drive isn't connected or a folder was moved. Reconnect it, or point Scene Atlas at the right folders; see [Moving the library](/guide/library#moving-the-library). The desktop app offers **Try again** and **Choose folders…**.
 
-**"The image folder (or search data folder) can't be your images folder or contain it"**: *Imported images* and *Search data* can sit inside your own folder, but can't be it or a folder above it. Choose another folder, or on a server change `IMAGE_LIBRARY_DIR`, `APP_DATA_DIR` or `LINKED_LIBRARY_DIR`.
+**"The image folder (or search data folder) can't be the linked library or contain it"**: *Imported images* and *Search data* can sit inside a linked library, but can't be it or a folder above it. Choose another folder, or on a server change `SCENE_ATLAS_IMAGES_DIR`, `SCENE_ATLAS_DATA_DIR` or `SCENE_ATLAS_LINKED_LIBRARY_DIR`.
 
-**Port 8000 is already in use**: in Docker, set `PORT=8001` in `.env`. Standalone, pass `--port 8001` to uvicorn. The desktop app picks a free port itself.
+**Port 8000 is already in use**: in Docker, set `SCENE_ATLAS_PORT=8001` in `.env`. Standalone, pass `--port 8001` to uvicorn. The desktop app picks a free port itself.
 
 **The app won't open on Windows or macOS**: the installers aren't signed yet. See [First-Launch Warnings](/deploy/desktop#first-launch-warnings).
 
@@ -36,7 +36,7 @@ Startup refusals start with `STARTUP ERROR:` and say what's wrong.
 
 **Some images were skipped**: check the import report's **Skipped** section. Auto skips images that look like tokens or aren't maps or scenes; **Include** imports them.
 
-## Your Own Folder
+## Linked Library
 
 **New images in the folder don't appear**: Scene Atlas checks every 15 minutes by default. Use **Settings → Library → Check for changes**.
 
@@ -48,7 +48,7 @@ Startup refusals start with `STARTUP ERROR:` and say what's wrong.
 
 **Colour filters match too much or too little**: change **Settings → General → Colour match**.
 
-**CORS errors in the browser console**: behind a reverse proxy, set `CORS_ORIGINS` to the address you open Scene Atlas on. See the [Configuration Reference](/deploy/configuration#network).
+**CORS errors in the browser console**: behind a reverse proxy, set `SCENE_ATLAS_CORS_ORIGINS` to the address you open Scene Atlas on. See the [Configuration Reference](/deploy/configuration#network).
 
 ## Memory and Speed
 

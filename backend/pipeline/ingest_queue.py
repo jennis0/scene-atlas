@@ -597,7 +597,7 @@ class JobBusyError(Exception):
 
 
 class LinkedJobError(Exception):
-    """Raised when undoing a scan of the linked folder: its maps leave with "Stop using
+    """Raised when undoing a scan of the linked folder: its maps leave with "Unlink
     this folder" (design/library-setup.md §4.6)."""
 
 

@@ -13,15 +13,15 @@ import threading
 
 class TestGetActiveModelName:
     def test_uses_env_var_when_embedding_model_set(self, monkeypatch):
-        monkeypatch.setenv("EMBEDDING_MODEL", "large")
+        monkeypatch.setenv("SCENE_ATLAS_EMBEDDING_MODEL", "large")
         from backend.app.services.clip_service import _get_active_model_name
 
         result = _get_active_model_name()
         assert result == "large"
 
     def test_env_var_overrides_db(self, monkeypatch):
-        """EMBEDDING_MODEL env var takes priority over any DB value."""
-        monkeypatch.setenv("EMBEDDING_MODEL", "medium")
+        """SCENE_ATLAS_EMBEDDING_MODEL env var takes priority over any DB value."""
+        monkeypatch.setenv("SCENE_ATLAS_EMBEDDING_MODEL", "medium")
         from backend.app.services.clip_service import _get_active_model_name
 
         result = _get_active_model_name()
@@ -29,7 +29,7 @@ class TestGetActiveModelName:
 
     def test_env_var_not_set_returns_string(self, monkeypatch):
         """Without env var it falls through to DB / auto-detect; result must be a non-empty string."""
-        monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+        monkeypatch.delenv("SCENE_ATLAS_EMBEDDING_MODEL", raising=False)
         from backend.app.services.clip_service import _get_active_model_name
 
         result = _get_active_model_name()
@@ -59,7 +59,7 @@ class TestGetEffectiveModelName:
         original = clip_mod._active_model_name
         try:
             clip_mod._active_model_name = None
-            monkeypatch.setenv("EMBEDDING_MODEL", "small")
+            monkeypatch.setenv("SCENE_ATLAS_EMBEDDING_MODEL", "small")
             from backend.app.services.clip_service import get_effective_model_name
 
             result = get_effective_model_name()

@@ -76,7 +76,7 @@ def test_rate_limiting_disabled_allows_unlimited(test_client: TestClient):
     """When rate limiting is disabled (the test default), no requests are blocked.
 
     The test_client fixture sets limiter.enabled = False, simulating
-    RATE_LIMIT_ENABLED=false in config.
+    SCENE_ATLAS_RATE_LIMIT_ENABLED=false in config.
     """
     from backend.app.api.rate_limits import limiter
 

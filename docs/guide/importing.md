@@ -2,7 +2,7 @@
 
 Click **Import** in the top bar, choose what the images are, then drop files, folders or ZIP archives onto the dialog, or use **Choose a folder** / **Choose files**. The import starts straight away and runs in the background.
 
-Importing copies images into Scene Atlas. To use a folder of images where it is, without copying, see [Your own folder](/guide/library#importing-vs-using-your-own-folder).
+Importing copies images into Scene Atlas. To use a folder of images where it is, without copying, [link it](/guide/library#importing-vs-linking) instead.
 
 ![The import dialog: Import these as Auto, Battlemaps or Scenes, above a drop area with Choose a folder and Choose files](/screenshots/import-dialog.webp)
 
@@ -110,7 +110,7 @@ By default each image is kept exactly as imported. **Settings → Import Limits 
 - **JPEG**: small files. Images with transparency stay as they are.
 - **PNG**: lossless, but usually larger than the original.
 
-*Quality* (default 90) applies to WebP and JPEG. Files already in that format, animations and very large images stay as they are. The setting affects new imports only, and doesn't apply to [your own folder](/guide/library#using-your-own-folder), which is never changed.
+*Quality* (default 90) applies to WebP and JPEG. Files already in that format, animations and very large images stay as they are. The setting affects new imports only, and doesn't apply to a [linked library](/guide/library#linked-library), which is never changed.
 
 ## Limits
 
@@ -120,7 +120,7 @@ By default each image is kept exactly as imported. **Settings → Import Limits 
 | Video size | 2 GB | Settings → Import Limits |
 | Files in one ZIP | 1,000 | Settings → Import Limits |
 | Unpacked size of one ZIP | 2 GB | Settings → Import Limits |
-| Files in one import | 50,000 uploaded, 250,000 in the desktop app | `MAX_IMPORT_ITEMS`, `MAX_LOCAL_IMPORT_ITEMS` ([Configuration](/deploy/configuration#import)) |
+| Files in one import | 50,000 uploaded, 250,000 in the desktop app | `SCENE_ATLAS_MAX_IMPORT_ITEMS`, `SCENE_ATLAS_MAX_LOCAL_IMPORT_ITEMS` ([Configuration](/deploy/configuration#import)) |
 
 An import won't start if there isn't enough free disk space for it.
 
