@@ -171,7 +171,7 @@ export interface ImportItem {
 }
 
 export interface ItemClassification {
-  group: 'map' | 'illustration' | 'token' | 'other'
+  group: 'map' | 'illustration' | 'token' | 'asset' | 'other'
   probabilities: Record<string, number>
   fell_back: boolean
   head: string

@@ -1,4 +1,4 @@
-"""Image-type classification from CLIP embeddings: map / illustration / token / other.
+"""Image-type classification from CLIP embeddings: map / illustration / token / asset / other.
 
 Heads are small linear layers trained by scene-atlas-learning (``uv run release heads``) on
 one exact vision encoder, and bundled here as ``data/heads/image_type/<sha256>.json``, keyed
@@ -38,7 +38,7 @@ SUPPORTED_FORMATS = frozenset({"scene-atlas-linear-head/2"})
 # Features this code can compute; a head asking for anything else is rejected at load.
 KNOWN_FEATURES = ("log_aspect", "white_frac", "white_border_frac")
 # The groups ingest knows how to act on (design/ingestion.md §5.6)
-KNOWN_GROUPS = frozenset({"map", "illustration", "token", "other"})
+KNOWN_GROUPS = frozenset({"map", "illustration", "token", "asset", "other"})
 _FEATURE_SIZE = 128
 _FEATURE_BORDER = 8
 _WHITE_MIN = 245
@@ -50,7 +50,7 @@ class ImageTypeHeadError(RuntimeError):
 
 @dataclass(frozen=True)
 class ImageTypeResult:
-    group: str  # map | illustration | token | other
+    group: str  # map | illustration | token | asset | other
     probabilities: dict[str, float]  # per group, sums to 1
     fell_back: bool  # True when a low-confidence prediction was sent to the fallback group
 
