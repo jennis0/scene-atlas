@@ -11,11 +11,12 @@ import hashlib
 import io
 import zipfile
 from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 from PIL import Image as PILImage
 
-from backend.app.models import Image, ImageGroup, ImportJob
+from backend.app.models import Image, ImageGroup, ImageGroupingFeatures, ImportJob
 from backend.pipeline import ingest_queue
 
 BASE = "/api/v1/imports"
@@ -467,7 +468,10 @@ def test_finish_upload_skips_missing_files(api):
 
 def test_skip_group(api):
     job_id = api.create()
-    api.manifest(job_id, [{"relative_path": "A/One/a.png"}, {"relative_path": "A/Two/b.png"}])
+    api.manifest(
+        job_id,
+        [{"relative_path": "Czepeku/One/One.png"}, {"relative_path": "Czepeku/Two/Two.png"}],
+    )
     groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
     one = next(g for g in groups if g["group_name"] == "One")
     r = api.client.post(f"{BASE}/{job_id}/groups/{one['id']}/skip")
@@ -516,6 +520,53 @@ def test_undo_deletes_images_files_and_job(api):
         assert not get_image_store().exists(storage_key)
         assert not get_thumbnail_store().exists(thumbnail_key)
     assert api.vectors.get_all_ids() == set()
+
+
+def _ids_with_features(api) -> tuple[set[int], set[int]]:
+    """(image ids, ids with a grouping features row): equal unless a delete missed a row."""
+    with api.SessionLocal() as db:
+        images = {i for (i,) in db.query(Image.id)}
+        features = {i for (i,) in db.query(ImageGroupingFeatures.image_id)}
+    return images, features
+
+
+def test_every_image_delete_removes_its_grouping_features(api):
+    """Foreign keys aren't enforced: each delete path removes the rows itself (ADR-028)."""
+    files = {
+        f"A/{group}/{name}.png": image_bytes(30 + k)
+        for k, (group, name) in enumerate(
+            [("Keep", "a"), ("Keep", "b"), ("Keep", "c"), ("Drop", "d"), ("Drop", "e")]
+        )
+    }
+    job_id, _ = import_files(api, files)
+    api.worker.drain()
+    with api.SessionLocal() as db:
+        by_name = {Path(i.filename).stem: (i.id, i.group_id) for i in db.query(Image)}
+    images, features = _ids_with_features(api)
+    assert len(images) == 5 and features == images
+
+    # One image
+    assert api.client.delete(f"/api/v1/images/{by_name['a'][0]}").status_code == 200
+    # An image deleted in the group editor
+    keep_group = by_name["b"][1]
+    r = api.client.put(
+        f"/api/v1/groups/{keep_group}",
+        json={
+            "base_name": "Keep",
+            "author": "A",
+            "images": [{"id": by_name["c"][0], "name": "c"}],
+            "delete_image_ids": [by_name["b"][0]],
+        },
+    )
+    assert r.status_code == 200, r.text
+    # A whole group
+    assert api.client.delete(f"/api/v1/groups/{by_name['d'][1]}").status_code == 200
+    images, features = _ids_with_features(api)
+    assert images == {by_name["c"][0]} and features == images
+
+    # Undo
+    assert api.client.delete(f"{BASE}/{job_id}").status_code == 200
+    assert _ids_with_features(api) == (set(), set())
 
 
 def test_undo_keeps_groups_it_merged_into(api):
@@ -600,12 +651,22 @@ def test_undo_of_an_import_that_added_nothing(api):
 
 def test_progress_fields(api):
     """Group totals, the active-groups detail and the measured rate (design/import-progress.md)."""
-    files = {f"A/Group{g}/Map{i}.png": image_bytes(g * 10 + i) for g in range(4) for i in range(2)}
+    names = ("Amber", "Brook", "Cedar", "Dune")
+    files = {
+        f"Czepeku/{name}/{name} {variant}.png": image_bytes(g * 10 + i)
+        for g, name in enumerate(names)
+        for i, variant in enumerate(("Day", "Night"))
+    }
     job_id = api.create()
     result = api.manifest(job_id, [{"relative_path": p, "size": len(d)} for p, d in files.items()])
     ids = {i["relative_path"]: i["item_id"] for i in result["items"]}
     assert api.client.post(f"{BASE}/{job_id}/seal").status_code == 200
-    for path in ("A/Group0/Map0.png", "A/Group0/Map1.png", "A/Group1/Map0.png"):
+    sent = (
+        "Czepeku/Amber/Amber Day.png",
+        "Czepeku/Amber/Amber Night.png",
+        "Czepeku/Brook/Brook Day.png",
+    )
+    for path in sent:
         assert api.put(job_id, ids[path], files[path]).status_code == 200
     api.worker.drain()
 
@@ -613,15 +674,13 @@ def test_progress_fields(api):
         return next(j for j in api.client.get(BASE).json()["jobs"] if j["id"] == job_id)
 
     assert summary()["group_count"] == 4
-    assert summary()["groups_done"] == 1  # Group0 has both files; the rest await bytes
-    # Group1 has an image but still awaits a file: not reviewable until it's finished
-    assert summary()["groups_reviewable"] == 1
-    detail = api.detail(job_id)
-    group0 = next(g for g in detail["groups"] if g["group_name"] == "Group 0")
-    assert detail["reviewable_group_ids"] == [group0["image_group_id"]]
+    assert summary()["groups_done"] == 1  # Amber has both files; the rest await bytes
+    # Nothing is reviewable until the import finishes and its grouping is refined (ADR-028)
+    assert summary()["groups_reviewable"] == 0
+    assert api.detail(job_id)["reviewable_group_ids"] == []
 
     active = api.client.get(f"{BASE}/{job_id}", params={"groups": "active", "limit": 2}).json()
-    assert [g["group_name"] for g in active["groups"]] == ["Group 1", "Group 2"]  # parser spacing
+    assert [g["group_name"] for g in active["groups"]] == ["Brook", "Cedar"]
     assert len(api.detail(job_id)["groups"]) == 4
 
     queue = api.client.get(BASE).json()["queue"]

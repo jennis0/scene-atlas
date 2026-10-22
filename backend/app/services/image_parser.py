@@ -356,6 +356,17 @@ class ImageParser:
         normalized = name.lower().replace("_", " ").replace("-", " ").strip()
         return normalized in self._generic_folders
 
+    def clean_group_name(self, raw: str, author: str | None = None) -> str:
+        """A folder name or name fragment cleaned into a group name, as ``parse`` does:
+        noise (tier, DPI, sizes, platform, grid words) stripped, CamelCase and slugs spaced,
+        and a leading ``author`` removed. "Snowy Forest Tier 2" -> "Snowy Forest"."""
+        return self._clean_group_name(raw, author=author)
+
+    def author_from_stem(self, stem: str) -> str | None:
+        """The creator named by a ``by<Author>`` marker in a file stem ("Arena_byUpsetti"),
+        or None. Ordinary words ending in "by" (Ruby, Lobby) are not markers."""
+        return self._author_from_stem(stem)
+
     def same_name(self, a: str, b: str) -> bool:
         """Whether two folder or file names name the same thing once cleaned:
         "Golden Forest [30x30]" and "GoldenForest" do."""

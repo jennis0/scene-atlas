@@ -14,6 +14,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -251,6 +253,8 @@ class ImageGroup(Base):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=datetime.utcnow, index=True
     )
+    # Last user edit (ADR-028): automatic grouping never changes an edited group
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     images: Mapped[list["Image"]] = relationship(
         "Image", back_populates="group", foreign_keys="[Image.group_id]"
@@ -338,6 +342,30 @@ class Color(Base):
         return f"<Color(hex='{self.color_hex}', percentage={self.percentage})>"
 
 
+class ImageGroupingFeatures(Base):
+    """Per-image content features for variant grouping (ADR-028, design/variant-grouping.md §4).
+
+    Written by the ingest worker from the large thumbnail; read and decoded by
+    ``backend.pipeline.grouping_features``. Videos have no row; an image whose features
+    couldn't be computed has a row with NULLs. Foreign keys aren't enforced, so every
+    path that deletes images deletes these rows too (``deletion_service``, purge).
+    """
+
+    __tablename__ = "image_grouping_features"
+
+    image_id: Mapped[int] = mapped_column(Integer, ForeignKey("images.id"), primary_key=True)
+    # The feature algorithm's version (GROUPING_FEATURES_VERSION when written)
+    version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # 256-bit DCT pHash, MSB-first row-major (imagehash.phash(hash_size=16) as bytes)
+    phash256: Mapped[bytes | None] = mapped_column(LargeBinary(32), nullable=True)
+    # 32×32 z-scored edge map, 1024 little-endian float16
+    edge: Mapped[bytes | None] = mapped_column(LargeBinary(2048), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    def __repr__(self):
+        return f"<ImageGroupingFeatures(image_id={self.image_id}, version={self.version})>"
+
+
 class ImportJob(Base):
     """One import the user started (ADR-018). Aggregates its groups and items.
 
@@ -371,6 +399,12 @@ class ImportJob(Base):
     library_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("library_sources.id"), nullable=True
     )
+    # When the whole-job grouping refinement last ran (ADR-028); cleared when the job
+    # re-opens, so it refines again once it completes
+    grouping_refined_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sealed by the variant-grouping walk, so refinement may merge its groups. False for jobs
+    # sealed before migration 029 (the old parser): they keep their groups
+    grouping_refinable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -419,6 +453,12 @@ class ImportGroup(Base):
     merged_into_existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    # Large imports are refined partition by partition (ADR-028): the group's effective
+    # top-level folder, NULL when the import is refined as a whole
+    partition_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # When the group's partition (or the whole import) was last refined; the group is
+    # reviewable only once set. Cleared when the partition re-opens.
+    grouping_refined_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")
 

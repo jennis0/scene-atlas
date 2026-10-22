@@ -1,6 +1,6 @@
 """Re-parse group names and image names using the improved parser.
 
-Applies _clean_group_name to all ImageGroup.base_name values and
+Applies clean_group_name to all ImageGroup.base_name values and
 _build_name to all Image.name values, then rebuilds search_text
 and the FTS index.
 
@@ -11,21 +11,15 @@ Usage:
 import logging
 from pathlib import Path
 
-from backend.app.models.database import Image, ImageGroup, TagCategory
+from backend.app.models.database import Image, ImageGroup
 from backend.app.services import ImageParser
 from backend.app.services.fts_service import fts_rebuild
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
+from backend.pipeline.ingest_queue import build_parser
 
 BATCH_SIZE = 200
-
-
-def _build_parser(db) -> ImageParser:
-    """Create an ImageParser with tag vocabulary loaded from DB."""
-    categories = db.query(TagCategory).all()
-    cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
-    return ImageParser(tag_categories=cat_dicts)
 
 
 def clean_group_names(parser: ImageParser) -> dict[int, str]:
@@ -40,7 +34,7 @@ def clean_group_names(parser: ImageParser) -> dict[int, str]:
     with pipeline_db() as db:
         groups = db.query(ImageGroup).all()
         for grp in groups:
-            cleaned = parser._clean_group_name(grp.base_name, grp.author)
+            cleaned = parser.clean_group_name(grp.base_name, grp.author)
             group_names[grp.id] = cleaned
             if cleaned != grp.base_name:
                 grp.base_name = cleaned
@@ -102,7 +96,7 @@ def reparse_image_names_batch(
 def reparse_names():
     """Re-parse all group and image names using the improved parser."""
     with pipeline_db() as db:
-        parser = _build_parser(db)
+        parser = build_parser(db)
 
         # Collect all image IDs upfront
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]

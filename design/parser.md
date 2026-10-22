@@ -170,9 +170,18 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 In `backend/pipeline/ingest_process.py` (`commit_batch`), `Image.name` is populated from `parsed["name"]`, falling back to the import group's name, then the filename stem. This gives each image a distinct, human-readable display name separate from its group.
 
+## Which grouping a seal uses
+
+At seal (`ingest_queue.compute_plan`) an import's files are grouped by type:
+
+- **Maps** (battlemaps, and Auto items, which are grouped as maps) go through the variant-grouping tree walk, `variant_grouping.group_by_paths` ([variant-grouping.md](variant-grouping.md), ADR-028). It decides the groups, their names and authors, and each file's subgroup; the rest of each file's `parsed` payload (name, tags, grid hints, an Auto item's `scene_tags`) still comes from `parse()`. After the import finishes, refinement merges map groups whose content shows they are one map ([ingestion.md §5.8](ingestion.md#58-grouping-refinement)).
+- **Other types** (scenes) keep `group_files()`, below.
+
+Both get the library's creators as `known_authors` (`ingest_queue.known_authors`). A planned group whose `(name, author)` already exists in the gallery adds to it ([ingestion.md](ingestion.md#3-data-model)), except a map group whose name is a fallback (`ProposedGroup.name_is_identity` false: a numbering such as `IMG`) or is shared by two of the import's map groups: such a name doesn't say which map it is, so each becomes a new group (`PlannedGroup.match_existing`). Files already settled at seal (failed or skipped by the manifest: oversized, not an image) get no group.
+
 ## Group Detection (`group_files()`)
 
-Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#3-data-model).
+Called at seal time for types other than maps (see above), separately per `image_type`.
 
 ### Pass 0: `folder/file` paths, group or creator
 
@@ -181,7 +190,7 @@ A folder that holds files directly is either one map's folder ("Golden Forest/")
 - carry the folder's name, which is cleaned and stripped of variant words first, so "dww-hydra-island-print" matches "dww-hydra-island-blood-print";
 - contain only variant words: lighting, season, weather, state, theme, population, style and perspective tags; grid and junk words; numbers, sizes and versions ("Night_Snow_Gridded", "2", "30x30").
 
-It is never the group when the folder is generic, when it is named after a creator already in the library (`plan_job` passes `known_authors` from `ImageGroup.author`), or when a file's `by<Name>` names the folder ("mutenn/DillingerGateByMutenn_GL").
+It is never the group when the folder is generic, when it is named after a creator already in the library (`compute_plan` passes `known_authors` from `ImageGroup.author`), or when a file's `by<Name>` names the folder ("mutenn/DillingerGateByMutenn_GL").
 
 **Calibration (2026-10-19, the real 56k library):** each real map folder (`author/G/file`) was replayed as `G/file`, and each creator folder with loose files (`author/file`) as itself.
 

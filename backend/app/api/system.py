@@ -15,6 +15,7 @@ from ..models import (
     Color,
     Image,
     ImageGroup,
+    ImageGroupingFeatures,
     ImportGroup,
     ImportItem,
     ImportJob,
@@ -163,6 +164,7 @@ def _purge_library(
         db.commit()
 
         _step("Deleting images and groups")
+        db.query(ImageGroupingFeatures).delete()
         db.query(Image).delete()
         db.query(ImageGroup).delete()
         db.commit()

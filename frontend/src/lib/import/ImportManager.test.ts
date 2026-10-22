@@ -53,6 +53,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     updated_at: null,
     completed_at: null,
     last_upload_at: null,
+    grouping_refined_at: null,
   }
 }
 

@@ -23,12 +23,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image as PILImage
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import OperationalError
 
-from backend.app.models import Image, ImageGroup, ImportGroup, ImportItem, ImportJob
+from backend.app.models import (
+    Image,
+    ImageGroup,
+    ImageGroupingFeatures,
+    ImportGroup,
+    ImportItem,
+    ImportJob,
+)
 from backend.app.services import ingest_state as st
 from backend.app.services.image_store import ImageStore
-from backend.pipeline import ingest_process, ingest_queue
+from backend.pipeline import grouping_features, ingest_process, ingest_queue
+from backend.pipeline.grouping_features import compute_grouping_features, load_grouping_features
 from backend.pipeline.ingest_queue import (
     ManifestEntry,
     add_manifest_items,
@@ -1102,7 +1111,9 @@ def _files(count: int, seed: int, groups: int = 2) -> dict[str, bytes]:
     }
 
 
-def test_batch_commit_selects_do_not_scale_with_batch_size(env, query_counter):
+def test_batch_commit_selects_do_not_scale_with_batch_size(
+    env, query_counter, no_grouping_refinement
+):
     env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
     counts = []
     for count, seed in ((2, 1000), (8, 2000)):
@@ -1113,7 +1124,9 @@ def test_batch_commit_selects_do_not_scale_with_batch_size(env, query_counter):
     assert counts[0] == counts[1], counts
 
 
-def test_recording_failures_does_not_scale_with_failures(env, query_counter):
+def test_recording_failures_does_not_scale_with_failures(
+    env, query_counter, no_grouping_refinement
+):
     env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
     counts = []
     for count in (2, 8):
@@ -1160,6 +1173,79 @@ def test_undo_statements_do_not_scale_with_groups(env, query_counter):
     assert counts[0] == counts[1], counts
     with env.SessionLocal() as db:
         assert db.query(ImageGroup).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Grouping features (ADR-028)
+# ---------------------------------------------------------------------------
+
+
+def test_images_get_grouping_features_from_their_large_thumbnail(env):
+    make_job(
+        env,
+        {
+            "A/Fort/Fort_Day.png": image_bytes(1, size=(1200, 900)),
+            "A/Fort/Fort_Night.jpg": image_bytes(2, fmt="JPEG", size=(300, 200)),
+            "A/Fort/Fort_Copy.png": image_bytes(1, size=(1200, 900)),  # a duplicate: no row
+        },
+    )
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        images = db.query(Image).all()
+        assert len(images) == 2
+        loaded = load_grouping_features(db, [i.id for i in images])
+        assert db.query(ImageGroupingFeatures).count() == 2
+    for image in images:
+        large = env.thumbnails.get_path(str(image.thumbnail_key).replace("_400x400", "_800x800"))
+        with PILImage.open(large) as thumbnail:
+            expected = compute_grouping_features(thumbnail)
+        row = loaded[image.id]
+        assert row.phash256 is not None and row.phash256 == expected.phash256
+        assert row.edge is not None and np.array_equal(row.edge, expected.edge)
+
+
+def test_a_grouping_feature_failure_never_fails_the_item(env, monkeypatch):
+    def broken(_image):
+        raise RuntimeError("feature bug")
+
+    monkeypatch.setattr(grouping_features, "_flattened_rgb", broken)
+    job_id = make_job(env, {"A/Fort/Fort.png": image_bytes(1)})
+    env.worker.drain()
+    assert {i.state for i in items_by_path(env, job_id).values()} == {st.DONE}
+    with env.SessionLocal() as db:
+        row = db.query(ImageGroupingFeatures).one()
+        assert (row.phash256, row.edge) == (None, None)
+
+
+def test_a_reused_image_id_gets_its_own_features(env):
+    """SQLite reuses the highest rowid: a row left by a deleted image is replaced."""
+    make_job(env, {"A/Fort/Fort.png": image_bytes(1)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        image = db.query(Image).one()
+        db.execute(sa_delete(Image).where(Image.id == image.id))  # bypasses deletion_service
+        db.commit()
+        stale = db.get_one(ImageGroupingFeatures, image.id).phash256
+    make_job(env, {"B/Hut/Hut.png": image_bytes(2)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        reused = db.query(Image).one()
+        assert reused.id == image.id
+        assert db.get_one(ImageGroupingFeatures, reused.id).phash256 != stale
+
+
+def test_undo_removes_grouping_features(env):
+    job_id = make_job(
+        env, {"A/Fort/Fort_Day.png": image_bytes(1), "A/Fort/Fort_Night.png": image_bytes(2)}
+    )
+    keep = make_job(env, {"B/Hut/Hut.png": image_bytes(3)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        assert db.query(ImageGroupingFeatures).count() == 3
+        undo_job(db, job_id)
+        db.commit()
+        kept = {i for (i,) in db.query(Image.id).filter(Image.import_job_id == keep)}
+        assert {r.image_id for r in db.query(ImageGroupingFeatures)} == kept
 
 
 # ---------------------------------------------------------------------------

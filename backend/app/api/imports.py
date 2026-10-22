@@ -18,7 +18,7 @@ import shutil
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal, cast
 
@@ -130,13 +130,15 @@ class _GroupTotals:
     total: int = 0
     reviewable: int = 0  # gallery groups the review editor can open (_is_reviewable)
     open: int = 0  # import groups with items still awaiting bytes, ready or processing
+    refined_at: datetime | None = None  # the latest refinement of any of its partitions
 
 
 def _per_gallery_group(db: Session, ids: list[str]):
     """Each job's import groups, merged where they resolved to the same gallery group:
     whether any has an imported image, whether any is still open (items awaiting bytes,
-    ready or processing), how many import groups are open, and the first sort order.
-    Import groups without a gallery group yet stay one row each."""
+    ready or processing), how many import groups are open, the first sort order, and
+    whether all of them are refined (their partition, or the whole import). Import groups
+    without a gallery group yet stay one row each."""
     is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
     per_group = (
         db.query(
@@ -158,6 +160,9 @@ def _per_gallery_group(db: Session, ids: list[str]):
             func.max(per_group.c.has_open).label("has_open"),
             func.sum(per_group.c.has_open).label("open_groups"),
             func.min(ImportGroup.sort_order).label("first_order"),
+            func.min(case((ImportGroup.grouping_refined_at.isnot(None), 1), else_=0)).label(
+                "refined"
+            ),
         )
         .join(ImportGroup, ImportGroup.id == per_group.c.import_group_id)
         .group_by(
@@ -169,14 +174,18 @@ def _per_gallery_group(db: Session, ids: list[str]):
 
 def _is_reviewable(per_gallery):
     """A gallery group the review editor can open for a job: at least one of the job's
-    import groups that resolved to it has an imported image, and none of them is still
-    open. An unfinished group is held back so the editor never loads a group that is still
-    filling (two import groups can resolve to one gallery group, so one finished import
-    group isn't enough)."""
+    import groups that resolved to it has an imported image, none of them is still open,
+    and each is refined (its partition, or the whole import: ADR-028). An unfinished group
+    is held back so the editor never loads a group that is still filling (two import groups
+    can resolve to one gallery group, so one finished import group isn't enough), and an
+    unrefined one because refinement is about to merge into it or merge it away. A later
+    pass (the whole-job pass after partitions) may still merge a reviewed group away; the
+    editor drops groups that no longer exist, and edited groups are never touched."""
     return (
         per_gallery.c.image_group_id.isnot(None)
         & (per_gallery.c.has_done == 1)
         & (per_gallery.c.has_open == 0)
+        & (per_gallery.c.refined == 1)
     )
 
 
@@ -185,12 +194,16 @@ def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
     groups are still open."""
     totals = {job_id: _GroupTotals() for job_id in ids}
     rows = (
-        db.query(ImportGroup.job_id, func.count(ImportGroup.id))
+        db.query(
+            ImportGroup.job_id,
+            func.count(ImportGroup.id),
+            func.max(ImportGroup.grouping_refined_at),
+        )
         .filter(ImportGroup.job_id.in_(ids))
         .group_by(ImportGroup.job_id)
     )
-    for job_id, total in rows:
-        totals[job_id].total = total
+    for job_id, total, refined_at in rows:
+        totals[job_id].total, totals[job_id].refined_at = total, refined_at
     per_gallery = _per_gallery_group(db, ids)
     state_rows = db.query(
         per_gallery.c.job_id,
@@ -270,7 +283,12 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         updated_at=job.updated_at,
         completed_at=job.completed_at,
         last_upload_at=job.last_upload_at,
+        grouping_refined_at=_latest(job.grouping_refined_at, groups.refined_at),
     )
+
+
+def _latest(*times: datetime | None) -> datetime | None:
+    return max((t for t in times if t is not None), default=None)
 
 
 def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> ImportJobDetail:
@@ -757,18 +775,29 @@ def _check_free_space(db: Session, job_id: str) -> None:
 
 
 @router.post("/{job_id}/seal", response_model=ImportJobDetail)
-@write_locked
 def seal_import(
     job_id: str,
     db: Session = Depends(get_db),
     _admission: None = Depends(acquire_heavy_op),
 ):
-    """Close the file list: work out groups server-side and start processing. Idempotent."""
+    """Close the file list: work out groups server-side and start processing. Idempotent.
+
+    Parsing and grouping take seconds for a large import (about 4 s for 20k maps), so they
+    run before the write lock is taken; the plan is written in one short transaction, as a
+    linked scan's seal does (design/ingestion.md §7).
+    """
     job = _job_or_404(db, job_id)
     if job.planned_at is None:
         _check_free_space(db, job_id)
-        q.plan_job(db, job_id)
-        db.commit()
+        planned = q.compute_plan(db, job_id)
+        db.rollback()  # end the read; the write transaction takes the lock up front
+        q.begin_immediate(db)
+        try:
+            q.apply_plan(db, job_id, planned)  # a no-op if another seal got there first
+            db.commit()
+        finally:
+            if db.in_transaction():
+                db.rollback()
         _changed(wake=True)
     return _detail(db, job)
 

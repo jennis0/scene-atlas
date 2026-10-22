@@ -71,6 +71,10 @@ class ImportJobSummary(BaseModel):
     updated_at: datetime | None
     completed_at: datetime | None
     last_upload_at: datetime | None
+    # The latest refinement of the job's map groups (ADR-028): a partition's, or the whole
+    # import's. Its groups are reviewable once their partition is refined, and the gallery
+    # refreshes when this changes. None until the first refinement.
+    grouping_refined_at: datetime | None = None
 
 
 class ImportJobDetail(ImportJobSummary):

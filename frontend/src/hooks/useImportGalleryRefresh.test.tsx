@@ -3,12 +3,17 @@ import { act, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import { IMPORT_REFRESH_INTERVAL_MS, useImportGalleryRefresh } from './useImportGalleryRefresh'
+import {
+  IMPORT_REFRESH_INTERVAL_MS,
+  latestGroupingRefinement,
+  useImportGalleryRefresh,
+} from './useImportGalleryRefresh'
 
 const SEARCH_KEY = [...QUERY_KEYS.search, { sort_by: 'created_at' }]
 
 interface Props {
   importedTotal: number
+  groupingRefinedAt: string | null | undefined
   newestAtTop: boolean
   paused: boolean
   libraryEmpty: boolean
@@ -28,6 +33,7 @@ function setup(initial: Partial<Props> = {}) {
   )
   const props: Props = {
     importedTotal: 0,
+    groupingRefinedAt: null,
     newestAtTop: true,
     paused: false,
     libraryEmpty: false,
@@ -160,5 +166,56 @@ describe('useImportGalleryRefresh', () => {
     t.elapse()
     expect(t.refreshed()).toBe(true)
     expect(t.facetsRefreshed()).toBe(false)
+  })
+
+  it('refreshes when a finished import has its groups refined, whatever the sort', () => {
+    const t = setup({ newestAtTop: false })
+    t.update({ groupingRefinedAt: '2026-10-22T10:00:00' })
+    t.elapse()
+    expect(t.refreshed()).toBe(true)
+
+    t.seed()
+    t.update({ groupingRefinedAt: '2026-10-22T10:05:00' }) // a later partition, or a retry
+    t.elapse()
+    expect(t.refreshed()).toBe(true)
+  })
+
+  it('takes the first loaded refinement as a baseline, not as news', () => {
+    const t = setup({ groupingRefinedAt: undefined }) // the import list hasn't loaded
+    t.update({ groupingRefinedAt: '2026-10-22T10:00:00' }) // refined before the gallery opened
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+
+    t.update({ groupingRefinedAt: '2026-10-22T10:01:00' })
+    t.elapse()
+    expect(t.refreshed()).toBe(true)
+  })
+
+  it('ignores a refinement that goes back or is cleared', () => {
+    const t = setup({ groupingRefinedAt: '2026-10-22T10:05:00' })
+    t.update({ groupingRefinedAt: '2026-10-22T10:00:00' }) // the latest import was dismissed
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+    t.update({ groupingRefinedAt: null }) // or re-opened, or left the list
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+    t.update({ groupingRefinedAt: '2026-10-22T10:05:00' }) // seen already
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+  })
+})
+
+describe('latestGroupingRefinement', () => {
+  it('is the most recent refinement among the imports', () => {
+    expect(latestGroupingRefinement([])).toBeNull()
+    expect(latestGroupingRefinement([{ grouping_refined_at: null }])).toBeNull()
+    expect(
+      latestGroupingRefinement([
+        { grouping_refined_at: '2026-10-22T09:00:00' },
+        { grouping_refined_at: null },
+        { grouping_refined_at: '2026-10-22T10:00:00' },
+        { grouping_refined_at: '2026-10-22T09:59:59.900000' },
+      ]),
+    ).toBe('2026-10-22T10:00:00')
   })
 })

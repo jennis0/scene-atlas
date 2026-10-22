@@ -441,7 +441,8 @@ def seal_scan(job_id: str) -> None:
     with _session() as db:
         planned = compute_plan(db, job_id)
     with write_session() as db:
-        apply_plan(db, job_id, planned)
+        # Only the scanner adds files to its job, and it has finished: the plan is current
+        apply_plan(db, job_id, planned, check_current=False)
 
 
 def _discard_unsealed(db: Session, source_id: int) -> None:

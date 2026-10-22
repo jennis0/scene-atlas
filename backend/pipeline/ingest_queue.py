@@ -20,10 +20,11 @@ import logging
 import os
 import shutil
 import uuid
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import cast
 
@@ -40,10 +41,12 @@ from backend.app.models import (
     SourceFile,
     TagCategory,
 )
-from backend.app.services import ImageParser
+from backend.app.services import ImageParser, variant_grouping
 from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.linked_files import Version, sync_files
+from backend.app.services.variant_grouping import GroupingFile
+from backend.app.timeutil import utcnow
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
 from .linked_refresh import (
@@ -80,10 +83,6 @@ _FILENAME_GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
 
 ARCHIVE_EXTENSIONS = frozenset({".zip"})
 _IN_CHUNK = 500  # Keep IN (...) lists far below SQLite's bound-variable limit
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 # Sessions
@@ -283,7 +282,7 @@ def _fail_validation(item: ImportItem, reason: str) -> None:
     item.error_reason = reason
 
 
-def _build_parser(db: Session) -> ImageParser:
+def build_parser(db: Session) -> ImageParser:
     categories = db.query(TagCategory).all()
     return ImageParser(
         tag_categories=[{"name": c.name, "common_values": c.common_values} for c in categories]
@@ -339,64 +338,190 @@ class PlannedGroup:
     author: str | None
     group_name: str
     items: list[tuple[int, str]]  # (item id, parsed JSON)
+    # Whether a gallery group with the same (name, author) takes this group's images. Off
+    # for map groups whose name is a fallback (``IMG``) or is shared with another map group
+    # of the same import: such a name says nothing about which map it is.
+    match_existing: bool = True
+    # The group's partition (effective top-level folder) in an import refined partition by
+    # partition; None when the import is refined as a whole (``PARTITION_MIN_MAP_FILES``)
+    partition: str | None = None
 
 
-def compute_plan(db: Session, job_id: str) -> list[PlannedGroup]:
-    """Parse the job's paths and work out its groups. Read-only, and the slow part of a
-    seal (parsing), so a large import can do it before taking the write lock."""
-    items = (
+# Imports with more map files than this are refined partition by partition, each top-level
+# folder as soon as it has finished, so its groups can be reviewed while the rest imports
+# (design/ingestion.md §5.8). Smaller ones are refined once, when they finish: a few hundred
+# maps import in minutes, and one pass over them takes well under a second.
+PARTITION_MIN_MAP_FILES = 500
+
+
+def in_map_bucket(image_type: str) -> bool:
+    """Whether a seal groups this item with the maps (variant_grouping): battlemaps and Auto
+    items. Auto items are grouped as maps, since group names don't depend on the type."""
+    return image_type in (BATTLEMAP, AUTO)
+
+
+def was_in_map_bucket():
+    """SQL condition: items a seal grouped with the maps. An Auto item keeps its ``auto``
+    type once sorted; one included later with a fixed type still carries the scene parse
+    only Auto items get (``scene_tags``)."""
+    return ImportItem.image_type.in_((BATTLEMAP, AUTO)) | ImportItem.parsed.contains('"scene_tags"')
+
+
+def known_authors(db: Session, created_before: datetime | None = None) -> list[str]:
+    """Creators in the library (optionally only those of groups created before a time): a
+    folder named after one is theirs, never one map's group."""
+    query = select(ImageGroup.author).distinct().where(ImageGroup.author.isnot(None))
+    if created_before is not None:
+        query = query.where(ImageGroup.created_at < created_before)
+    return sorted(a for a in db.scalars(query) if a)
+
+
+def _item_payload(
+    parser: ImageParser, path: str, item_type: str, group_name: str, parsed: dict | None = None
+) -> dict:
+    """An item's ``parsed`` payload, from ``parsed`` or a fresh parse. An Auto item is
+    parsed as a battlemap and also keeps its scene parse's tags (they differ by type: junk
+    words) for ``effective_parsed``."""
+    parse_as = BATTLEMAP if item_type == AUTO else item_type
+    payload = _parsed_payload(parsed or parser.parse(path, image_type=parse_as), group_name)
+    if item_type == AUTO:
+        payload["scene_tags"] = parser.parse(path, image_type=SCENE)["tags"]
+    return payload
+
+
+def _plan_maps(
+    parser: ImageParser,
+    items: list[tuple[int, str, str]],
+    authors: list[str],
+) -> list[PlannedGroup]:
+    """Map groups by the tree walk from paths alone (design/variant-grouping.md §3). The
+    subgroup comes from the walk; the rest of each item's parse (name, tags, grid hints)
+    from ``ImageParser.parse``."""
+    files = [GroupingFile(item_id, path) for item_id, path, _ in items]
+    grouping = variant_grouping.group_by_paths(files, parser, known_authors=authors)
+    if logger.isEnabledFor(logging.DEBUG):
+        for line in grouping.debug_lines():
+            logger.debug("Seal grouping: %s", line)
+    by_id = {item_id: (path, item_type) for item_id, path, item_type in items}
+    names = Counter((g.name, g.author or "Unknown") for g in grouping.groups)
+    planned: list[PlannedGroup] = []
+    for group in grouping.groups:
+        author = group.author or "Unknown"
+        parsed_items: list[tuple[int, str]] = []
+        for item_id in group.keys:
+            path, item_type = by_id[item_id]
+            payload = _item_payload(parser, path, item_type, group.name)
+            payload["subgroup"] = group.subgroups.get(item_id)
+            parsed_items.append((item_id, json.dumps(payload)))
+        # A fallback name, or one two of this import's maps share, can't pick an existing group
+        unique = names[(group.name, author)] == 1
+        planned.append(
+            PlannedGroup(author, group.name, parsed_items, group.name_is_identity and unique)
+        )
+    return planned
+
+
+def _plannable_items(db: Session, job_id: str) -> list[tuple[int, str, str]]:
+    """(id, relative path, image type) of the items a seal groups, by id."""
+    rows = (
         db.query(ImportItem.id, ImportItem.relative_path, ImportItem.image_type)
         .filter(
             ImportItem.job_id == job_id,
             ImportItem.kind != "archive",
-            ImportItem.state != st.FAILED,
+            ImportItem.state.not_in((st.FAILED, st.SKIPPED)),
         )
+        .order_by(ImportItem.id)
         .all()
     )
-    by_path = {path: (item_id, image_type) for item_id, path, image_type in items}
-    by_type: dict[str, list[str]] = {}
-    for _, path, image_type in items:
-        # Auto items are grouped as battlemaps: group names don't depend on the type
-        parse_as = BATTLEMAP if image_type == AUTO else image_type
-        by_type.setdefault(parse_as, []).append(path)
+    return [(item_id, path, image_type) for item_id, path, image_type in rows]
 
-    parser = _build_parser(db)
-    # A folder named after a creator in the library is theirs, never one map's group
-    known_authors = db.scalars(select(ImageGroup.author).distinct()).all()
-    planned: list[PlannedGroup] = []
+
+def compute_plan(db: Session, job_id: str) -> list[PlannedGroup]:
+    """Parse the job's paths and work out its groups. Read-only, and the slow part of a
+    seal (parsing and the tree walk), so a large import can do it before taking the write
+    lock.
+
+    Maps (battlemaps and Auto items) are grouped by ``variant_grouping``; other types keep
+    ``ImageParser.group_files`` (design/parser.md). Files already settled (failed or
+    skipped by the manifest: oversized, not an image) get no group: they would add groups
+    of their own, and units that sway the walk's container decisions.
+    """
+    items = _plannable_items(db, job_id)
+    maps = [
+        (item_id, path, image_type)
+        for item_id, path, image_type in items
+        if in_map_bucket(image_type)
+    ]
+    by_type: dict[str, list[str]] = {}
+    by_path: dict[str, tuple[int, str]] = {}
+    for item_id, path, image_type in items:
+        if not in_map_bucket(image_type):
+            by_type.setdefault(image_type, []).append(path)
+            by_path[path] = (item_id, image_type)
+
+    parser = build_parser(db)
+    authors = known_authors(db)
+    planned = _plan_maps(parser, maps, authors) if maps else []
     for image_type, paths in sorted(by_type.items()):
-        for group in parser.group_files(
-            paths, image_type=image_type, known_authors=[a for a in known_authors if a]
-        ):
+        for group in parser.group_files(paths, image_type=image_type, known_authors=authors):
             group_name = group["group_name"]
-            parsed_items: list[tuple[int, str]] = []
-            for file_entry in group["files"]:
-                item_id, item_type = by_path[file_entry["relative_path"]]
-                payload = _parsed_payload(file_entry["parsed"], group_name)
-                if item_type == AUTO:
-                    # Tags differ by type (junk words); keep the scene parse for
-                    # effective_parsed
-                    payload["scene_tags"] = parser.parse(
-                        file_entry["relative_path"], image_type=SCENE
-                    )["tags"]
-                parsed_items.append((item_id, json.dumps(payload)))
+            parsed_items = [
+                (
+                    by_path[f["relative_path"]][0],
+                    json.dumps(
+                        _item_payload(
+                            parser, f["relative_path"], image_type, group_name, f["parsed"]
+                        )
+                    ),
+                )
+                for f in group["files"]
+            ]
             planned.append(PlannedGroup(group.get("author") or "Unknown", group_name, parsed_items))
+    if len(maps) > PARTITION_MIN_MAP_FILES:
+        planned = _with_partitions(planned, {item_id: path for item_id, path, _ in items})
     return planned
 
 
-def apply_plan(db: Session, job_id: str, planned: list[PlannedGroup]) -> list[ImportGroup]:
+def _with_partitions(planned: list[PlannedGroup], paths: dict[int, str]) -> list[PlannedGroup]:
+    """Each group's partition: its files' effective top-level folder. A seal group never
+    spans two (the walk doesn't join across top-level folders from paths); a scene group
+    that did would take its most common one."""
+    keys = variant_grouping.partition_keys(paths.values())
+    out: list[PlannedGroup] = []
+    for group in planned:
+        counts = Counter(keys[paths[item_id]] for item_id, _ in group.items)
+        partition = min(counts, key=lambda k: (-counts[k], k))
+        out.append(replace(group, partition=partition))
+    return out
+
+
+def apply_plan(
+    db: Session, job_id: str, planned: list[PlannedGroup], *, check_current: bool = True
+) -> list[ImportGroup]:
     """Seal the job with a plan from ``compute_plan``: create its groups, resolved against
-    the gallery, and give each item its group and parse. Idempotent."""
+    the gallery, and give each item its group and parse. Idempotent.
+
+    A plan computed before the write lock was taken (``seal_import``) is checked against
+    the job's files and made again if they changed meanwhile. ``check_current=False`` skips
+    that scan when nothing could have changed: planned in the same transaction
+    (``plan_job``), or for a job only its own caller adds files to (a linked scan)."""
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
     if job.planned_at is not None:
         return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
+    planned_ids = {item_id for group in planned for item_id, _ in group.items}
+    if check_current and planned_ids != {item_id for item_id, *_ in _plannable_items(db, job_id)}:
+        # The file list changed after the plan was computed outside the lock
+        logger.warning("Import %s changed while it was being sealed; planning it again", job_id)
+        planned = compute_plan(db, job_id)
 
-    existing = _existing_groups(db, {group.group_name for group in planned})
+    existing = _existing_groups(db, {group.group_name for group in planned if group.match_existing})
     groups: list[ImportGroup] = []
     for order, group in enumerate(planned):
-        existing_id = existing.get((group.group_name, group.author))
+        existing_id = (
+            existing.get((group.group_name, group.author)) if group.match_existing else None
+        )
         groups.append(
             ImportGroup(
                 job_id=job_id,
@@ -405,6 +530,7 @@ def apply_plan(db: Session, job_id: str, planned: list[PlannedGroup]) -> list[Im
                 image_group_id=existing_id,
                 merged_into_existing=existing_id is not None,
                 sort_order=order,
+                partition_key=group.partition,
             )
         )
     db.add_all(groups)
@@ -428,14 +554,15 @@ def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
 
     Idempotent: a job that's already planned returns its existing groups. Groups
     whose (name, author) already exists in the gallery are marked
-    ``merged_into_existing`` and will add to that gallery group.
+    ``merged_into_existing`` and will add to that gallery group (map groups only when their
+    name identifies the map: ``PlannedGroup.match_existing``).
     """
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
     if job.planned_at is not None:
         return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
-    return apply_plan(db, job_id, compute_plan(db, job_id))
+    return apply_plan(db, job_id, compute_plan(db, job_id), check_current=False)
 
 
 # Job status
@@ -452,20 +579,31 @@ def job_counts(db: Session, job_id: str) -> dict[str, int]:
 
 
 def recompute_job_status(db: Session, job_id: str) -> str:
-    """The only writer of active ↔ completed. Call after any item change."""
+    """The only writer of active ↔ completed. Call after any item change.
+
+    A job with open items again (retry, import as copy, include) is no longer refined as a
+    whole: its grouping is refined again once nothing is open (``refine_groups``, ADR-028).
+    The re-opening operations also clear their partitions' stamps (``_unrefine``).
+    """
     db.flush()  # sessions don't autoflush; the counts must see this transaction's changes
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
-    new_status = st.compute_job_status(
-        job.status, job.planned_at is not None, job_counts(db, job_id)
-    )
+    counts = job_counts(db, job_id)
+    new_status = st.compute_job_status(job.status, job.planned_at is not None, counts)
     now = utcnow()
     if new_status != job.status:
         job.status = new_status
         job.completed_at = now if new_status == st.JOB_COMPLETED else None
+    if job.grouping_refined_at is not None and has_open_items(counts):
+        job.grouping_refined_at = None
     job.updated_at = now
     return new_status
+
+
+def has_open_items(counts: dict[str, int]) -> bool:
+    """Items awaiting bytes, ready or processing (from ``job_counts``)."""
+    return any(counts.get(state, 0) for state in st.OPEN_ITEM_STATES)
 
 
 # Byte receipt
@@ -1152,11 +1290,40 @@ def _reopen(item: ImportItem, with_bytes: ItemEvent, without_bytes: ItemEvent) -
     item.error_kind = item.error_stage = item.error_reason = item.error_detail = None
 
 
+def _unrefine(db: Session, items: Iterable[ImportItem]) -> None:
+    """Items back in the queue: the partitions they belong to (the whole import, for one
+    refined as a whole) are no longer refined, so their groups wait to be refined again
+    before they can be reviewed (design/ingestion.md §5.8). The job's own stamp is cleared
+    by ``recompute_job_status``."""
+    by_job: dict[str, set[int]] = {}
+    for item in items:
+        if item.import_group_id is not None:
+            by_job.setdefault(item.job_id, set()).add(item.import_group_id)
+    partition = func.coalesce(ImportGroup.partition_key, "")
+    for job_id, group_ids in by_job.items():
+        ordered = sorted(group_ids)
+        for start in range(0, len(ordered), _IN_CHUNK):
+            reopened = select(partition).where(
+                ImportGroup.id.in_(ordered[start : start + _IN_CHUNK])
+            )
+            db.execute(
+                update(ImportGroup)
+                .where(
+                    ImportGroup.job_id == job_id,
+                    ImportGroup.grouping_refined_at.isnot(None),
+                    partition.in_(reopened),
+                )
+                .values(grouping_refined_at=None)
+                .execution_options(synchronize_session=False)
+            )
+
+
 def retry_items(db: Session, job_id: str, item_ids: list[int] | None = None) -> int:
     """Failed → ready (staged bytes present) or awaiting_bytes (they're gone)."""
     items = _items_in(db, job_id, st.sources_for(ItemEvent.RETRY), item_ids).all()
     for item in items:
         _reopen(item, ItemEvent.RETRY, ItemEvent.RETRY_NEEDS_BYTES)
+    _unrefine(db, items)
     sync_files(db, items)
     db.flush()
     recompute_job_status(db, job_id)
@@ -1171,6 +1338,7 @@ def import_as_copy(db: Session, job_id: str, item_ids: list[int] | None = None) 
         item.allow_duplicate = True
         item.duplicate_of_image_id = None
         item.duplicate_tier = None
+    _unrefine(db, items)
     sync_files(db, items)
     db.flush()
     recompute_job_status(db, job_id)
@@ -1206,6 +1374,7 @@ def include_sorted_out(db: Session, item_ids: list[int]) -> tuple[int, set[str],
         if item.preview_key:
             previews.append((item.job_id, item.preview_key))
         item.preview_key = None
+    _unrefine(db, items)
     sync_files(db, items)
     db.flush()
     job_ids = {item.job_id for item in items}

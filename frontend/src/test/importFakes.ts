@@ -50,6 +50,7 @@ export function jobSummary(partial: Partial<ImportJobSummary> = {}): ImportJobSu
     upload_interrupted: false,
     groups_done: 0,
     groups_reviewable: 0,
+    grouping_refined_at: null,
     local: false,
     linked: false,
     waiting_for: [],

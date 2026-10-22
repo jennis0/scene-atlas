@@ -137,29 +137,31 @@ def incoming_files() -> list[Path]:
 
 
 def test_auto_sorts_each_image(auto):
+    # Variants of one map (the seal groups them by name): a map, a vista, a token, an asset,
+    # something else and an image the head can't place
     job_id = import_files(
         auto,
         {
-            "A/Pack/map.png": solid("red"),
-            "A/Pack/vista.png": solid("green"),
-            "A/Pack/goblin.png": solid("blue"),
-            "A/Pack/barrel.png": solid("yellow"),
-            "A/Pack/sword.png": solid("black"),
-            "A/Pack/blank.png": solid("white"),
+            "Czepeku/Keep/Keep_Day.png": solid("red"),
+            "Czepeku/Keep/Keep_Dusk.png": solid("green"),
+            "Czepeku/Keep/Keep_Night.png": solid("blue"),
+            "Czepeku/Keep/Keep_Winter.png": solid("yellow"),
+            "Czepeku/Keep/Keep_Summer.png": solid("black"),
+            "Czepeku/Keep/Keep_Spring.png": solid("white"),
         },
     )
     auto.worker.drain()
 
     items = rows(auto, job_id)
-    assert image_for(auto, items["A/Pack/map.png"]).image_type == "battlemap"
-    assert image_for(auto, items["A/Pack/vista.png"]).image_type == "scene"
-    assert json.loads(items["A/Pack/map.png"].classification)["group"] == "map"
+    assert image_for(auto, items["Czepeku/Keep/Keep_Day.png"]).image_type == "battlemap"
+    assert image_for(auto, items["Czepeku/Keep/Keep_Dusk.png"]).image_type == "scene"
+    assert json.loads(items["Czepeku/Keep/Keep_Day.png"].classification)["group"] == "map"
 
     reasons = {
-        "A/Pack/goblin.png": "Looks like a token",
-        "A/Pack/barrel.png": "Looks like a map asset (a prop, overlay or tile)",
-        "A/Pack/sword.png": "Doesn't look like a map or a scene",
-        "A/Pack/blank.png": "Couldn't tell whether this is a map or a scene",
+        "Czepeku/Keep/Keep_Night.png": "Looks like a token",
+        "Czepeku/Keep/Keep_Winter.png": "Looks like a map asset (a prop, overlay or tile)",
+        "Czepeku/Keep/Keep_Summer.png": "Doesn't look like a map or a scene",
+        "Czepeku/Keep/Keep_Spring.png": "Couldn't tell whether this is a map or a scene",
     }
     for path, reason in reasons.items():
         item = items[path]
@@ -172,7 +174,7 @@ def test_auto_sorts_each_image(auto):
         # Bytes and a preview are kept so the user can check it and include it
         assert ingest_queue.staged_path(job_id, item.staging_key).is_file()
         assert ingest_queue.staged_path(job_id, item.preview_key).is_file()
-    assert json.loads(items["A/Pack/blank.png"].classification)["fell_back"] is True
+    assert json.loads(items["Czepeku/Keep/Keep_Spring.png"].classification)["fell_back"] is True
 
     detail = auto.detail(job_id)
     assert detail["status"] == "completed"
@@ -364,15 +366,15 @@ def test_sorted_out_items_are_listed_by_gallery_group(auto):
     job_id = import_files(
         auto,
         {
-            "A/Keep/map.png": solid("red"),
-            "A/Keep/goblin.png": solid("blue"),
-            "A/Keep/sword.png": solid("black"),
-            "A/Tokens/orc.png": solid("blue", size=(40, 40)),  # no image: no gallery group
+            "Czepeku/Keep/Keep_Day.png": solid("red"),
+            "Czepeku/Keep/Keep_Night.png": solid("blue"),
+            "Czepeku/Keep/Keep_Winter.png": solid("black"),
+            "Czepeku/Tokens/orc.png": solid("blue", size=(40, 40)),  # no image: no gallery group
         },
     )
     auto.worker.drain()
     items = rows(auto, job_id)
-    group_id = image_for(auto, items["A/Keep/map.png"]).group_id
+    group_id = image_for(auto, items["Czepeku/Keep/Keep_Day.png"]).group_id
 
     counts = auto.client.get(f"{BASE}/sorted-out/counts").json()["counts"]
     assert counts == {str(group_id): 2}
@@ -380,8 +382,8 @@ def test_sorted_out_items_are_listed_by_gallery_group(auto):
     listed = auto.client.get(f"{BASE}/sorted-out", params={"image_group_id": group_id}).json()
     assert listed["truncated"] is False
     by_path = {i["relative_path"]: i for i in listed["items"]}
-    assert set(by_path) == {"A/Keep/goblin.png", "A/Keep/sword.png"}
-    goblin = by_path["A/Keep/goblin.png"]
+    assert set(by_path) == {"Czepeku/Keep/Keep_Night.png", "Czepeku/Keep/Keep_Winter.png"}
+    goblin = by_path["Czepeku/Keep/Keep_Night.png"]
     assert goblin["job_id"] == job_id and goblin["has_preview"] is True
     assert goblin["error_reason"] == "Looks like a token"
     assert goblin["classification"]["group"] == "token"
@@ -757,20 +759,22 @@ def test_auto_video_is_classified_from_its_first_frame(auto, tmp_path):
 
 def test_reviewable_groups_wait_for_every_import_group_that_feeds_them(auto):
     """Two import groups resolving to one gallery group: it is reviewable only once both
-    are finished, and counted once."""
+    are finished, and counted once. Nothing is reviewable before the import finishes and
+    its grouping is refined (ADR-028). Distinct aspects keep the solid images from being
+    renditions of each other."""
     from backend.app.models import ImageGroup, ImportGroup
 
     files = {
-        "A/One/a.png": solid("red", size=(60, 40)),
-        "A/Two/b.png": solid("red", size=(61, 40)),
-        "A/Three/c.png": solid("red", size=(62, 40)),
+        "Czepeku/One/One.png": solid("red", size=(60, 40)),
+        "Czepeku/Two/Two.png": solid("red", size=(40, 60)),
+        "Czepeku/Three/Three.png": solid("red", size=(50, 50)),
     }
     job_id = auto.create("Test", image_type="auto")
     result = auto.manifest(job_id, [{"relative_path": p, "size": len(d)} for p, d in files.items()])
     ids = {i["relative_path"]: i["item_id"] for i in result["items"]}
     auto.client.post(f"{BASE}/{job_id}/seal")
     with auto.SessionLocal() as db:
-        shared = ImageGroup(base_name="Shared", author="A")
+        shared = ImageGroup(base_name="Shared", author="Czepeku")
         db.add(shared)
         db.flush()
         shared_id = shared.id
@@ -780,17 +784,21 @@ def test_reviewable_groups_wait_for_every_import_group_that_feeds_them(auto):
                 group.merged_into_existing = True
         db.commit()
 
-    for path in ("A/One/a.png", "A/Three/c.png"):
+    for path in ("Czepeku/One/One.png", "Czepeku/Three/Three.png"):
         auto.put(job_id, ids[path], files[path])
     auto.worker.drain()
     detail = auto.detail(job_id)
     three = next(g for g in detail["groups"] if g["group_name"] == "Three")
-    assert detail["reviewable_group_ids"] == [three["image_group_id"]]  # Two is still open
-    assert detail["groups_reviewable"] == 1
+    assert three["image_group_id"] is not None
+    # Two is still open, so the import isn't finished and its grouping not refined
+    assert detail["grouping_refined_at"] is None
+    assert detail["reviewable_group_ids"] == []
+    assert detail["groups_reviewable"] == 0
 
-    auto.put(job_id, ids["A/Two/b.png"], files["A/Two/b.png"])
+    auto.put(job_id, ids["Czepeku/Two/Two.png"], files["Czepeku/Two/Two.png"])
     auto.worker.drain()
     detail = auto.detail(job_id)
+    assert detail["grouping_refined_at"] is not None
     order = {g["image_group_id"]: g["sort_order"] for g in reversed(detail["groups"])}
     assert detail["reviewable_group_ids"] == sorted(
         {shared_id, three["image_group_id"]}, key=order.get
@@ -801,7 +809,9 @@ def test_reviewable_groups_wait_for_every_import_group_that_feeds_them(auto):
 
 
 def test_a_group_with_only_sorted_out_items_is_not_reviewable(auto):
-    job_id = import_files(auto, {"A/Keep/map.png": solid("red"), "A/Cave/orc.png": solid("blue")})
+    job_id = import_files(
+        auto, {"Czepeku/Keep/Keep.png": solid("red"), "Czepeku/Cave/Cave.png": solid("blue")}
+    )
     auto.worker.drain()
     detail = auto.detail(job_id)
     keep = next(g for g in detail["groups"] if g["group_name"] == "Keep")

@@ -65,8 +65,11 @@ Found on a real 5,800-file import (2026-10-17):
   system pause or a missing folder, don't count). In memory only: a restart starts a new session.
   Exposed as `queue.seconds_per_item`.
 - **Job summary**: `groups_done` (groups with no open items) and `groups_reviewable` (gallery
-  groups the editor can open: an imported image from this job and no unfinished import group of
-  this job adding to them), from one grouped query each across the listed jobs. The detail lists
+  groups the editor can open: an imported image from this job, and no unfinished or unrefined
+  import group of this job adding to them), from one grouped query each across the listed
+  jobs. `grouping_refined_at` is the latest refinement of the job's map groups, a partition's
+  or the whole import's ([ingestion.md §5.8](ingestion.md#58-grouping-refinement)); null
+  until the first. The detail lists
   them as `reviewable_group_ids`; the frontend never re-derives the rule.
 - **Detail**: `GET /imports/{id}?groups=active&limit=3` returns only the first `limit` groups with
   open items. The default (`all`) is unchanged; the report uses it.
@@ -94,6 +97,15 @@ Shown when the editor was opened from an import that hasn't finished:
   has nothing awaiting bytes, ready or processing. A group loaded while still filling missed
   the images that landed later, and before deletion was made explicit an edit to it deleted
   them.
+- **And only once its partition is refined** (ADR-028; user decision 2026-10-22: groups become
+  reviewable as they close). Refinement may merge a finished group into another (twin folders
+  of one map), so each import group waits for its stamp. An import of more than 500 maps is
+  refined top-level folder by top-level folder as each finishes, so its first folders can be
+  reviewed while the rest imports; a smaller one is refined once, a few seconds after its last
+  file, and nothing in it is reviewable before that. The final whole-import pass may still merge
+  a reviewed group into another (a twin in another top-level folder); the editor drops groups
+  that no longer exist, and a group the user edited is never touched. The finished toast's
+  Review falls back to the import dialog if refinement hasn't run yet.
 - When the import finishes the strip says so ("Import finished · 347 groups") and still offers to
   add the rest.
 
@@ -119,6 +131,10 @@ Decisions (user, 2026-10-18):
 - **No "N new maps" pill.** The user didn't want one; the gallery catches up silently.
 - **A turn-off threshold (refresh off above N maps) was rejected**: the cost is the reset, not
   the library size.
+- **Refinement counts as finishing again.** When a listed import's `grouping_refined_at`
+  changes (`latestGroupingRefinement` of the listed jobs: a partition's refinement or the whole
+  import's), the gallery is behind as when an import finishes: its groups may have merged. The first value seen, and a refinement cleared
+  by a re-open, don't trigger a refresh.
 - **Facets refresh when an import finishes**, not on every tick, except while the library is
   empty, where they gate the welcome screen and must update as soon as the first maps land. The
   scene count in the results bar therefore holds still during an import; the Activity dock
@@ -135,5 +151,5 @@ groups already shown; `useGroupSearch` keeps each group once (`groupKey`).
 Backend: rate window and refunds; summary group counts; `groups=active`. Frontend: time-left
 formatting, the progress view (now-importing rows, problems line, review count, controls), the
 editor strip (running, ready count, add, show progress, finished), the gallery refresh rules
-(`useImportGalleryRefresh.test.tsx`), in-place refresh (`queryKeys.test.ts`) and group
+(`useImportGalleryRefresh.test.tsx`, including the refresh on refinement), in-place refresh (`queryKeys.test.ts`) and group
 de-duplication across pages (`useGroupSearch.test.tsx`).

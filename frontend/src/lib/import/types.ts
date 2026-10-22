@@ -63,6 +63,12 @@ export interface ImportJobSummary {
   updated_at: string | null
   completed_at: string | null
   last_upload_at: string | null
+  /**
+   * The latest refinement of the import's map groups (merged where their content shows one map;
+   * ADR-028): a top-level folder's, as each finishes in a large import, or the whole import's.
+   * Null until the first. The gallery refreshes when it changes.
+   */
+  grouping_refined_at: string | null
 }
 
 export interface ImportJobDetail extends ImportJobSummary {

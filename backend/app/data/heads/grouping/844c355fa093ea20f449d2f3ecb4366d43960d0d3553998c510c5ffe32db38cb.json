@@ -1,0 +1,25 @@
+{
+  "format": "scene-atlas-grouping-calibration/1",
+  "encoder_version": "openclip-vitb32-rc3",
+  "encoder_sha256": "844c355fa093ea20f449d2f3ecb4366d43960d0d3553998c510c5ffe32db38cb",
+  "embedding_dim": 512,
+  "thresholds": {
+    "agree_emb": 0.6734,
+    "coh": 0.7865,
+    "coh_all": 0.7712,
+    "coh_key": 0.6524,
+    "coh_suggest": 0.63
+  },
+  "method": "quantile-mapped from E5's thresholds (siglip2_base_384_rc4 Qdrant vectors) onto Scene Atlas-style ONNX embeddings of 400 px medium thumbnails; grouping/e5/calibrate.py",
+  "validation": {
+    "dev_f1": 0.9735,
+    "test_realistic_f1": 0.976,
+    "test_targeted_f1": 0.9761,
+    "reserved_f1": 0.9426,
+    "embeddings_off_test_f1": 0.8489,
+    "embeddings_off_test_targeted_f1": 0.8638,
+    "embeddings_off_reserved_f1": 0.786
+  },
+  "built_at": "2026-10-22T20:58:00+00:00",
+  "git": "a6652c6-dirty"
+}

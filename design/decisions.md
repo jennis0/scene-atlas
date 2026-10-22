@@ -771,3 +771,35 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 - Every `.env`, systemd unit and compose override written before this must be renamed.
 - `SCENE_ATLAS_APP_MODE` keeps the field name after the prefix, so it reads a little redundantly.
+
+---
+
+## ADR-028: Variant grouping by bottom-up tree walk, refined after ingest
+
+**Date:** 2026-10-22
+**Status:** Proposed
+
+**Context:** `group_files` groups maps from paths alone and fails structurally. It reads the second folder as the group whatever it is, chains sorted file-name prefixes until whole makers collapse, and has no content evidence. Research in scene-atlas-learning (experiments E0–E5, `docs/variant-grouping-results.md`) built a benchmark of real libraries rearranged into realistic layouts, and found a bottom-up tree walk that scores BCubed F1 0.976 there (`group_files` 0.67) and 0.944 on makers it was never tuned on. Its best evidence (pHash renditions, layout agreement, embedding cohesion) only exists after the ingest worker has processed an image, but groups are planned at seal time.
+
+**Decision:**
+
+1. **Maps are grouped by the tree walk** (design/variant-grouping.md). Other image types keep `group_files` for now.
+2. **Two passes.** At seal, a paths-only walk plans the import groups. After the job's last item is committed and its vectors written, a content-aware walk **merges** the job's groups where content says they are one map. It never splits, and it only touches groups the job created that the user hasn't edited.
+3. **Groups record user edits** (`variant_groups.edited_at`), so automatic grouping never overrides the user (as with `grid_source = user`).
+4. **A group is reviewable only after its job is refined**, so the editor never shows a group that is about to be merged.
+5. **Grouping features are stored per image**: a 256-bit pHash identical to the research catalog's, and a 32×32 edge-map layout descriptor. Embedding thresholds ship per encoder (`data/heads/grouping/<sha>.json`); without one, embedding rules are off.
+6. **Suggestions** (joins the walk deliberately withholds, with reasons) are computed but not yet stored or shown.
+
+**Alternatives considered:**
+
+- **Group only after ingest** (no seal grouping). Rejected: the gallery would show ungrouped images for the whole import, and `_sibling_grid_counts` needs import groups during ingest.
+- **Refine with splits as well as merges.** Rejected: splitting a group the user may already be looking at is destructive and confusing (ingestion.md §2: "Nothing destructive happens implicitly"). Merge-only plus withheld joins keeps every automatic change additive.
+- **Reuse the 64-bit pHash.** Rejected: the research thresholds are calibrated on the 256-bit hash, and the 64-bit hash is a different algorithm (cv2 DCT, DC included).
+- **A learned pair model (research E4, `gbdt_pool`).** Deferred: it ties the tree walk on clean libraries and is less explainable. The walk records a reason for every join.
+
+**Consequences:**
+
+- A new table, two new columns (`variant_groups.edited_at`, `import_jobs.grouping_refined_at`) and migration 029.
+- Groups can change shortly after an import completes: twin folders merge. The gallery refreshes on `grouping_refined_at`.
+- Seal-time groups may be slightly finer than the final ones for a few seconds after completion.
+- Libraries imported before this keep their groups. Regrouping them would need a maintenance job that respects `edited_at`.

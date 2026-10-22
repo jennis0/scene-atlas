@@ -230,6 +230,12 @@ async def lifespan(app: FastAPI):
         get_ingest_worker().probe_now()
         if get_clip_unavailable_reason() is None:
             runner.submit(reconcile_vectors, name="Updating image embeddings")
+        if settings.ingest_worker_enabled:
+            # Imports finished but not yet refined when the app last stopped (ADR-028);
+            # refinement waits for the model, so this is the first moment it can run
+            from ..pipeline.refine_groups import schedule_refinements
+
+            schedule_refinements()
 
     threading.Thread(
         target=_reconcile_embeddings_when_ready, daemon=True, name="embedding-reconcile"

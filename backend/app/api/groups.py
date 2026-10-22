@@ -32,9 +32,9 @@ from ..models.schemas import (
     MoveImagesRequest,
     MoveImagesResponse,
 )
+from ..services import group_service
 from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
-from ..services.fts_service import search_text_for
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 
@@ -281,7 +281,10 @@ def edit_group(
     payload: GroupEditRequest,
     db: Session = Depends(get_db),
 ):
-    """Edit a group: update metadata, delete images, update images, split off new groups."""
+    """Edit a group: update metadata, delete images, update images, split off new groups.
+
+    A user edit: the group, and any group split off it, is never regrouped automatically.
+    """
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -289,6 +292,7 @@ def edit_group(
     # 1. Update group-level metadata
     group.base_name = payload.base_name
     group.author = payload.author
+    group_service.mark_edited(group)
 
     # 2. Delete only what the client asked to delete (never inferred from omission).
     # Images kept or referenced in new_groups (moved, not deleted) are protected.
@@ -340,12 +344,7 @@ def edit_group(
 
         rebuild_search_text(image, db)
 
-    # 4. Fix primary_image_id if deleted
-    if group.primary_image_id and group.primary_image_id not in kept_ids:
-        remaining = [img for img in all_images if img.id in kept_ids]
-        group.primary_image_id = remaining[0].id if remaining else None
-
-    # 5. Create split-off groups
+    # 4. Create split-off groups
     moving_image_map = {img.id: img for img in all_images if img.id in moving_ids}
     new_group_ids: list[int] = []
     for new_group_payload in payload.new_groups:
@@ -353,6 +352,7 @@ def edit_group(
             base_name=new_group_payload.base_name,
             author=new_group_payload.author,
         )
+        group_service.mark_edited(new_group)
         db.add(new_group)
         db.flush()  # get new_group.id
         for img_id in new_group_payload.image_ids:
@@ -364,6 +364,9 @@ def edit_group(
             new_group_payload.image_ids[0] if new_group_payload.image_ids else None
         )
         new_group_ids.append(new_group.id)
+
+    # 5. A new cover if the cover was deleted or split off
+    group_service.repair_cover(db, group)
 
     db.commit()
     pending.apply()
@@ -395,14 +398,6 @@ def delete_group(
     return {"message": f"Group {group_id} and all its images deleted"}
 
 
-def _reassign_images(images: list[Image], target: ImageGroup) -> None:
-    """Put images in ``target``. They take its author, which is part of their search text."""
-    for image in images:
-        image.group_id = target.id
-        image.author = target.author
-        image.search_text = search_text_for(image)
-
-
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
 @write_locked
 def move_images(
@@ -413,7 +408,8 @@ def move_images(
     """Move specific images from source group to target group.
 
     Unlike merge, this moves only the listed images and keeps the source group
-    alive (unless it becomes empty, in which case it is auto-deleted).
+    alive (unless it becomes empty, in which case it is auto-deleted). Both groups count
+    as edited by the user.
     """
     if group_id == payload.target_group_id:
         raise HTTPException(status_code=400, detail="Source and target group are the same")
@@ -451,25 +447,11 @@ def move_images(
         db.flush()  # get target.id
         target.primary_image_id = payload.image_ids[0]
 
-    _reassign_images(images, target)
+    group_service.reassign_images(images, target)
     images_moved = len(images)
-
-    # Fix primary_image_id on source if it was moved
-    if source.primary_image_id and source.primary_image_id in {img.id for img in images}:
-        remaining = (
-            db.query(Image)
-            .filter(Image.group_id == group_id, Image.id.notin_(payload.image_ids))
-            .first()
-        )
-        source.primary_image_id = remaining.id if remaining else None
-
-    db.flush()
-
-    # Auto-delete source if now empty
-    remaining_count = db.query(func.count(Image.id)).filter(Image.group_id == group_id).scalar()
-    source_deleted = remaining_count == 0
-    if source_deleted:
-        db.delete(source)
+    group_service.mark_edited(source, target)
+    group_service.repair_cover(db, source)
+    source_deleted = group_service.delete_if_empty(db, source)
 
     db.commit()
 
@@ -493,7 +475,7 @@ def merge_group(
 
     Moves all images from source (group_id) into target (payload.target_group_id).
     Updates each image's group_id and author to match the target.
-    Deletes the now-empty source group.
+    Deletes the now-empty source group. The target counts as edited by the user.
     """
     if group_id == payload.target_group_id:
         raise HTTPException(status_code=400, detail="Cannot merge a group into itself")
@@ -506,20 +488,8 @@ def merge_group(
     if not target:
         raise HTTPException(status_code=404, detail="Target group not found")
 
-    # Move all images from source to target
-    images = (
-        db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
-    )
-    _reassign_images(images, target)
-    images_moved = len(images)
-
-    # Flush so SQLAlchemy's identity map knows the images belong to target,
-    # otherwise db.delete(source) will null out their group_id
-    # via the back_populates relationship bookkeeping.
-    db.flush()
-
-    # Delete the now-empty source group
-    db.delete(source)
+    images_moved = group_service.merge_groups(db, target, [source])
+    group_service.mark_edited(target)
     db.commit()
 
     return GroupMergeResponse(

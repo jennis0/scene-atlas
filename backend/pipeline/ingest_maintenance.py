@@ -25,6 +25,7 @@ from .ingest_queue import (
     utcnow,
     write_session,
 )
+from .refine_groups import schedule_refinements
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,8 @@ def run_ingest_maintenance() -> dict[str, int]:
         "released": release_staged_bytes,
         "pruned": prune_dismissed_jobs,
         "stray": sweep_stray_staging_files,
+        # Refinements lost with a restart or deferred while the model was busy (ADR-028)
+        "refining": lambda: len(schedule_refinements()),
     }
     result = {}
     for key, step in steps.items():

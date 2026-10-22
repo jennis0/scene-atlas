@@ -55,6 +55,30 @@ def shutdown_signal_cleared():
     clear_shutdown()
 
 
+@pytest.fixture(autouse=True)
+def grouping_refinement_inline(monkeypatch):
+    """Grouping refinement (ADR-028) runs synchronously where it is scheduled, never on the
+    JobRunner's threads, and without embeddings (no model in tests). Tests that need the
+    embedding rules install their own scheduler."""
+    from backend.pipeline import refine_groups
+
+    scheduler = refine_groups.RefinementScheduler.inline(lambda: refine_groups.Readiness.OFF)
+    monkeypatch.setattr(refine_groups, "_scheduler", scheduler)
+    return scheduler
+
+
+@pytest.fixture
+def no_grouping_refinement(monkeypatch):
+    """No grouping refinement at all, e.g. for tests counting a batch's queries."""
+    from backend.pipeline import refine_groups
+
+    class _Off(refine_groups.RefinementScheduler):
+        def schedule(self, job_ids=None, import_group_ids=None):
+            return []
+
+    monkeypatch.setattr(refine_groups, "_scheduler", _Off())
+
+
 @pytest.fixture
 def tmp_db(tmp_path):
     """Fresh SQLite DB seeded with tag categories."""
