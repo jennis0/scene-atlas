@@ -750,6 +750,7 @@ _TYPE_FOR_GROUP = {"map": BATTLEMAP, "illustration": SCENE}
 # Shown in the import report and the group editor, grouped by reason
 SORTED_OUT_REASONS = {
     "token": "Looks like a token",
+    "asset": "Looks like a map asset (a prop, overlay or tile)",
     "other": "Doesn't look like a map or a scene",
     "unsure": "Couldn't tell whether this is a map or a scene",
 }
@@ -795,7 +796,7 @@ def _keep_preview(decoded: DecodedItem) -> str | None:
 
 def sort_auto_items(decoded: list[DecodedItem]) -> tuple[list[DecodedItem], list[SortedOut]]:
     """Give each embedded Auto item its type from the image-type head. Maps and scenes are
-    returned to be finished; tokens, other images and anything the head is unsure about
+    returned to be finished; tokens, map assets, other images and anything the head is unsure about
     (it falls back to "other") are sorted out, keeping a preview. Without a head for the
     active model, Auto items are imported as battlemaps."""
     head = _usable_head(decoded)

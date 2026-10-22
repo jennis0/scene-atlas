@@ -3,8 +3,8 @@
 Drives the real imports API and worker. The embedding model is faked so that each
 test image's colour picks its embedding, and a real ``ImageTypeHead`` (built from a
 small dict) turns that into a verdict: red → map, green → illustration, blue → token,
-black → other, white → unsure (falls back to other), magenta → token, but with
-illustration rated above map.
+yellow → asset, black → other, white → unsure (falls back to other), magenta → token,
+but with illustration rated above map.
 """
 
 from __future__ import annotations
@@ -35,8 +35,9 @@ COLOURS = {
     "black": (5, 5, 5),
     "white": (250, 250, 250),
     "magenta": (230, 20, 230),
+    "yellow": (240, 220, 20),
 }
-# One embedding per colour; the head's weight is 10x identity on the first four dims
+# One embedding per colour; the head's weight is 10x identity on the first five dims
 EMBEDDINGS = {
     "red": [1, 0, 0, 0],
     "green": [0, 1, 0, 0],
@@ -44,11 +45,12 @@ EMBEDDINGS = {
     "black": [0, 0, 0, 1],
     "white": [1, 1, 1, 1],  # all four equal: 0.25 each, below min_confidence
     "magenta": [0.2, 0.5, 1, 0],
+    "yellow": [0, 0, 0, 0, 1],
 }
 
 
 def _head() -> ImageTypeHead:
-    classes = ["map", "illustration", "token", "other"]
+    classes = ["map", "illustration", "token", "other", "asset"]
     weight = [[10.0 if c == i else 0.0 for c in range(DIM)] for i in range(len(classes))]
     return ImageTypeHead(
         {
@@ -141,6 +143,7 @@ def test_auto_sorts_each_image(auto):
             "A/Pack/map.png": solid("red"),
             "A/Pack/vista.png": solid("green"),
             "A/Pack/goblin.png": solid("blue"),
+            "A/Pack/barrel.png": solid("yellow"),
             "A/Pack/sword.png": solid("black"),
             "A/Pack/blank.png": solid("white"),
         },
@@ -154,6 +157,7 @@ def test_auto_sorts_each_image(auto):
 
     reasons = {
         "A/Pack/goblin.png": "Looks like a token",
+        "A/Pack/barrel.png": "Looks like a map asset (a prop, overlay or tile)",
         "A/Pack/sword.png": "Doesn't look like a map or a scene",
         "A/Pack/blank.png": "Couldn't tell whether this is a map or a scene",
     }
@@ -172,8 +176,8 @@ def test_auto_sorts_each_image(auto):
 
     detail = auto.detail(job_id)
     assert detail["status"] == "completed"
-    assert detail["counts"]["done"] == 2 and detail["counts"]["skipped"] == 3
-    assert detail["counts"]["sorted_out"] == 3
+    assert detail["counts"]["done"] == 2 and detail["counts"]["skipped"] == 4
+    assert detail["counts"]["sorted_out"] == 4
     # Per group, by type: the report shows these so surprising sorts stand out
     group = detail["groups"][0]
     assert (group["map_count"], group["scene_count"]) == (1, 1)
@@ -181,7 +185,7 @@ def test_auto_sorts_each_image(auto):
         "/api/v1/groups/summaries", json={"ids": [group["image_group_id"]]}
     ).json()
     assert (summaries[0]["map_count"], summaries[0]["scene_count"]) == (1, 1)
-    assert detail["groups"][0]["counts"]["sorted_out"] == 3
+    assert detail["groups"][0]["counts"]["sorted_out"] == 4
     with auto.SessionLocal() as db:
         assert db.query(Image).count() == 2
     assert incoming_files() == []
