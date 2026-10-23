@@ -20,6 +20,7 @@ THRESHOLDS = {
     "leaf_diff": 0.5,
     "leaf_same_prod": 0.78,
     "leaf_same": 0.82,
+    "scene_agree_emb": 0.86,
 }
 
 
@@ -65,6 +66,7 @@ def test_thresholds_map_onto_the_walk():
         leaf_different=0.5,
         leaf_same_production=0.78,
         leaf_same=0.82,
+        scene_agree=0.86,
     )
 
 

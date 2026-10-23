@@ -41,6 +41,7 @@ Once an import's images have all been processed, Scene Atlas sorts them into [gr
 - `Czepeku/Forest Clearing/summer.jpg` and `Czepeku/Forest Clearing/winter.jpg` become one group, *Forest Clearing* by Czepeku. Folders inside a map's folder, such as its rooms or floors, become [subgroups](/guide/groups#subgroups).
 - `TavernBrawl_Grid.jpg` and `TavernBrawl_Night.jpg` end up together, even among other maps in the same folder.
 - A gridded and a gridless copy of the same map are joined even when they sit in different folders.
+- Scenes in a map's folder join its group; other scenes are kept on their own unless their names or pictures say they belong together. See [Scenes](/guide/groups#scenes).
 - **Authors** come from the folders, or from a filename such as `ArenabyUpsetti.jpg`.
 - **Grid sizes and tags** are read from folder and file names where possible.
 - A group whose name and author match an existing one is added to it.

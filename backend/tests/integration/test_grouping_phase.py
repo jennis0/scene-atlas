@@ -257,6 +257,33 @@ def test_a_scene_beside_two_maps_gets_a_group_of_its_own(api):
     assert len(api.detail(job_id)["groups"]) == 3
 
 
+def test_a_scene_in_another_folder_does_not_join_the_only_map(api):
+    """Same folder or not (Joe): a scene joins a map group through its own folder, never
+    merely because the import holds one map group."""
+    _typed_import(
+        api,
+        {
+            "Czepeku/Keep/Keep Day.png": (png(picture(30)), "battlemap"),
+            "Czepeku/Keep/Keep Night.png": (png(picture(31)), "battlemap"),
+            "Vistas/Harbour Vista.png": (png(picture(32)), "scene"),
+        },
+    )
+    assert gallery_of(api, "Harbour Vista.png") != gallery_of(api, "Keep Day.png")
+
+
+def test_a_scene_named_after_one_of_two_maps_joins_it(api):
+    _typed_import(
+        api,
+        {
+            "Czepeku/Pack/Keep Day.png": (png(picture(33)), "battlemap"),
+            "Czepeku/Pack/Fort Day.png": (png(picture(34)), "battlemap"),
+            "Czepeku/Pack/Keep Scene.png": (png(picture(35)), "scene"),
+        },
+    )
+    assert gallery_of(api, "Keep Scene.png") == gallery_of(api, "Keep Day.png")
+    assert gallery_of(api, "Fort Day.png") != gallery_of(api, "Keep Day.png")
+
+
 def test_an_import_of_scenes_only_is_grouped_as_before(api):
     job_id = _typed_import(
         api,

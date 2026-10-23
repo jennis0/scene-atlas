@@ -364,6 +364,49 @@ Suggestions are computed but not shown yet.
 A pack folder of five *different* Moonlight maps fails c1: their cross-map cohesion is ≈ 0.63 and
 nothing names them together, so they stay five groups.
 
+## 7b. Scenes (`scenes.py`, `group_scenes`)
+
+The walk sees maps only. Scenes come after it, so adding a scene to a folder never changes that
+folder's map groups. Three facts from research E7 shape the rules:
+- scenes are mostly singletons, so a scene starts **alone** and joins only on positive evidence
+  (the opposite of the map leaf default);
+- pHash finds only scene *renditions*: scene variants (Day / Night repaints) sit about 54–78 bits
+  of 256 apart, so they need layout *and* embedding agreement, like maps but stricter (edge ≥ 0.50,
+  embedding ≥ ≈ 0.85);
+- a scene and the map of the same place are unrelated in content (pHash ≈ random, 126 of 256), so
+  only folders and names can link them.
+
+**Attach folders.** Role folders (named only by words such as *Scenes*, *Art*, *Illustrations*,
+*Concept Art*, *Handouts*, *Assets & Tokens*) and `Maps` folders are dropped from every file's path,
+so `Loc/Scenes/x.jpg` is one of `Loc`'s files and `Pack/Maps/X/` mirrors `Pack/Scenes/X/`. This only
+re-files files already typed: Czepeku's `Airships/…/Scenes/` holds top-down maps.
+
+**Attach**, in order:
+- **r7, rendition of a map:** a pHash twin of maps of exactly one group joins it, anywhere.
+- **r2, same folder:** the nearest folder holding maps holds one group, and is either the scene's
+  own folder with maps directly in it, or not a container and the group's own top folder (the
+  longest common folder of its maps). `Root/Map.jpg` + `Root/x.jpg` is one group;
+  `Loc/Floor 1/…` + `Loc/Bonus Content/x.jpg` attaches; `Root/Map.jpg` + `Root/Random Scenes/x.jpg`
+  and `Session 12/Forest Cabin/…` + `Session 12/x.jpg` don't (Joe: same folder or not).
+- **r3, by name, neighbours only:** in its own folder of several map groups, a scene whose key
+  (identity minus role words, and minus the folder's common house tokens) starts with exactly one
+  group's key (the longest common prefix of its maps' identities) joins it. A tie joins nothing.
+
+**Group the rest (r5),** per attach folder:
+- **names:** identical keys that lead the file name (`Tavern Night` leads with *tavern*;
+  `foggy_dark_village` does not lead with *village*), with a word of ≥ 3 letters. Stems differing
+  only by numbers or rendition words, ID-like stems (`582d0779-…`, `d83lgl`), identical stems
+  (`x` / `x (2)`) and numbered collections (`the-art-of-x-07`, `-16`) are no evidence;
+- **a variant-only place folder:** a specific folder whose scenes are ≥ 80% named only by variant
+  words (`Golden Forest/Day.jpg`, `Night.jpg`) is one scene;
+- **renditions**, and **agreement**: edge ≥ 0.50 and embedding ≥ `scene_agree`, the same aspect,
+  not against different 2-token keys, at unit level (a quarter of the smaller unit's files).
+
+**Across folders (r6)** only certain renditions join (`Art/With Text/` and `Art/No Text/`), never
+between two groups both ≥ 20 files. A unit holding one map group never joins one holding another,
+so a scene can't bridge two maps. Tokens and other art keep `attach_to_map_groups` and
+`group_files`.
+
 ## 8. Naming (`naming.py`)
 
 Each group's name, in order of preference:
@@ -398,6 +441,7 @@ Encoder-independent thresholds are research-tuned on the benchmark's dev split; 
 | `rendition_bits` | 12 | pHash bits of 256 |
 | `rendition_aspect` | 0.02 | |log aspect| of renditions |
 | `agree_edge` | 0.70 | edge correlation for agreement |
+| `scene_agree_edge` | 0.50 | edge correlation for agreement between scenes |
 | `agree_aspect` | 0.05 | |log aspect| for agreement |
 | `agree_fraction` | 0.25 | share of cross pairs that must agree to join units |
 | `big_family` | 8 | a shared base over more units is gated |
@@ -412,11 +456,11 @@ The embedding thresholds depend on the encoder and ship per model as
 `backend/app/data/heads/grouping/<vision encoder sha256>.json`, produced by scene-atlas-learning
 (`grouping/e5/calibrate.py`) from embeddings computed the way Scene Atlas computes them:
 
-| Model | agree | parent (c1) | whole folder (c0) | shared base | suggest | leaf different / same + production / same |
-|---|---|---|---|---|---|---|
-| small (B/32 rc3) | 0.673 | 0.787 | 0.771 | 0.652 | 0.630 | 0.498 / 0.774 / 0.810 |
-| medium (base-384 rc4) | 0.701 | 0.813 | 0.796 | 0.682 | 0.662 | 0.55 / 0.80 / 0.84 |
-| large (L-384 rc4) | 0.696 | 0.818 | 0.797 | 0.677 | 0.657 | 0.545 / 0.803 / 0.843 |
+| Model | agree | parent (c1) | whole folder (c0) | shared base | suggest | leaf different / same + production / same | scene agree |
+|---|---|---|---|---|---|---|---|
+| small (B/32 rc3) | 0.673 | 0.787 | 0.771 | 0.652 | 0.630 | 0.498 / 0.774 / 0.810 | 0.812 |
+| medium (base-384 rc4) | 0.701 | 0.813 | 0.796 | 0.682 | 0.662 | 0.55 / 0.80 / 0.84 | 0.85 |
+| large (L-384 rc4) | 0.696 | 0.818 | 0.797 | 0.677 | 0.657 | 0.545 / 0.803 / 0.843 | 0.854 |
 
 The first five were quantile-mapped from E5's medium values and keep E5's quality (test 0.976,
 new makers 0.943–0.944). The leaf thresholds were tuned in E6 on the medium encoder and

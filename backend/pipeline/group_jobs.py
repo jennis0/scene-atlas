@@ -71,6 +71,7 @@ from backend.app.services.variant_grouping import (
 from .grouping_features import load_grouping_features
 from .ingest_queue import (
     BATTLEMAP,
+    SCENE,
     _session,
     build_parser,
     existing_groups,
@@ -371,13 +372,13 @@ def _load_embeddings(image_ids: list[int], readiness: Readiness):
 def _features(
     db: Session, files: list[_File], readiness: Readiness
 ) -> tuple[dict[int, ContentFeatures], EmbeddingThresholds | None]:
-    """Content features of the map files that made an image, by item id."""
-    maps = [f for f in files if f.bucket == MAPS and f.image_id is not None]
-    image_ids = sorted(f.image_id for f in maps if f.image_id is not None)
+    """Content features of the map and scene files that made an image, by item id."""
+    grouped = [f for f in files if f.bucket in (MAPS, SCENE) and f.image_id is not None]
+    image_ids = sorted(f.image_id for f in grouped if f.image_id is not None)
     rows = load_grouping_features(db, image_ids)
     vectors, thresholds = _load_embeddings(image_ids, readiness)
     features: dict[int, ContentFeatures] = {}
-    for f in maps:
+    for f in grouped:
         if f.image_id is None:
             continue
         row = rows.get(f.image_id)
@@ -419,20 +420,18 @@ def attach_to_map_groups(
 ) -> dict[int, tuple[int, str | None]]:
     """Non-map files that belong with a map group: item → (map group index, subgroup).
 
-    A scene, token or other non-map file belongs to its folder's map when the nearest
+    A token or other non-map, non-scene file belongs to its folder's map when the nearest
     effective folder above it (its own included) that holds maps in its subtree holds maps of
     one group only (research: 0.98–0.99 precision there). It takes no subgroup unless it sits
-    in a folder whose maps of that group all carry one label (that group's sub-group folder).
-    Files whose nearest map folder holds several map groups are left out (grouped by type).
+    in a folder whose maps of that group all carry one label (``_subgroup_in_folder``). Files
+    whose nearest map folder holds several map groups are left out (grouped by type).
     ``folders``: each file's effective folder (``variant_grouping.effective_folders``).
     """
+    labels = _folder_labels(map_groups, map_subgroups, folders)
     under: dict[str, set[int]] = {}  # folder → map groups with maps in its subtree
-    labels: dict[tuple[int, str], set[str | None]] = {}  # (group, folder) → its maps' labels
     for index, items in enumerate(map_groups):
         for item in items:
-            folder = folders[item]
-            labels.setdefault((index, folder), set()).add(map_subgroups[index].get(item))
-            for ancestor in _ancestors(folder):
+            for ancestor in _ancestors(folders[item]):
                 under.setdefault(ancestor, set()).add(index)
     attached: dict[int, tuple[int, str | None]] = {}
     for item in others:
@@ -441,9 +440,30 @@ def attach_to_map_groups(
         if nearest is None or len(under[nearest]) != 1:
             continue
         (index,) = under[nearest]
-        here = labels.get((index, folder), set())
-        attached[item] = (index, next(iter(here)) if len(here) == 1 else None)
+        attached[item] = (index, _subgroup_in_folder(labels, index, folder))
     return attached
+
+
+def _folder_labels(
+    map_groups: Sequence[Sequence[int]],
+    map_subgroups: Sequence[Mapping[int, str | None]],
+    folders: Mapping[int, str],
+) -> dict[tuple[int, str], set[str | None]]:
+    """(map group, effective folder) → the subgroup labels of that group's maps there."""
+    labels: dict[tuple[int, str], set[str | None]] = {}
+    for index, items in enumerate(map_groups):
+        for item in items:
+            labels.setdefault((index, folders[item]), set()).add(map_subgroups[index].get(item))
+    return labels
+
+
+def _subgroup_in_folder(
+    labels: Mapping[tuple[int, str], set[str | None]], index: int, folder: str
+) -> str | None:
+    """The subgroup a file in ``folder`` joining map group ``index`` takes: the one label of
+    that group's maps in the folder (its sub-group folder), else none."""
+    here = labels.get((index, folder), set())
+    return next(iter(here)) if len(here) == 1 else None
 
 
 def _proposals(
@@ -453,28 +473,37 @@ def _proposals(
     parser: ImageParser,
     authors: list[str],
 ) -> tuple[list[Proposal], variant_grouping.Grouping[int] | None]:
-    """Groups of every file: maps by the content walk; other types join their folder's map
-    group when it is the only one there (``attach_to_map_groups``), else ``group_files``."""
-    maps = [f for f in files if f.bucket == MAPS]
-    others = [f for f in files if f.bucket != MAPS]
+    """Groups of every file: maps by the content walk; scenes attached to a map group or
+    grouped among themselves (``group_scenes``); other types join their folder's map group when
+    it is the only one there (``attach_to_map_groups``), else ``group_files``."""
+    params = GroupingParams(embedding=thresholds)
+    maps = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == MAPS]
+    scenes = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == SCENE]
+    others = [f for f in files if f.bucket not in (MAPS, SCENE)]
     grouping = None
     map_groups: list[ProposedGroup[int]] = []
     if maps:
         grouping = variant_grouping.group_with_content(
-            [GroupingFile(f.item_id, f.path) for f in maps],
-            features,
-            GroupingParams(embedding=thresholds),
-            parser,
-            known_authors=authors,
+            maps, features, params, parser, known_authors=authors
         )
         map_groups = grouping.groups
     effective = variant_grouping.effective_folders(f.path for f in files)
+    folders = {f.item_id: effective[f.path] for f in files}
     attached = attach_to_map_groups(
         [g.keys for g in map_groups],
         [g.subgroups for g in map_groups],
-        {f.item_id: effective[f.path] for f in files},
+        folders,
         (f.item_id for f in others),
     )
+    scene_grouping = variant_grouping.group_scenes(grouping, maps, scenes, features, params)
+    labels = _folder_labels(
+        [g.keys for g in map_groups], [g.subgroups for g in map_groups], folders
+    )
+    for item, attachment in scene_grouping.attachments.items():
+        attached[item] = (
+            attachment.group,
+            _subgroup_in_folder(labels, attachment.group, folders[item]),
+        )
     joined: dict[int, list[int]] = {}
     for item, (index, _) in attached.items():
         joined.setdefault(index, []).append(item)
@@ -495,6 +524,9 @@ def _proposals(
                 group.name_is_identity and names[(group.name, author)] == 1,
             )
         )
+    path_of = {f.item_id: f.path for f in files}
+    for items in scene_grouping.groups:
+        proposals.append(_named_by_parser([(path_of[i], i) for i in items], SCENE, parser, authors))
     by_type: dict[str, list[_File]] = {}
     for f in others:
         if f.item_id not in attached:
@@ -516,6 +548,26 @@ def _proposals(
                 )
             )
     return proposals, grouping
+
+
+def _named_by_parser(
+    files: Sequence[tuple[str, int]], image_type: str, parser: ImageParser, authors: list[str]
+) -> Proposal:
+    """A proposal for files already grouped, named as ``group_files`` names them: its first
+    group's name and author, and each file's parsed subgroup."""
+    by_path = dict(files)
+    parsed = parser.group_files(list(by_path), image_type=image_type, known_authors=authors)
+    first = parsed[0]
+    return Proposal(
+        tuple(item for _, item in files),
+        first["group_name"],
+        first.get("author") or UNKNOWN_AUTHOR,
+        {
+            by_path[f["relative_path"]]: f["parsed"].get("subgroup")
+            for group in parsed
+            for f in group["files"]
+        },
+    )
 
 
 # Write

@@ -137,3 +137,19 @@ ORDINALS: dict[str, int] = {
 # (E2 also listed "4k" / "8k", but its rule only glues a number onto a word, so they never fired.)
 ORDINAL_SUFFIXES = frozenset({"st", "nd", "rd", "th"})
 GLUED_PAIRS = frozenset({("roll", "20"), ("r", "20")})
+
+# ---- Scenes (research E7, ``grouping/e7/PORT.md``)
+
+# Role words: what a picture is for, not which place it shows. Stripped from scene names like
+# variant words ("TC_Anglers Wharf Night_Exterior Scene", "BellhammerMineScene", "Banner").
+ROLE_WORDS = _words(
+    "scene scenes art arts artwork artworks illustration illustrations illustrated banner banners "
+    "cover covers promo promos promotional concept concepts conceptart handout handouts photo "
+    "photos splash keyart poster posters image images picture pictures render renders"
+)
+# Words that may make up a role folder's name besides role words ("Assets & Tokens", "Bonus").
+ROLE_FOLDER_EXTRA = _words("assets asset tokens token extras extra bonus misc")
+# A folder that only says it holds maps ("Maps", "Battle Maps", "Battlemaps").
+MAPS_FOLDER_WORDS = _words("maps map battlemaps battlemap battle")
+# Scene variant words the map vocabulary lacks.
+SCENE_AXIS = _words("default")

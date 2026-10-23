@@ -78,7 +78,7 @@ class EmbeddingThresholds:
     """Embedding thresholds; they depend on the encoder (design §5).
 
     Defaults are E5's, tuned on siglip2_base_384_rc4 image embeddings; the three ``leaf_*``
-    are E6's, tuned on the Scene Atlas medium encoder's.
+    are E6's and ``scene_agree`` E7's, tuned on the Scene Atlas medium encoder's.
     """
 
     agree: float = 0.70  # a3 / b3: embedding cosine of an agreeing pair (with the edge map)
@@ -92,6 +92,8 @@ class EmbeddingThresholds:
     leaf_different: float = 0.55
     leaf_same_production: float = 0.80
     leaf_same: float = 0.84
+    # scenes (r5): embedding cosine of an agreeing scene pair (E7, with ``scene_agree_edge``)
+    scene_agree: float = 0.85
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,7 @@ class GroupingParams:
     rendition_bits: int = 12  # pHash Hamming bits of 256 (dev precision 0.999)
     rendition_aspect: float = 0.02  # |log aspect| difference of renditions
     agree_edge: float = 0.70  # edge-map correlation of an agreeing pair
+    scene_agree_edge: float = 0.50  # ... of an agreeing scene pair (scenes share less layout)
     agree_aspect: float = 0.05
     agree_fraction: float = 0.25  # share of cross pairs that must agree to join two units
     big_family: int = 8  # a shared base over more units than this looks like a collection

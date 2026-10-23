@@ -99,6 +99,40 @@ inside the full import 96% → 98% (second level). Known limitations: similar ma
 one canvas in one flat folder (≈ 10% wrong joins); a maker exporting each map twice, once as a
 numbered copy (`NumberedGLMaps_N`), chains maps through the copies' shared name in small imports.
 
+### 2.2 Scenes (E7, 2026-10-23)
+
+A scene group means what a map variant group means (Joe): renditions and same-place variants;
+other views of a place only by folder or a shared name. Scenes are rarely grouped, so a scene
+starts alone and joins only on positive evidence. Maps are grouped first, by the walk alone, so
+scenes never change the map groups. `variant_grouping.group_scenes` (pure, research
+`grouping/e7/PORT.md`):
+
+1. **Attach** to a map group:
+   - **r7**: a scene that is a certain rendition of maps of one group (pHash, same aspect), anywhere:
+     the rendition beats the type label;
+   - **r2, same folder**: the nearest folder holding maps holds one group, and is the scene's own
+     folder with maps directly in it, or a non-container that is the group's own top folder. A
+     folder of one map and 50 scenes is one group; a scene elsewhere under the import root, an
+     author or a pack folder does not join the only map;
+   - **r3, by name, neighbours only**: in its own folder of several map groups, a scene whose name
+     key (variant, rendition and role words such as *Scene*, *Art*, *Banner* stripped) starts with
+     exactly one group's key (`TC_Anglers Wharf Night_Exterior Scene` → Anglers Wharf).
+
+   Role folders (`Scenes`, `Art`, `Illustrations`, `Assets & Tokens`) and `Maps` folders are
+   transparent for files already typed, so `Pack/Maps/X` mirrors `Pack/Scenes/X`.
+2. **Group the rest**, per folder (**r5**): an identical, leading name key with a real word
+   (numbers, copy suffixes and ID-like names never count; nor do numbered collections), a
+   specific place folder of variant-named scenes (`Golden Forest/Night.jpg`), a pHash rendition,
+   or layout *and* embedding agreement at the scene calibration (edge ≥ 0.50, embedding ≥
+   `scene_agree`, stricter than maps': scene variants share less layout). Across folders (**r6**)
+   only certain renditions join.
+
+A unit holding one map group never joins one holding another. On the research benchmark (test):
+single scenes in scene-only folders wrongly joined 74% → 0%; attach precision 0.999; the real
+library folders 21 correct, 0 wrong (`group_files`: 18 correct, 7 wrong). Known limits: scenes
+beside a location the walk splits need a name key; scenes renamed to numbers can't be attached;
+other views of one place without a folder or a shared name stay apart.
+
 ## 3. Where it runs: once, when an import has finished
 
 User decision (2026-10-22): **groups are minted once, at the end of an import, and the pipeline
@@ -115,11 +149,14 @@ correcting later.
    runs once over all of the job's files, by **detected** type:
    - maps (battlemaps, Auto files the head called maps, and files of a map type that made no
      image) through `group_with_content`, with the images' features;
-   - other types (scenes, tokens and art imported as scenes) join their folder's map group when
-     the nearest effective folder above them (their own included) that holds maps holds maps of
-     one group only (`group_jobs.attach_to_map_groups`; research: 0.98–0.99 precision there).
-     They take no subgroup unless they sit in a folder whose maps of that group share a
-     sub-group label. The rest go through `ImageParser.group_files`.
+   - scenes through `group_scenes` (§2.2): attached to a map group, or grouped among themselves;
+   - other types (tokens, assets, other art) join their folder's map group when the nearest
+     effective folder above them (their own included) that holds maps holds maps of one group
+     only (`group_jobs.attach_to_map_groups`; research: 0.98–0.99 precision there). The rest go
+     through `ImageParser.group_files`.
+
+   A file joining a map group takes no subgroup unless it sits in a folder whose maps of that
+   group share a sub-group label.
 
    Each group becomes an `ImportGroup` and, if any of its files made an image, a gallery group:
    an existing one with the same `(name, author)` when the name identifies the map
@@ -179,9 +216,11 @@ embedding rules are switched off (renditions, names and folders still work).
 Format `scene-atlas-grouping-calibration/2` (`grouping_calibration.py`): `encoder_sha256` (also
 the file's stem), `embedding_dim`, and `thresholds` with exactly the research's names
 `agree_emb`, `coh`, `coh_all`, `coh_key`, `coh_suggest`, `leaf_diff`, `leaf_same_prod`,
-`leaf_same` (→ `EmbeddingThresholds.agree`, `parent`, `whole_folder`, `shared_base`, `suggest`,
-`leaf_different`, `leaf_same_production`, `leaf_same`), each in [-1, 1]. The `leaf_*` values
-were tuned on the medium encoder and quantile-mapped onto the others (`grouping/e6/calibrate_leaf.py`). Files are loaded once; a
+`leaf_same`, `scene_agree_emb` (→ `EmbeddingThresholds.agree`, `parent`, `whole_folder`,
+`shared_base`, `suggest`, `leaf_different`, `leaf_same_production`, `leaf_same`, `scene_agree`),
+each in [-1, 1]. The `leaf_*` values
+and `scene_agree_emb` were tuned on the medium encoder and quantile-mapped onto the others
+(`grouping/e6/calibrate_leaf.py`, `grouping/e7/calibrate_encoders.py`). Files are loaded once; a
 malformed one is logged and skipped. A calibration whose `embedding_dim` doesn't match the
 vectors in hand is not used. One ships for each bundled model (the image-type heads' encoders).
 

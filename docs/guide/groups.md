@@ -24,6 +24,14 @@ It uses three kinds of evidence:
 
 Floors and rooms are only joined when a folder or their names say they belong together. Two maps that merely look alike are kept apart.
 
+### Scenes
+
+Scenes are grouped after the battlemaps and never change them.
+
+- **A scene joins a battlemap group** when it sits in that map's folder (or in a `Scenes`, `Art` or `Illustrations` folder inside it), when its name starts with the map's name (`Anglers Wharf Night Scene.jpg` beside the Anglers Wharf maps), or when it's a copy of one of the maps.
+- **A scene in a different folder doesn't join a map** just because it's in the same import: `Maps/Keep.jpg` and `Other Art/Vista.jpg` stay separate.
+- **Other scenes start on their own.** They're grouped only when their names say they're versions of one picture (`Tavern Day.jpg`, `Tavern Night.jpg`), when they're named `Day`, `Night` and so on inside a folder named after the place, or when the pictures are clearly the same view. Scenes in different folders are only joined if they're copies of the same picture.
+
 ### How your folders affect the result
 
 - **One folder per map gives the best groups.** Anything inside a map's folder, including subfolders for grid versions, sizes or rooms, ends up in that group.

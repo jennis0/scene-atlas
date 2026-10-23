@@ -8,13 +8,15 @@ Pure: no database, no filesystem, no model loading. Entry points:
 - ``group_by_paths``: from paths alone (tree, names, folders, containers), every content join
   withheld. Content only adds joins, so ``group_with_content``'s groups are unions of these
   (tested; the research parity bench measures both);
-- ``effective_folders``: each file's effective folder (ingest finds a file's siblings by it).
+- ``effective_folders``: each file's effective folder (ingest finds a file's siblings by it);
+- ``group_scenes``: an import's scenes, attached to the map groups or grouped among themselves
+  (``scenes``), after the maps were grouped alone.
 
 The groupings are deterministic and independent of input order.
 
 Modules: ``vocab`` (word lists), ``names`` (tokens, identity, folder IDF, hubs, levels),
 ``tree`` (effective tree), ``evidence`` (features, candidate pairs, pair signals), ``cohesion``
-(unit gates), ``walk`` (the walk and ``GroupingParams``), ``naming`` (names and authors via
+(unit gates), ``walk`` (the walk and ``GroupingParams``), ``scenes`` (scenes), ``naming`` (names and authors via
 ``ImageParser``), ``schema`` (inputs and outputs).
 """
 
@@ -27,6 +29,7 @@ from typing import TYPE_CHECKING
 from . import names as N
 from .evidence import ContentFeatures, FeatureMatrix
 from .naming import GroupNamer
+from .scenes import SceneAttachment, SceneGrouping, group_scenes
 from .schema import Grouping, GroupingFile, ProposedGroup, Suggestion
 from .tree import build_tree
 from .walk import (
@@ -49,9 +52,12 @@ __all__ = [
     "GroupingFile",
     "GroupingParams",
     "ProposedGroup",
+    "SceneAttachment",
+    "SceneGrouping",
     "Suggestion",
     "group_by_paths",
     "effective_folders",
+    "group_scenes",
     "group_with_content",
 ]
 
