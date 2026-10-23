@@ -11,12 +11,21 @@ from backend.app.services import grouping_calibration as gc
 from backend.app.services.variant_grouping import EmbeddingThresholds
 
 SHA = "ab" * 32
-THRESHOLDS = {"agree_emb": 0.71, "coh": 0.83, "coh_all": 0.79, "coh_key": 0.67, "coh_suggest": 0.6}
+THRESHOLDS = {
+    "agree_emb": 0.71,
+    "coh": 0.83,
+    "coh_all": 0.79,
+    "coh_key": 0.67,
+    "coh_suggest": 0.6,
+    "leaf_diff": 0.5,
+    "leaf_same_prod": 0.78,
+    "leaf_same": 0.82,
+}
 
 
 def document(**overrides) -> dict:
     return {
-        "format": "scene-atlas-grouping-calibration/1",
+        "format": "scene-atlas-grouping-calibration/2",
         "encoder_sha256": SHA,
         "embedding_dim": 768,
         "thresholds": dict(THRESHOLDS),
@@ -48,14 +57,21 @@ def test_thresholds_map_onto_the_walk():
     calibration = gc.parse_calibration(document())
     assert calibration.encoder_sha256 == SHA and calibration.embedding_dim == 768
     assert calibration.thresholds == EmbeddingThresholds(
-        agree=0.71, parent=0.83, whole_folder=0.79, shared_base=0.67, suggest=0.6
+        agree=0.71,
+        parent=0.83,
+        whole_folder=0.79,
+        shared_base=0.67,
+        suggest=0.6,
+        leaf_different=0.5,
+        leaf_same_production=0.78,
+        leaf_same=0.82,
     )
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"format": "scene-atlas-grouping-calibration/2"},
+        {"format": "scene-atlas-grouping-calibration/1"},
         {"encoder_sha256": ""},
         {"embedding_dim": 0},
         {"embedding_dim": "768"},

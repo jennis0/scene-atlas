@@ -78,10 +78,10 @@ class TestDndavid:
     def test_one_group_per_map_however_cohesive(self):
         seal, g = paths_and_content("dndavid")
         assert len(seal.groups) == len(g.groups) == 22
-        assert g.decisions["dndavid"].container
-        assert {s.reason for s in g.suggestions} == {
-            "whole folder cohesive, no folder/name evidence (merge as sub-groups?)"
-        }
+        # a candidate location (no unit cap), whose catalog names keep every map apart
+        assert not g.decisions["dndavid"].container
+        assert "231/231 different" in g.decisions["dndavid"].summary()
+        assert {s.reason for s in g.suggestions} == {"cohesive, no folder/name evidence"}
 
     def test_names_come_from_the_files(self):
         _, g = paths_and_content("dndavid")

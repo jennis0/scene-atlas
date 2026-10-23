@@ -262,7 +262,7 @@ class _File:
     image_id: int | None  # this job's image from the file
     pending: bool
     group_id: int | None  # the image's gallery group
-    log_aspect: float | None
+    pixels: tuple[int, int] | None  # the image's (width, height)
     name: str | None
     filename: str
 
@@ -320,7 +320,7 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
                 image_id=image_id,
                 pending=bool(pending),
                 group_id=gid,
-                log_aspect=math.log(w / h) if w and h else None,
+                pixels=(w, h) if w and h else None,
                 name=name,
                 filename=fname or PurePosixPath(path).name,
             )
@@ -384,8 +384,9 @@ def _features(
         features[f.item_id] = ContentFeatures(
             phash256=row.phash256 if row else None,
             edge=row.edge if row else None,
-            log_aspect=f.log_aspect,
+            log_aspect=math.log(f.pixels[0] / f.pixels[1]) if f.pixels else None,
             embedding=vectors.get(f.image_id),
+            pixels=f.pixels,
         )
     return features, thresholds
 

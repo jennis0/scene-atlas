@@ -39,24 +39,98 @@ class TestContainers:
         assert set(g.groups[0].subgroups.values()) == {"Armory", "Scriptorium", "Chapel", "Kitchen"}
         assert g.groups[0].reasons["c1 parent+cohesion"] == 3
 
-    def test_too_many_units_is_a_container(self):
-        """More than ``max_units`` (8) units: a pack, not a location, unless the whole folder
-        is cohesive (c0). Two themes here, so units sharing one stay apart too."""
+    def test_many_rooms_of_one_place_join(self):
+        """How many units a folder holds never makes it a container (scale invariance): nine
+        rooms of one production under a specific parent are one map."""
+        g = run_content(rooms("Maker/Castle Keep", 9))
+        assert len(g.groups) == 1 and g.groups[0].reasons["c1 parent+cohesion"] == 8
+        assert not g.decisions["maker/castle keep"].container
+
+    def test_over_the_safety_cap_is_a_container(self):
+        """More than ``max_units`` units: a container, unless the whole folder is cohesive
+        (c0). Two themes here, so units sharing one stay apart too."""
         scenario = rooms("Maker/Castle Keep", 9)
         scenario.files = {
             p: dataclasses.replace(look, theme="other" if p < "Maker/Castle Keep/G" else "one")
             for p, look in scenario.files.items()
         }
-        g = run_content(scenario)
+        g = run_content(scenario, dataclasses.replace(CONTENT_PARAMS, max_units=8))
         assert len(g.groups) == 9
-        assert g.decisions["maker/castle keep"].container
+        assert g.decisions["maker/castle keep"].why == "9 units > 8 (safety cap)"
 
     def test_cohesive_folder_over_the_cap_joins_whole(self):
         """c0 (E5 fix 0b): every unit shares production and theme, and child folders give
         the structural evidence."""
-        g = run_content(rooms("Maker/Castle Keep", 9))
+        g = run_content(
+            rooms("Maker/Castle Keep", 9), dataclasses.replace(CONTENT_PARAMS, max_units=8)
+        )
         assert len(g.groups) == 1 and g.groups[0].reasons["c0 whole-folder"] == 8
         assert not g.decisions["maker/castle keep"].container
+
+    def test_pack_of_different_productions_is_a_container(self):
+        """A folder holding only self-contained maps (each a variant set in its own folder)
+        drawn to different canvases is a pack: its maps never join, however alike."""
+        out = {}
+        for name, size in (("Mages Observatory", 2775), ("Volcanic Dungeon", 3330)):
+            for v, variant in enumerate(["Day", "Night"]):
+                path = f"Maker/{name}/{name.replace(' ', '_')}_{variant}.jpg"
+                out[path] = Look(name, "one style", v, pixels=(size, size))
+        g = run_content(Scenario(out))
+        assert len(g.groups) == 2
+        assert g.decisions["maker"].why.startswith("pack")
+
+    def test_children_of_one_production_are_a_candidate_location(self):
+        """The same children on one canvas: not a pack, so the parent can join them (c1)."""
+        out = {}
+        for name in ("Upper Deck", "Lower Deck"):
+            for v, variant in enumerate(["Day", "Night"]):
+                path = f"Maker/Airship/{name}/{name.replace(' ', '_')}_{variant}.jpg"
+                out[path] = Look(name, "airship", v, pixels=(3000, 3000))
+        g = run_content(Scenario(out))
+        assert len(g.groups) == 1
+        assert not g.decisions["maker/airship"].container
+
+    def test_parent_needs_a_shared_canvas(self):
+        """c1: rooms drawn to different canvases are different maps, even under a specific
+        parent with files of its own (so not a pack)."""
+        out = {
+            "Maker/Castle Keep/Castle_Keep_Overview.jpg": Look(
+                "overview", "keep", pixels=(900, 900)
+            )
+        }
+        for name, size in (("Armory", 2775), ("Chapel", 3330)):
+            for v, variant in enumerate(["Day", "Night"]):
+                path = f"Maker/Castle Keep/{name}/{name}_{variant}.jpg"
+                out[path] = Look(name, "keep", v, pixels=(size, size))
+        g = run_content(Scenario(out))
+        armory = group_of(g, "Maker/Castle Keep/Armory/Armory_Day.jpg")
+        assert "Maker/Castle Keep/Chapel/Chapel_Day.jpg" not in armory.keys
+        assert len(g.groups) == 3
+
+    def test_known_author_folder_is_a_container(self):
+        """A folder named after a creator in the library is the author, never a map: alone it
+        would be a candidate location whose cohesive children join."""
+        scenario = rooms("Czepeku", 2)
+        assert len(run_content(scenario).groups) == 1
+        g = run_content(scenario, known_authors=["Czepeku"])
+        assert len(g.groups) == 2
+        assert g.decisions["czepeku"].why == "known author"
+
+    def test_a_subtree_groups_the_same_alone(self):
+        """Scale invariance: a maker folder groups the same imported alone as inside a larger
+        import with other makers' folders."""
+        alone = rooms("Maker/Castle Keep", 3)
+        alone.files["Maker/Ruined_Tower_Day.jpg"] = Look("tower", "ruin")
+        alone.files["Maker/Ruined_Tower_Night.jpg"] = Look("tower", "ruin", variant=1)
+        bigger = Scenario(dict(alone.files))
+        for k in range(12):
+            for v, variant in enumerate(["Day", "Night"]):
+                path = f"Other Maker/Map {k:02d}/Map_{k:02d}_{variant}.jpg"
+                bigger.files[path] = Look(f"other {k}", variant=v)
+        inside = {frozenset(grp.keys) & set(alone.files) for grp in run_content(bigger).groups} - {
+            frozenset()
+        }
+        assert inside == {frozenset(grp.keys) for grp in run_content(alone).groups}
 
     def test_generic_name_is_a_container(self):
         g = run_content(rooms("Maker/Pack 03", 3))
@@ -193,11 +267,13 @@ class TestFollowUps:
 
 class TestContentRules:
     def test_agreement_never_joins_against_names(self):
-        """Same layout, but the names carry different keys: two maps (a3 is vetoed)."""
+        """Same layout, but two variant sets whose names carry different keys: two maps (a3 is
+        vetoed, and the leaf default sees distinct names on both sides)."""
         scenario = Scenario(
             {
-                "M/Flat/Forest_Road_Day.jpg": Look("one layout"),
-                "M/Flat/Desert_Camp_Day.jpg": Look("one layout", variant=1),
+                f"M/Flat/{name}_{variant}.jpg": Look("one layout", variant=2 * k + v)
+                for k, name in enumerate(("Forest_Road", "Desert_Camp"))
+                for v, variant in enumerate(["Day", "Night"])
             }
         )
         assert len(run_content(scenario).groups) == 2
@@ -214,23 +290,41 @@ class TestContentRules:
         assert len(g.groups) == 1 and g.groups[0].reasons["x1 rendition"] == 1
 
     def test_renditions_between_two_large_groups_are_a_suggestion(self):
+        """x1 between two groups both ``big_join`` large: a suggestion, never a join."""
+        out = {}
+        for maker, name in (("Kraken Maker", "Kraken Cove"), ("Dragon Maker", "Dragon Peak")):
+            for v, variant in enumerate(["Day", "Night", "Winter", "Summer"]):
+                out[f"{maker}/{name}/{name.replace(' ', '_')}_{variant}.jpg"] = Look(
+                    name, variant=v
+                )
+        # a Kraken Cove image named like Dragon Peak's files, so the name joins it there (a2)
+        out["Dragon Maker/Dragon Peak/Dragon_Peak_Fog.jpg"] = Look("Kraken Cove", rendition=1)
+        g = run_content(Scenario(out), dataclasses.replace(CONTENT_PARAMS, big_join=4))
+        assert len(g.groups) == 2
+        assert [s.reason for s in g.suggestions] == ["rendition(two large groups)"]
+
+    def test_a_misfiled_rendition_joins_its_own_map(self):
+        """A Kraken Cove copy filed in Dragon Peak's folder under a numbered name: the folder's
+        maps reject it on content (a7), and the rendition takes it to Kraken Cove (x1)."""
         out = {}
         for maker, name in (("Kraken Maker", "Kraken Cove"), ("Dragon Maker", "Dragon Peak")):
             for k in range(20):
-                slug = name.replace(" ", "_")
-                out[f"{maker}/{name}/{slug}_v{k}.jpg"] = Look(name, variant=k)
-        # a Kraken Cove image filed (and named) as Dragon Peak: a rendition across two big groups
+                out[f"{maker}/{name}/{name.replace(' ', '_')}_v{k}.jpg"] = Look(name, variant=k)
         out["Dragon Maker/Dragon Peak/Dragon_Peak_v99.jpg"] = Look("Kraken Cove", rendition=1)
         g = run_content(Scenario(out))
-        assert len(g.groups) == 2
-        assert [s.reason for s in g.suggestions] == ["rendition(two large groups)"]
+        kraken = group_of(g, "Kraken Maker/Kraken Cove/Kraken_Cove_v0.jpg")
+        assert "Dragon Maker/Dragon Peak/Dragon_Peak_v99.jpg" in kraken.keys
+        assert len(g.groups) == 2 and kraken.reasons["x1 rendition"] == 1
 
     def test_missing_features_withhold_content_joins(self):
         """A room without features takes part through names and folders only."""
         scenario = rooms("Maker/Castle Keep", 3)
         content = scenario.content()
         for path in by_prefix(content.keys(), "Maker/Castle Keep/Chapel/"):
-            del content[path]
+            # its size is still known (every image has one), so the children share production
+            content[path] = dataclasses.replace(
+                content[path], phash256=None, edge=None, embedding=None
+            )
         from backend.app.services.variant_grouping import group_with_content
 
         from .support import parser
@@ -264,12 +358,64 @@ class TestContentRules:
         g = run_content(scenario)
         assert len(g.groups) == 1 and g.groups[0].reasons["c0 whole-folder"] == 3
 
-    def test_similarity_alone_never_joins(self):
-        """A flat folder of cohesive one-image maps (dndavid): suggestions, no joins."""
-        out = {f"dndavid/{n}HD.jpg": Look(n, "style") for n in ("Agora", "Arena", "Crypt")}
+    def test_catalog_named_single_maps_stay_apart(self):
+        """A flat folder of cohesive one-image maps, each with a name of its own (dndavid): the
+        names say different maps, so the leaf default keeps them apart; suggestions only."""
+        names = ("Abandoned_Temple", "Arbor_Watch_Tower", "Bandit_Camp")
+        out = {f"dndavid/{n}HD.jpg": Look(n, "style") for n in names}
         g = run_content(Scenario(out))
         assert len(g.groups) == 3
         assert {s.reason for s in g.suggestions} == {"cohesive, no folder/name evidence"}
+        assert "3/3 different" in g.decisions["dndavid"].summary()
+
+
+class TestLeafDefault:
+    """a7: in a specific leaf folder, units join unless shown to be different maps."""
+
+    @staticmethod
+    def tavern(names: tuple[str, ...], theme: str = "tavern") -> Scenario:
+        """Single images of one place, each a different scene (different layouts)."""
+        return Scenario({f"Desert City Tavern/{n}.webp": Look(f"tavern {n}", theme) for n in names})
+
+    def test_variants_named_like_maps_join(self):
+        """Heavy single variants whose names read as names (``Biohazard``, ``Last_Call``): no
+        strong evidence either way, so the folder decides."""
+        g = run_content(self.tavern(("Biohazard", "Last_Call", "Bio_Research")))
+        assert len(g.groups) == 1 and g.groups[0].reasons["a7 leaf default"] == 2
+
+    def test_low_cohesion_is_different(self):
+        """Content that is clearly unrelated is a different map whatever the folder says."""
+        scenario = self.tavern(("Biohazard", "Last_Call"))
+        scenario.files["Desert City Tavern/Snowy_Pass.webp"] = Look("pass", "mountains")
+        assert len(run_content(scenario).groups) == 2
+
+    def test_needs_content(self):
+        """Paths only: the leaf default is withheld (content only adds joins)."""
+        assert len(run_paths(self.tavern(("Biohazard", "Last_Call")).grouping_files()).groups) == 2
+
+    def test_series_are_different_maps(self):
+        """``Volcanic Path`` and ``Volcanic Path Vol2``: one head word, different series."""
+        out = {
+            f"Maker/Lava Lands/{stem}_{variant}.jpg": Look(f"layout {stem}", "volcano", v)
+            for stem in ("Volcanic_Path", "Volcanic_Path_Vol2", "Ash_Fields")
+            for v, variant in enumerate(["Day", "Night"])
+        }
+        g = run_content(Scenario(out))
+        assert len(g.groups) == 3
+        assert "3/3 different" in g.decisions["maker/lava lands"].summary()
+
+    def test_a_dominant_map_does_not_absorb_a_minority(self):
+        """a5 joins only files that carry the folder's common name: ``SnowyCoast`` is a map of
+        its own in a folder mostly of ``CanalCity``."""
+        out = {
+            f"Maker/Seaside/CanalCity_{variant}.jpg": Look("canal city", "canal", v)
+            for v, variant in enumerate(["Day", "Night", "Winter", "Summer", "Rain", "Fog"])
+        }
+        out["Maker/Seaside/SnowyCoast_Day.jpg"] = Look("snowy coast", "coast")
+        out["Maker/Seaside/SnowyCoast_Night.jpg"] = Look("snowy coast", "coast", variant=1)
+        g = run_content(Scenario(out))
+        assert len(g.groups) == 2
+        assert len(group_of(g, "Maker/Seaside/SnowyCoast_Day.jpg").keys) == 2
 
 
 def test_small_maker_folder_keeps_maps_apart():
@@ -287,13 +433,17 @@ def test_small_maker_folder_keeps_maps_apart():
 
 
 def test_small_flat_maker_folder_keeps_maps_apart():
-    paths = [
-        f"Moonlight Maps/Moonlight_Maps_{m}_{v}_18x22.jpg"
+    """A flat maker folder whose files share the house prefix ``Moonlight_Maps_``: the shared
+    base is cohesion-gated (as folder IDF gates it inside a large import), so the variants of
+    each map join on content and the two maps stay apart."""
+    out = {
+        f"Moonlight Maps/Moonlight_Maps_{m}_{v}_18x22.jpg": Look(m, variant=k)
         for m in ("Forest_Cottage", "Deep_Cave")
-        for v in ("Grass01", "Snow02_Night")
-    ]
-    g = run_paths(files(paths))
+        for k, v in enumerate(("Grass01", "Snow02_Night"))
+    }
+    g = run_content(Scenario(out))
     assert sorted(grp.name for grp in g.groups) == ["Deep Cave", "Forest Cottage"]
+    assert len(run_paths(Scenario(out).grouping_files()).groups) == 4  # the gate needs content
 
 
 def test_folder_name_followed_by_variant_words_is_the_map():

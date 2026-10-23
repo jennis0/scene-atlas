@@ -783,10 +783,10 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 **Decision:**
 
-1. **Maps are grouped by the tree walk** (design/variant-grouping.md), with content, by detected type. Other images join their folder's map group when that folder holds one map group only; the rest keep `group_files`.
+1. **Maps are grouped by the tree walk** (design/variant-grouping.md), with content, by detected type. Other images join their folder's map group when that folder holds one map group only; the rest keep `group_files`. The walk is **scale-invariant** (research E6, design §2.1): a folder is grouped the same imported alone or inside a large import, so its rules ask what a folder is, never how much it holds; size only adds naming-convention evidence.
 2. **Groups are minted once, when an import has finished, and the pipeline never changes them afterwards** (user decision, 2026-10-22). While importing, images are committed without a group and listed nowhere (`images.awaiting_grouping`); progress is per file. A job with nothing open is `grouping` until a grouping phase identifies its groups over all its files and mints them in one write transaction; then it is `completed`.
 3. **Late files** (retry, include, import as copy) re-open the job and are grouped when it finishes again: only their new images are placed, into the group their file was in or a group of the job their group overlaps, else a new one. Nothing already grouped moves.
-4. **Grouping features are stored per image**: a 256-bit pHash identical to the research catalog's, and a 32×32 edge-map layout descriptor. Embedding thresholds ship per encoder (`data/heads/grouping/<sha>.json`); without one, embedding rules are off.
+4. **Grouping features are stored per image**: a 256-bit pHash identical to the research catalog's, and a 32×32 edge-map layout descriptor; pixel sizes come from the image row. Embedding thresholds ship per encoder (`data/heads/grouping/<sha>.json`); without one, embedding rules are off.
 5. **Suggestions** (joins the walk deliberately withholds, with reasons) are computed but not yet stored or shown.
 
 **Alternatives considered:**

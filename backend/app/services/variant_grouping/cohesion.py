@@ -3,13 +3,13 @@
 A *unit* is a set of files already joined. At a meaningful parent folder, units join as
 sub-groups only where content does not object: their **cohesion** (mean cross embedding cosine,
 raised when their layouts overlap: the same building drawn again) is high, and their
-**production fingerprint** (aspect ratio; ``NxM`` where both name one) is compatible. Cohesion
-only ever gates a join that the folder structure or the names propose; it is never the reason
-for one.
+**production fingerprint** (aspect ratio; ``NxM`` where both name one; a shared canvas, where
+asked and both pixel sizes are known) is compatible. Cohesion only ever gates a join that the
+folder structure or the names propose; it is never the reason for one.
 
 A unit with no embedding, or no known aspect, is never compatible: the join is withheld.
 Ported from scene-atlas-learning ``grouping/e5/walk.py`` (``_unit_sim``, ``_cohesive``,
-``_whole_folder``).
+``_whole_folder``); the canvas and ``production_compatible`` from ``grouping/e6``.
 """
 
 from __future__ import annotations
@@ -63,16 +63,71 @@ def _nxm_compatible(nxm_sets: Sequence[set[tuple[int, int]]]) -> np.ndarray:
     return share | ~named[:, None] | ~named[None, :]
 
 
+def _median_aspects(units: Sequence[Sequence[int]], fm: FeatureMatrix) -> np.ndarray:
+    """Each unit's median log aspect (NaN when none of its files has one)."""
+    return np.array(
+        [
+            float(np.median(fm.log_aspect[known])) if len(known) else np.nan
+            for known in ([i for i in u if fm.has_aspect[i]] for u in units)
+        ]
+    )
+
+
+def canvas_compatible(
+    units: Sequence[Sequence[int]], fm: FeatureMatrix, tolerance: float
+) -> np.ndarray:
+    """(m, m) bool: the units share a canvas, some pixel size of one within ``tolerance``
+    (relative, in both dimensions) of some pixel size of the other. Renditions at several DPIs
+    give a unit several sizes; a unit with no known size is compatible (no evidence either way).
+    """
+    sizes = [
+        np.unique(fm.pixels[known], axis=0) if known else None
+        for known in ([i for i in u if fm.has_pixels[i]] for u in units)
+    ]
+    m = len(units)
+    out = np.ones((m, m), dtype=bool)
+    for x in range(m):
+        for y in range(x + 1, m):
+            a, b = sizes[x], sizes[y]
+            if a is None or b is None:
+                continue
+            relative = np.abs(a[:, None, :] - b[None, :, :]) / np.maximum(
+                a[:, None, :], b[None, :, :]
+            )
+            out[x, y] = out[y, x] = bool((relative.max(axis=2) <= tolerance).any())
+    return out
+
+
+def production_compatible(
+    units: Sequence[Sequence[int]],
+    fm: FeatureMatrix,
+    nxm: Sequence[tuple[int, int] | None],
+    aspect_tolerance: float,
+    canvas_tolerance: float,
+) -> np.ndarray:
+    """(m, m) bool: one production. The same aspect (both known), the same ``NxM`` where both
+    name one, and a shared canvas where both sizes are known. Needs no embedding."""
+    aspect = _median_aspects(units, fm)
+    with np.errstate(invalid="ignore"):  # NaN (unknown aspect) compares False
+        same = np.abs(aspect[:, None] - aspect[None, :]) < aspect_tolerance
+    nxm_sets = [{size for i in u if (size := nxm[i]) is not None} for u in units]
+    same &= _nxm_compatible(nxm_sets) & canvas_compatible(units, fm, canvas_tolerance)
+    np.fill_diagonal(same, True)
+    return same
+
+
 def unit_similarity(
     units: Sequence[Sequence[int]],
     fm: FeatureMatrix,
     nxm: Sequence[tuple[int, int] | None],
     p: CohesionParams,
+    canvas_tolerance: float | None = None,
 ) -> UnitSimilarity:
     """Cohesion and fingerprint compatibility between ``units`` (lists of file indices).
 
     A unit's embedding is the mean of its members' (missing ones count as zero, so a unit with
     few embedded files is conservatively weak); the dot of two means is the mean cross cosine.
+    With ``canvas_tolerance``, compatibility also needs a shared canvas (``canvas_compatible``).
     """
     means = np.stack([fm.embedding[list(u)].mean(axis=0) for u in units])
     cohesion = means @ means.T
@@ -81,16 +136,13 @@ def unit_similarity(
     cohesion = np.where(overlap, np.maximum(cohesion, p.parent + _ABOVE), cohesion)
 
     has = np.array([fm.has_embedding[list(u)].any() for u in units])
-    aspect = np.array(
-        [
-            float(np.median(fm.log_aspect[known])) if len(known) else np.nan
-            for known in ([i for i in u if fm.has_aspect[i]] for u in units)
-        ]
-    )
+    aspect = _median_aspects(units, fm)
     with np.errstate(invalid="ignore"):  # NaN (unknown aspect) compares False
         aspect_ok = np.abs(aspect[:, None] - aspect[None, :]) < p.aspect_tolerance
     nxm_sets = [{size for i in u if (size := nxm[i]) is not None} for u in units]
     compatible = aspect_ok & _nxm_compatible(nxm_sets) & has[:, None] & has[None, :]
+    if canvas_tolerance is not None:
+        compatible &= canvas_compatible(units, fm, canvas_tolerance)
     np.fill_diagonal(compatible, True)
     return UnitSimilarity(cohesion, compatible)
 

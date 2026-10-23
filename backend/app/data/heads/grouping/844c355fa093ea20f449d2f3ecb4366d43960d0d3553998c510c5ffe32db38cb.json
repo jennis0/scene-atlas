@@ -1,5 +1,5 @@
 {
-  "format": "scene-atlas-grouping-calibration/1",
+  "format": "scene-atlas-grouping-calibration/2",
   "encoder_version": "openclip-vitb32-rc3",
   "encoder_sha256": "844c355fa093ea20f449d2f3ecb4366d43960d0d3553998c510c5ffe32db38cb",
   "embedding_dim": 512,
@@ -8,7 +8,10 @@
     "coh": 0.7865,
     "coh_all": 0.7712,
     "coh_key": 0.6524,
-    "coh_suggest": 0.63
+    "coh_suggest": 0.63,
+    "leaf_diff": 0.4984,
+    "leaf_same_prod": 0.7743,
+    "leaf_same": 0.8099
   },
   "method": "quantile-mapped from E5's thresholds (siglip2_base_384_rc4 Qdrant vectors) onto Scene Atlas-style ONNX embeddings of 400 px medium thumbnails; grouping/e5/calibrate.py",
   "validation": {
@@ -21,5 +24,7 @@
     "embeddings_off_reserved_f1": 0.786
   },
   "built_at": "2026-10-22T20:58:00+00:00",
-  "git": "a6652c6-dirty"
+  "git": "a6652c6-dirty",
+  "leaf_method": "leaf_diff / leaf_same_prod / leaf_same: E6 change 2 (leaf default, positive different-map evidence) cohesion cuts, tuned on the dev small-import suite with the medium SA embeddings; quantile-mapped onto this encoder on the unit population of dev images (cosine of group-half means and of within-maker group means), t -> Q_this(F_medium(t)), as grouping/e5/calibrate.py; grouping/e6/calibrate_leaf.py.",
+  "leaf_source": "E6, tuned on the medium SA embeddings; mapped to this encoder"
 }

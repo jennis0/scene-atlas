@@ -29,7 +29,14 @@ from .evidence import ContentFeatures, FeatureMatrix
 from .naming import GroupNamer
 from .schema import Grouping, GroupingFile, ProposedGroup, Suggestion
 from .tree import build_tree
-from .walk import EmbeddingThresholds, FolderDecision, GroupingParams, WalkFiles, run_walk
+from .walk import (
+    EmbeddingThresholds,
+    FolderDecision,
+    GroupingParams,
+    WalkFiles,
+    author_key,
+    run_walk,
+)
 
 if TYPE_CHECKING:
     from backend.app.services.image_parser import ImageParser
@@ -114,7 +121,14 @@ def _group[K: Hashable](
         matrix = FeatureMatrix(
             [features.get(k) for k in keys], use_embeddings=params.embedding is not None
         )
-    result = run_walk(walk_files, matrix, params)
+    # A folder named after a known creator, as written or as the parser cleans it, is an author
+    authors = frozenset(
+        key
+        for author in known_authors
+        for key in (author_key(author), author_key(parser.clean_group_name(author)))
+        if key
+    )
+    result = run_walk(walk_files, matrix, params, authors)
 
     members: dict[int, list[int]] = defaultdict(list)
     for i, root in enumerate(result.root):

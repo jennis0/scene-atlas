@@ -47,13 +47,15 @@ class ContentFeatures:
     - ``edge``: the 1024-float edge-map descriptor, z-scored (normalised to unit length here, so
       a dot product is a correlation; the stored z-scored vector and the unit vector both work);
     - ``log_aspect``: natural log of width / height;
-    - ``embedding``: the active model's image embedding (normalised here).
+    - ``embedding``: the active model's image embedding (normalised here);
+    - ``pixels``: (width, height) in pixels, the canvas of the production fingerprint.
     """
 
     phash256: bytes | None = None
     edge: np.ndarray | None = None
     log_aspect: float | None = None
     embedding: np.ndarray | None = None
+    pixels: tuple[int, int] | None = None
 
 
 def _unit_rows(rows: np.ndarray) -> np.ndarray:
@@ -78,6 +80,8 @@ class FeatureMatrix:
         edge = np.zeros((n, EDGE_DIM), dtype=np.float32)
         self.has_aspect = np.zeros(n, dtype=bool)
         self.log_aspect = np.zeros(n, dtype=np.float32)
+        self.has_pixels = np.zeros(n, dtype=bool)
+        self.pixels = np.zeros((n, 2), dtype=np.int64)
         emb_rows: dict[int, np.ndarray] = {}
         for i, f in enumerate(features):
             if f is None:
@@ -95,6 +99,9 @@ class FeatureMatrix:
             if f.log_aspect is not None and np.isfinite(f.log_aspect):
                 self.has_aspect[i] = True
                 self.log_aspect[i] = f.log_aspect
+            if f.pixels is not None and min(f.pixels) > 0:
+                self.has_pixels[i] = True
+                self.pixels[i] = f.pixels
             if use_embeddings and f.embedding is not None:
                 emb_rows[i] = np.asarray(f.embedding, dtype=np.float32).ravel()
         self.edge = _unit_rows(edge)

@@ -160,8 +160,9 @@ OTHER_FOREST = {
 def topic_folder() -> Scenario:
     """A topic folder holding several makers' maps flat (audit, recipe ``topic``), and
     topic / author / group folders where the author folder recurs under several topics
-    (``topic_author_group``: ``Woods/Moonlight Maps`` must not merge its maps). Every map in a
-    topic shares the topic's theme, so cohesion alone would join them."""
+    (``topic_author_group``: ``Woods/Moonlight Maps`` must not merge its maps). Every map of
+    one maker in a topic shares a style, so cohesion alone would join them; the other makers'
+    maps share another style (one maker draws ``Forest Road``, another ``Forest Ruins``)."""
     files: dict[str, Look] = {}
     for name in MOONLIGHT_FOREST:
         s = _slug(name)
@@ -170,7 +171,7 @@ def topic_folder() -> Scenario:
     for stem, variants in OTHER_FOREST.items():
         for v, variant in enumerate(variants):
             sep = "_" if variant and not variant.startswith("_") else ""
-            files[f"Forests/{stem}{sep}{variant}.jpg"] = Look(stem, "forest", v)
+            files[f"Forests/{stem}{sep}{variant}.jpg"] = Look(stem, "forest, other makers", v)
     topics = {"Woods": ["Forest Switch", "Forest Temple", "Druid Grove"], "Caves": ["Deep Cave"]}
     topics["Caves"] += ["Crystal Cavern", "Goblin Den"]
     for topic, maps in topics.items():

@@ -3,21 +3,23 @@
 The walk's embedding rules (probable joins by layout *and* embedding agreement, the
 cohesion gates of meaningful parents, whole folders and large families) compare cosine
 similarities against thresholds that depend on the encoder. They are calibrated by
-scene-atlas-learning (``grouping/e5/calibrate.py``) on Scene Atlas–style ONNX embeddings of
+scene-atlas-learning (``grouping/e5/calibrate.py``; the ``leaf_*`` thresholds
+``grouping/e6/calibrate_leaf.py``) on Scene Atlas–style ONNX embeddings of
 one exact vision encoder, and bundled here as ``data/heads/grouping/<sha256>.json``, keyed
 by the sha256 of that encoder, like the image-type heads (``image_type_classifier``).
 
-Format ``scene-atlas-grouping-calibration/1``::
+Format ``scene-atlas-grouping-calibration/2`` (``/1`` lacked the ``leaf_*`` thresholds)::
 
     {
-      "format": "scene-atlas-grouping-calibration/1",
+      "format": "scene-atlas-grouping-calibration/2",
       "encoder_sha256": "<sha256 of clip_vision_encoder.onnx>",
       "embedding_dim": 768,
       "thresholds": {"agree_emb": 0.70, "coh": 0.82, "coh_all": 0.80,
-                     "coh_key": 0.68, "coh_suggest": 0.66}
+                     "coh_key": 0.68, "coh_suggest": 0.66,
+                     "leaf_diff": 0.55, "leaf_same_prod": 0.80, "leaf_same": 0.84}
     }
 
-The threshold names are the research's (``grouping/e5/walk.py``). A model with no
+The threshold names are the research's (``grouping/e5/walk.py``, ``grouping/e6``). A model with no
 calibration (or a file whose ``embedding_dim`` doesn't match its vectors) groups without
 the embedding rules: pHash renditions, names and folders still work.
 """
@@ -36,7 +38,7 @@ from backend.app.services.variant_grouping import EmbeddingThresholds
 logger = logging.getLogger(__name__)
 
 CALIBRATIONS_DIR = Path(__file__).resolve().parents[1] / "data" / "heads" / "grouping"
-SUPPORTED_FORMATS = frozenset({"scene-atlas-grouping-calibration/1"})
+SUPPORTED_FORMATS = frozenset({"scene-atlas-grouping-calibration/2"})
 
 # Research threshold name -> EmbeddingThresholds field
 _THRESHOLD_FIELDS = {
@@ -45,6 +47,9 @@ _THRESHOLD_FIELDS = {
     "coh_all": "whole_folder",  # c0 whole folder
     "coh_key": "shared_base",  # a4 / b4 gated shared base
     "coh_suggest": "suggest",  # near-miss suggestions
+    "leaf_diff": "leaf_different",  # a7 leaf default: different maps below this
+    "leaf_same_prod": "leaf_same_production",  # ... the same with one weak cue + one production
+    "leaf_same": "leaf_same",  # ... the same with one weak cue
 }
 
 

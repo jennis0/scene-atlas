@@ -16,18 +16,26 @@ Each effective folder P is processed deepest first:
    ====  ========================  ===============================================================
 
    A content split stands unless names or folders give positive evidence.
-2. **Container or meaningful.** Containers (root, generic / recurring / house-prefix name, too
-   many units) stop the ascent: everything below is sealed. ``c0 whole-folder`` lets an
-   over-cap or folder-named folder join whole when every unit shares production and theme.
+2. **Container or meaningful**, decided by what a folder *is*, never by how much it holds, so a
+   subtree is grouped the same alone or inside a large import (design §2.1). Containers stop
+   the ascent: everything below is sealed. A folder is one when it is the root; generically or
+   recurrently named; named after a known author; named by a house prefix spread over several
+   of its folders; a **pack** (only child folders, each a map of its own, of different
+   productions); or over the ``max_units`` safety cap. ``c0 whole-folder`` lets an over-cap or
+   folder-named folder join whole when every unit shares production and theme.
 3. **Meaningful parent** (stage ``b``): b1–b4 as a1–a4 across its units, ``b5 unnamed parts``
    (``1st_Floor.png`` inside a folder-named map), and ``c1 parent+cohesion``: units from
-   different child folders join, the parent being the evidence and cohesion only the gate.
+   different child folders of one production (aspect, ``NxM``, canvas) join, the parent being
+   the evidence and cohesion only the gate. In a specific leaf folder, ``a7 leaf default``: with
+   no strong evidence either way the folder decides, so its units join unless content or names
+   positively say they are different maps (three-valued evidence: same, different, unknown).
 4. **Cross-tree** (narrow): ``x1 rendition`` anywhere, except between two large groups.
    Everything else is returned as a suggestion.
 
 Content rules need features; a file without them takes part through names and folders only, so a
 paths-only walk is the full walk with every content join withheld. Ported from
-scene-atlas-learning ``grouping/e5/walk.py`` (``mode="narrow"``, E5 defaults).
+scene-atlas-learning ``grouping/e5/walk.py`` (``mode="narrow"``, E5 defaults), with the
+scale-invariance changes of ``grouping/e6`` (containers, the leaf default, the c1 canvas).
 """
 
 from __future__ import annotations
@@ -37,6 +45,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.cluster.hierarchy import fcluster, linkage
 
 from . import names as N
 from .cohesion import (
@@ -44,6 +53,7 @@ from .cohesion import (
     average_linkage,
     cohesive_partition,
     gated_distance,
+    production_compatible,
     unit_similarity,
     whole_folder_cohesive,
 )
@@ -57,13 +67,18 @@ UNNAMED_PART_SHARE = 0.8
 # a6: a named leaf folder is one map when this share of its files has no identity at all
 # (``Golden Forest/Night.webp``). The parser's ``group_files`` Pass 0 uses 0.7 for its rule.
 VARIANT_ONLY_SHARE = 0.8
+# a7: complete-linkage distance standing in for "positively different" (cosine distances <= 1
+# here); the cut sits between, so a unit never joins a cluster holding a map it differs from.
+_DIFFERENT = 2.0
+_LEAF_CUT = 1.5
 
 
 @dataclass(frozen=True)
 class EmbeddingThresholds:
     """Embedding thresholds; they depend on the encoder (design §5).
 
-    Defaults are E5's, tuned on siglip2_base_384_rc4 image embeddings.
+    Defaults are E5's, tuned on siglip2_base_384_rc4 image embeddings; the three ``leaf_*``
+    are E6's, tuned on the Scene Atlas medium encoder's.
     """
 
     agree: float = 0.70  # a3 / b3: embedding cosine of an agreeing pair (with the edge map)
@@ -71,6 +86,12 @@ class EmbeddingThresholds:
     whole_folder: float = 0.80  # c0: mean cohesion over every unit pair of the folder
     shared_base: float = 0.68  # a4 / b4 gate: cohesion of a gated shared-base family
     suggest: float = 0.66  # cohesion of a parent near-miss worth suggesting
+    # a7: two units of a leaf are different maps below ``leaf_different``; with one weak cue
+    # (names differ, or two variant sets) they are the same only with one production and
+    # ``leaf_same_production``, or with ``leaf_same``
+    leaf_different: float = 0.55
+    leaf_same_production: float = 0.80
+    leaf_same: float = 0.84
 
 
 @dataclass(frozen=True)
@@ -89,10 +110,12 @@ class GroupingParams:
     big_family: int = 8  # a shared base over more units than this looks like a collection
     layout_overlap: float = 0.25  # mean cross edge correlation that raises unit cohesion
     aspect_tolerance: float = 0.03  # fingerprint: |log aspect| difference of compatible units
+    canvas_tolerance: float = 0.02  # fingerprint: relative pixel-size difference of one canvas
     whole_folder_compatible: float = 0.9  # c0: share of unit pairs with compatible fingerprints
     whole_folder_max_units: int = 200  # c0 is not tried on folders with more units
-    max_units: int = 8  # a folder with more units is a container
-    max_units_named: int = 60  # ... unless it is named after its files
+    # Safety cap: a folder with more units is a container, and the leaf default is not tried.
+    # Above any single map (dev: the largest has 33 units after stage a, the 99th percentile 12).
+    max_units: int = 40
     small_folder: int = 80  # all pairs are compared inside folders this small
     small_subtree: int = 150  # ... and inside subtrees this small
     big_join: int = 20  # x1 between two groups both this large becomes a suggestion
@@ -225,8 +248,15 @@ class _Pairs:
 class _Walk:
     """One run of the walk. State: the union-find, sealed files and sub-group parents."""
 
-    def __init__(self, files: WalkFiles, fm: FeatureMatrix | None, params: GroupingParams):
+    def __init__(
+        self,
+        files: WalkFiles,
+        fm: FeatureMatrix | None,
+        params: GroupingParams,
+        known_authors: frozenset[str],
+    ):
         self.files = files
+        self.known_authors = known_authors  # ``author_key``s of creators in the library
         self.p = params
         self.n = n = len(files.stems)
         self.fm = fm if fm is not None and fm.any_content else None
@@ -425,9 +455,12 @@ class _Walk:
                             joined.append(part[0])
         return joined
 
-    def _folder_named_joins(self, own: Sequence[int], d: FolderDecision) -> None:
-        """a5: the folder's common tokens are the map's name, so its named files are one map."""
-        named = [i for i in own if self.names.named[i]]
+    def _folder_named_joins(self, P: Folder, own: Sequence[int], d: FolderDecision) -> None:
+        """a5: the folder's common tokens are the map's name, so its named files that carry
+        that name are one map (a minority map in the folder keeps its own)."""
+        info = self.names.folder_info.get(P)
+        common = set(info.common) if info is not None else set()
+        named = [i for i in own if self.names.named[i] and common <= set(self.names.full[i] or ())]
         for i in named[1:]:
             self._join(named[0], i, "a5 folder-named", d)
 
@@ -446,26 +479,101 @@ class _Walk:
     def _folder_named(self, P: Folder) -> bool:
         """Structural evidence that a folder is one map: named after its files, or its files'
         common tokens are the map's name."""
+        return self._named_after_files(P) or self._named_map(P)
+
+    def _named_map(self, P: Folder) -> bool:
+        """The folder's files' common tokens are its map's name (folder IDF), and every file
+        with a name key carries them: a straggler with a name of its own is another map, so the
+        common name would only be the majority map's."""
         info = self.names.folder_info.get(P)
-        return self._named_after_files(P) or bool(info and info.named_map)
+        if not (info and info.named_map):
+            return False
+        nm = self.names
+        common = set(info.common)
+        return all(
+            common <= set(nm.full[i] or ())
+            for i in self.own.get(P, [])
+            if nm.veto_key[i] is not None
+        )
 
     def _container(self, P: Folder, n_units: int) -> tuple[bool, str, bool]:
-        """(container?, why, over the unit cap?) for a folder holding ``n_units`` units."""
+        """(container?, why, over the unit cap?) for a folder holding ``n_units`` units, from
+        what the folder is; the pack test needs its files (``_pack``)."""
         if not P:
             return True, "root", False
         if self.tree.name_class.get(P) is FolderClass.GENERIC:
             return True, "generic name", False
         if P[-1] in self.recurring:
             return True, "recurring name (author/topic folder)", False
+        if self.known_authors and any(
+            author_key(raw) in self.known_authors for raw in self.tree.raw_names.get(P, {P[-1]})
+        ):
+            return True, "known author", False
         folder_tokens = set(N.name_identity(P[-1]))
-        if folder_tokens and folder_tokens <= self.names.global_house:
+        if (
+            folder_tokens
+            and folder_tokens <= self.names.global_house
+            and self._house_spread(P, folder_tokens)
+        ):
             return True, "house-prefix name (author/collection folder)", False
-        named_after = self._named_after_files(P)
-        cap = self.p.max_units_named if named_after else self.p.max_units
-        suffix = " (folder named after its files)" if named_after else ""
-        if n_units > cap:
-            return True, f"{n_units} units > {cap}{suffix}", True
-        return False, f"candidate location{suffix}", False
+        if n_units > self.p.max_units:
+            return True, f"{n_units} units > {self.p.max_units} (safety cap)", True
+        named_after = " (folder named after its files)" if self._named_after_files(P) else ""
+        return False, f"candidate location{named_after}", False
+
+    def _house_spread(self, P: Folder, folder_tokens: set[str]) -> bool:
+        """A house prefix is a convention across maps: the folder it names is a container only
+        when the files carrying it lie in >= 2 effective folders of its subtree. A token confined
+        to one folder is that folder's own name (a lone map ``airships/`` imported alone, whose
+        name the global strip reads as a prefix)."""
+        nm = self.names
+        homes = {self.eff[i] for i in self.subtree.get(P, []) if nm.stripped[i] & folder_tokens}
+        return len(homes) >= 2
+
+    def _globally_housed(self, own: Sequence[int]) -> bool:
+        """The folder's files share a house prefix that the global strip removed, so folder IDF
+        never saw it: the same gating verdict alone as inside a large import, where folder IDF
+        finds the prefix."""
+        nm = self.names
+        named = [i for i in own if nm.named[i] or nm.stripped[i]]
+        if len(named) < 3:
+            return False
+        housed = sum(bool(nm.stripped[i] & nm.global_house) for i in named)
+        return housed >= N.COMMON_SHARE * len(named)
+
+    def _house_gate(self, P: Folder, own: Sequence[int]) -> bool:
+        """a4 / b4: whether the folder's shared-base families are cohesion-gated (a house
+        prefix, by folder IDF or the global strip)."""
+        info = self.names.folder_info.get(P)
+        return bool(info and info.house) or self._globally_housed(own)
+
+    def _pack(self, P: Folder, active: list[int]) -> tuple[bool, str]:
+        """(pack?, note): P holds only child folders, each a self-contained map (folder-named,
+        or a variant set of >= 2 files), and the children do not all share one production
+        (aspect, ``NxM``, canvas). Unknown production (paths only) counts as not shared, so
+        content only ever turns a pack into a candidate location (adds joins)."""
+        kids: dict[Folder, list[int]] = defaultdict(list)
+        for i in active:
+            e = self.eff[i]
+            if len(e) == len(P):
+                return False, ""  # own files: a map with loose renditions, not a pack
+            kids[e[: len(P) + 1]].append(i)
+        if len(kids) < 2:
+            return False, ""
+        children = sorted(kids)
+        if not all(self._folder_named(c) or len(kids[c]) >= 2 for c in children):
+            return False, ""
+        if self.fm is not None:
+            one_production = production_compatible(
+                [kids[c] for c in children],
+                self.fm,
+                self.files.nxm,
+                self.p.aspect_tolerance,
+                self.p.canvas_tolerance,
+            )
+            if one_production.all():
+                return False, f"children share production ({len(children)} folders)"
+        return True, f"pack: {len(children)} self-contained maps of different productions"
 
     # ------------------------------------------------------------------ per-folder steps
 
@@ -485,17 +593,101 @@ class _Walk:
         self._name_joins(own, "a", d)
         if self.pairs is not None:
             self._agree_joins(self.pairs.signals, own_pairs, "a", d)
+        self._shared_base_joins(own, "a", d, always_gate=self._house_gate(P, own))
         info = self.names.folder_info.get(P)
-        self._shared_base_joins(own, "a", d, always_gate=bool(info and info.house))
         if info is not None:
             d.names = info.describe()
-            if info.named_map:
-                self._folder_named_joins(own, d)
+            if self._named_map(P):
+                self._folder_named_joins(P, own, d)
         if self._variant_only_folder(P, own):
             d.variant_only = True
             for i in own[1:]:
                 self._join(own[0], i, "a6 variant-only folder", d)
         return own_pairs
+
+    def _leaf_default(self, P: Folder, active: list[int], d: FolderDecision) -> None:
+        """a7: a specific, non-container leaf folder is one map unless shown otherwise. With no
+        strong evidence either way its units join by complete linkage: a unit joins a cluster
+        only if it is not positively different (``_different``) from any member. Needs
+        embeddings, so the paths-only walk withholds it and content only adds joins."""
+        if self.fm is None or self.emb is None or self.cohesion is None:
+            return
+        if not P or self.tree.children.get(P):
+            return
+        if self.tree.name_class.get(P) is not FolderClass.SPECIFIC:
+            return
+        by_root = self._units(active)
+        reps = sorted(by_root)
+        m = len(reps)
+        if m < 2 or m > self.p.max_units:
+            return
+        units = [by_root[r] for r in reps]
+        different, cohesion = self._different(P, units, self.fm, self.emb, self.cohesion)
+        distance = np.where(different, _DIFFERENT, np.clip(1.0 - cohesion, 0.0, 1.0))
+        np.fill_diagonal(distance, 0.0)
+        iu = np.triu_indices(m, 1)
+        labels = fcluster(linkage(distance[iu], method="complete"), _LEAF_CUT, "distance")
+        d.notes.append(
+            f"leaf default: {m} units, {int(different[iu].sum())}/{len(iu[0])} different"
+        )
+        for lab in np.unique(labels):
+            members = [reps[k] for k in np.flatnonzero(labels == lab)]
+            for r in members[1:]:
+                self._join(members[0], r, "a7 leaf default", d)
+
+    def _different(
+        self,
+        P: Folder,
+        units: list[list[int]],
+        fm: FeatureMatrix,
+        emb: EmbeddingThresholds,
+        cohesion_params: CohesionParams,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(different, cohesion) between the units of a leaf folder: (m, m) positive evidence
+        that two units are different maps, and their (layout-raised) cohesion.
+
+        Different when cohesion is below ``leaf_different``; else never if the folder is named
+        after its files (its names and variant sets are parts of the map it names); else when the
+        **names differ** (no shared head word, or different series: ``Volcanic Path`` /
+        ``Volcanic Path Vol2``) and either both units are variant sets or the folder has catalog
+        names (nearly every keyed file a key of its own); else, with one weak cue (names differ,
+        or both units are variant sets), unless they share one production at
+        ``leaf_same_production`` or reach ``leaf_same``. The head word, not shared words: one
+        maker's maps share topic words (``forest path`` / ``rocky forest``), one map's variant
+        sets share its head (``airships deck`` / ``airships hull``)."""
+        nm = self.names
+        cohesion = unit_similarity(units, fm, self.files.nxm, cohesion_params).cohesion
+        one_production = production_compatible(
+            units, fm, self.files.nxm, self.p.aspect_tolerance, self.p.canvas_tolerance
+        )
+        keyed = [nm.veto_key[i] for u in units for i in u if nm.veto_key[i] is not None]
+        catalog = len(keyed) >= 3 and len(set(keyed)) >= N.COMMON_SHARE * len(keyed)
+        named_after = self._named_after_files(P)
+        series = [frozenset().union(*(nm.series[i] for i in u)) for u in units]
+        heads = [frozenset(full[0] for i in u if (full := nm.full[i])) for u in units]
+        m = len(units)
+        different = np.zeros((m, m), dtype=bool)
+        for x in range(m):
+            for y in range(x + 1, m):
+                c = cohesion[x, y]
+                if c < emb.leaf_different:
+                    different[x, y] = True
+                    continue
+                if named_after:
+                    continue
+                names_differ = bool(heads[x] and heads[y]) and (
+                    not heads[x] & heads[y] or series[x] != series[y]
+                )
+                variant_sets = len(units[x]) >= 2 and len(units[y]) >= 2
+                if names_differ and (variant_sets or catalog):
+                    different[x, y] = True
+                elif names_differ or variant_sets:
+                    same = (one_production[x, y] and c >= emb.leaf_same_production) or (
+                        c >= emb.leaf_same
+                    )
+                    different[x, y] = not same
+        different |= different.T
+        return different, cohesion
 
     def _variant_only_folder(self, P: Folder, own: Sequence[int]) -> bool:
         """a6 (deviation from E5, follow-up 2): a specific-named leaf folder whose files carry
@@ -571,7 +763,8 @@ class _Walk:
     def _parent_joins(self, P: Folder, active: list[int], own_ok: bool, d: FolderDecision) -> None:
         """c1, the parent as evidence: units from different child folders of a meaningful P
         (or own files of a folder-named P) join unless the cohesion / fingerprint gate blocks
-        them (average linkage at ``parent``). Similarity alone never joins: units of P's own
+        them (average linkage at ``parent``). The fingerprint includes the canvas: one place's
+        rooms are drawn to one production. Similarity alone never joins: units of P's own
         files without name evidence become suggestions."""
         if self.cohesion is None or self.fm is None or self.emb is None:
             return
@@ -581,7 +774,9 @@ class _Walk:
         if m < 2:
             return
         units = [by_root[r] for r in reps]
-        sim = unit_similarity(units, self.fm, self.files.nxm, self.cohesion)
+        sim = unit_similarity(
+            units, self.fm, self.files.nxm, self.cohesion, self.p.canvas_tolerance
+        )
         homes = [self._home(P, u) for u in units]
         structural = np.array(
             [[own_ok if hx is None and hy is None else hx != hy for hy in homes] for hx in homes]
@@ -632,10 +827,10 @@ class _Walk:
         self._name_joins(active, "b", d, cross_only=True)
         if self.pairs is not None:
             self._agree_joins(self.pairs.signals, cross, "b", d)
-        for i in self._shared_base_joins(active, "b", d, always_gate=False):
+        # The same gate as a4: a leaf must not re-join, ungated, the families a4 split
+        for i in self._shared_base_joins(active, "b", d, always_gate=self._house_gate(P, own)):
             self.subgroup_parent[self.uf.find(i)] = P
-        info = self.names.folder_info.get(P)
-        if info is not None and info.named_map:
+        if self._named_map(P):
             self._part_joins(P, own, active, d)
         self._parent_joins(P, active, self._folder_named(P), d)
 
@@ -649,6 +844,12 @@ class _Walk:
         roots = sorted({self.uf.find(i) for i in active})
         d.units_before = len(roots)
         container, why, over_cap = self._container(P, len(roots))
+        if not container and len(roots) > 1:
+            pack, note = self._pack(P, active)
+            if pack:
+                container, why = True, note
+            elif note:
+                why += "; " + note
         folder_named = d.folder_named = self._folder_named(P)
         d.named_after_files = self._named_after_files(P)
         if (
@@ -660,6 +861,7 @@ class _Walk:
         d.container, d.why = container, why
         if not container and len(roots) > 1:
             self._meaningful_parent(P, own, own_pairs, active, d)
+            self._leaf_default(P, active, d)
         d.units_after = len({self.uf.find(i) for i in active})
         if container:
             self.sealed[self.subtree.get(P, [])] = True
@@ -815,8 +1017,18 @@ def _lca(a: Folder, b: Folder) -> Folder:
     return a[:k]
 
 
+def author_key(text: str) -> str:
+    """A creator's name key: letters and digits only, case-folded (``ImageParser._name_key``)."""
+    return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
 def run_walk(
-    files: WalkFiles, features: FeatureMatrix | None, params: GroupingParams
+    files: WalkFiles,
+    features: FeatureMatrix | None,
+    params: GroupingParams,
+    known_authors: frozenset[str] = frozenset(),
 ) -> WalkResult:
-    """Run the walk over ``files`` (with content ``features``, or None for paths only)."""
-    return _Walk(files, features, params).run()
+    """Run the walk over ``files`` (with content ``features``, or None for paths only).
+    ``known_authors`` are the ``author_key``s of creators already in the library: a folder
+    named after one is a container."""
+    return _Walk(files, features, params, known_authors).run()

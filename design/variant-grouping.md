@@ -50,23 +50,54 @@ Numbered families with no name (`IMG_0012`, `NumberedGLMaps_52`) carry no identi
    Then add probable evidence by agreement only: edge-map correlation **and** embedding cosine
    both high, never against different name keys. Then:
    - shared 2-token base (gated by cohesion in house-prefix folders and in large families);
-   - folder-named map.
+   - folder-named map (only the files that carry the folder's common name).
 
    A content split stands unless names or folders give positive evidence.
-2. **Container or meaningful parent.** A folder is a container if it is the root, has a
-   generic name (`Maps`, `Pack 03`), has a name recurring elsewhere in the tree (author or
-   topic folders), has a house-prefix name, or holds too many units. The ascent stops at a
-   container.
+2. **Container or meaningful parent**, from what the folder *is*, never from how much it holds
+   (§2.1). A folder is a container if it is the root, has a generic name (`Maps`, `Pack 03`), has
+   a name recurring elsewhere in the tree (author or topic folders), is named after a known
+   author, has a house-prefix name spread over ≥ 2 of its folders, is a **pack** (only child
+   folders, each a self-contained map, not all of one production), or exceeds the 40-unit safety
+   cap. The ascent stops at a container.
 3. **Meaningful parent.**
    - Join its units on the same certain evidence across them.
    - **The parent is the evidence:** units in different child folders join as sub-groups when a
-     cohesion and production-fingerprint gate allows it (embedding cohesion, aspect, `NxM`).
+     cohesion and production-fingerprint gate allows it (embedding cohesion, aspect, `NxM`, and a
+     shared canvas: some pixel size within 2%).
    - Unnamed parts (`1st_Floor.png`) join a folder-named map.
+   - **Leaf default (a7):** in a specific leaf folder, units join by complete linkage unless they
+     are *positively different*: cohesion below `leaf_different`; distinct names (no shared head
+     word, or different series) on two variant sets or in a folder of catalog names; or one such
+     weak cue without one production and high cohesion. Content evidence is three-valued (same,
+     different, unknown); when it is unknown, the folder decides.
    - Similarity alone never joins: sub-groups need a folder or a meaningful shared key.
 4. **Cross-tree (narrow).** pHash renditions anywhere, except between two large groups.
    Everything else is a suggestion.
 
 Sub-group labels come only from joined child folders, or from level names (`floor 2`, `roof`).
+
+### 2.1 Scale invariance (E6, 2026-10-23)
+
+The same folder subtree gets the same grouping whether it is imported alone or inside a large
+import. Size may only add statistical evidence about naming conventions (house prefixes,
+recurring folders, hubs); without it the defaults must be right. E5's walk broke this: an 8-unit
+cap made `Maker/` with 10 maps a container but `Maker/` with 3 maps a candidate location whose
+maps the parent rules then joined, and lone maps were read as collections. E6
+(scene-atlas-learning `grouping/e6`, `PORT.md`) made three changes, ported unconditionally:
+
+1. **Containers from what a folder is**: known authors, the house-prefix spread test, the pack
+   test and a 40-unit safety cap replace the unit cap. The a4 / b4 cohesion gate also applies to
+   house prefixes the global strip removed (folder IDF finds them only in a large import), and b4
+   uses a4's gate.
+2. **The leaf default** (step 3), with a5 and the named-map verdict tightened to the files that
+   carry the folder's name.
+3. **c1 needs one production**, including a shared canvas (`ContentFeatures.pixels`).
+
+On the research benchmark (test split): small imports 80.5% → 91.7% exactly grouped, wrong joins
+7.3% → 3.3%; large imports realistic F1 0.976 → 0.980; a subtree grouped identically alone and
+inside the full import 96% → 98% (second level). Known limitations: similar maps of one maker on
+one canvas in one flat folder (≈ 10% wrong joins); a maker exporting each map twice, once as a
+numbered copy (`NumberedGLMaps_N`), chains maps through the copies' shared name in small imports.
 
 ## 3. Where it runs: once, when an import has finished
 
@@ -145,10 +176,12 @@ sha256>.json`, following the image-type head pattern, and are produced by scene-
 from Scene Atlas–style ONNX embeddings. If no calibration matches the active encoder, the
 embedding rules are switched off (renditions, names and folders still work).
 
-Format `scene-atlas-grouping-calibration/1` (`grouping_calibration.py`): `encoder_sha256` (also
+Format `scene-atlas-grouping-calibration/2` (`grouping_calibration.py`): `encoder_sha256` (also
 the file's stem), `embedding_dim`, and `thresholds` with exactly the research's names
-`agree_emb`, `coh`, `coh_all`, `coh_key`, `coh_suggest` (→ `EmbeddingThresholds.agree`,
-`parent`, `whole_folder`, `shared_base`, `suggest`), each in [-1, 1]. Files are loaded once; a
+`agree_emb`, `coh`, `coh_all`, `coh_key`, `coh_suggest`, `leaf_diff`, `leaf_same_prod`,
+`leaf_same` (→ `EmbeddingThresholds.agree`, `parent`, `whole_folder`, `shared_base`, `suggest`,
+`leaf_different`, `leaf_same_production`, `leaf_same`), each in [-1, 1]. The `leaf_*` values
+were tuned on the medium encoder and quantile-mapped onto the others (`grouping/e6/calibrate_leaf.py`). Files are loaded once; a
 malformed one is logged and skipped. A calibration whose `embedding_dim` doesn't match the
 vectors in hand is not used. One ships for each bundled model (the image-type heads' encoders).
 
@@ -197,7 +230,8 @@ on reserved), then took these deliberate changes. Each was checked with the rese
 bench: full-content BCubed stays within noise of E5 (and the paths-only pass improved).
 
 - **Dropped:** local / global modes, ablation switches, learned axis words, content-component
-  sub-groups, the `kcap` family cap (1000, never reached), unused signals (struct map, pixel dims).
+  sub-groups, the `kcap` family cap (1000, never reached), the struct map signal. (Pixel sizes
+  came back with E6, §2.1.)
 - **Missing features are withheld:** a missing pHash is never a rendition (E5 read two missing
   hashes as 0 bits apart), a missing aspect is never compatible, and the whole-folder test (c0)
   needs every unit to have an embedding.

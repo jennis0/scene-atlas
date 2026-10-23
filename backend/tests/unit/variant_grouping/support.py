@@ -62,6 +62,7 @@ class Look:
     variant: int = 0
     rendition: int = 0
     aspect: float = 1.0
+    pixels: tuple[int, int] | None = None  # the canvas; sets the aspect when given
 
 
 def features(look: Look) -> ContentFeatures:
@@ -86,8 +87,9 @@ def features(look: Look) -> ContentFeatures:
     return ContentFeatures(
         phash256=np.packbits(bits).tobytes(),
         edge=edge.astype(np.float16),
-        log_aspect=math.log(look.aspect),
+        log_aspect=math.log(look.pixels[0] / look.pixels[1] if look.pixels else look.aspect),
         embedding=embedding.astype(np.float32),
+        pixels=look.pixels,
     )
 
 
@@ -114,8 +116,14 @@ def run_paths(
     return group_by_paths(files, parser(), known_authors=known_authors)
 
 
-def run_content(scenario: Scenario, params: GroupingParams = CONTENT_PARAMS) -> Grouping[str]:
-    return group_with_content(scenario.grouping_files(), scenario.content(), params, parser())
+def run_content(
+    scenario: Scenario,
+    params: GroupingParams = CONTENT_PARAMS,
+    known_authors: tuple[str, ...] | list[str] = (),
+) -> Grouping[str]:
+    return group_with_content(
+        scenario.grouping_files(), scenario.content(), params, parser(), known_authors
+    )
 
 
 def partition(grouping: Grouping[str]) -> set[frozenset[str]]:

@@ -251,8 +251,8 @@ folder's subtree that are not sealed. Every join records a reason code.
 | a1 | rendition | pHash twin (§6.2). Certain. |
 | a2 | same-name | equal full identity. Certain. Different level tags join as different floors of one map. |
 | a3 | same-layout | agreement (§6.2), counted at unit level: a quarter of the cross pairs between two units must agree |
-| a4 | shared-base | the same 2-token key. **Gated** by cohesion in house-prefix folders, and for families spanning more than 8 units (a large family is a series of different maps) |
-| a5 | folder-named | the folder's common tokens are the map's name (§4.3): all its named files join |
+| a4 | shared-base | the same 2-token key. **Gated** by cohesion in house-prefix folders (found by folder IDF, or carried by ≥ 80% of the folder's files as a prefix the global strip removed, so a small import gates as a large one does), and for families spanning more than 8 units (a large family is a series of different maps) |
+| a5 | folder-named | the folder's common tokens are the map's name (§4.3), and every file with a name key carries them: its named files that carry the name join (a minority map in the folder keeps its own) |
 | a6 | variant-only folder | a specific, non-recurring folder where ≥ 80% of files have no identity (`Golden Forest/Night.webp`, `Day.webp`) is one map |
 
 After stage a, any remaining split stands: different units are different maps, unless stage b
@@ -260,16 +260,30 @@ finds positive evidence.
 
 ### 7.2 Container or meaningful? (stage B)
 
-A folder is a **container** if any of these holds:
+A folder is a **container** if any of these holds. Every test asks what the folder *is*, never
+how much it holds, so a subtree is grouped the same imported alone as inside a large import
+(scale invariance, E6):
 - it is the root;
 - its name is generic;
 - its name recurs elsewhere in the tree (author or topic);
-- its name consists only of house-prefix tokens;
-- it holds more than 8 units (60 if it is named after its files).
+- its name is a **known author**'s (a creator already in the library);
+- its name consists only of house-prefix tokens, **and** the files carrying that prefix lie in
+  ≥ 2 of its effective folders (a prefix is a convention across maps: a token confined to one
+  folder is that folder's own name, as for a lone Czepeku map `airships/` imported alone);
+- it is a **pack**: it has no files of its own, ≥ 2 child folders, each a self-contained map
+  (named after its files, or a variant set of ≥ 2 files), and the children are **not** all of one
+  production (aspect within 0.03, `NxM`, a shared canvas within 2%). Unknown production counts as
+  not shared, so content can only turn a pack into a candidate location;
+- it holds more than 40 units, a safety cap above any single map (the largest on the benchmark
+  has 33 units after stage a; the 99th percentile is 12).
+
+E5 used a cap of 8 units instead (60 if named after its files). That made `Maker/` with 10 maps
+a container but `Maker/` with 3 maps a candidate location whose maps the parent rules then
+joined: a small import grouped worse than the same folder inside a large one.
 
 A container **seals** its subtree: nothing below it joins across it by folder or name evidence.
 
-**Whole-folder exception (c0).** A folder over the unit cap, or named after its files, still joins
+**Whole-folder exception (c0).** A folder over the safety cap, or named after its files, still joins
 whole when **every** unit has an embedding and:
 - mean cohesion ≥ ≈ 0.80;
 - the 10th percentile ≥ ≈ 0.70;
@@ -282,14 +296,34 @@ files). Limithron's `Coral Reef Shipwreck` is the motivating case.
 
 A meaningful folder joins its units on:
 - **b1–b4:** the same certain and agreement evidence across its children (renditions,
-  same-name, agreement, shared base);
+  same-name, agreement, shared base; b4 uses a4's gate);
 - **b5 unnamed parts:** in a folder named after its map, child units whose files have no identity
   of their own (`Isolated Floors/1st_Floor.png`) are parts of that map;
 - **c1 parent + cohesion:** units from **different child folders** join, by average linkage on
   the gated unit similarity cut at the calibrated parent threshold (≈ 0.82). Here the parent is
-  the evidence and cohesion only the gate. Own files of a folder that isn't named after its map
-  never join this way: there is no folder evidence for them (Joe's rule: sub-groups need a
-  folder or a meaningful key). Near-misses above ≈ 0.66 become suggestions.
+  the evidence and cohesion only the gate. The gate's fingerprint includes a **shared canvas**
+  (some pixel size within 2%): one place's rooms are drawn to one production, so Mage's
+  Observatory (2775²) and Volcanic Dungeon (3330²) under one maker folder don't join. Own files of
+  a folder that isn't named after its map never join this way: there is no folder evidence for
+  them (Joe's rule: sub-groups need a folder or a meaningful key). Near-misses above ≈ 0.66
+  become suggestions.
+- **a7 leaf default:** in a specific leaf folder (no child folders) that is not a container,
+  after everything above, the folder decides wherever the content does not. Content evidence is
+  three-valued: the same map, a different map, or unknown. The units join by **complete
+  linkage**: a unit joins a cluster only if it is not *positively different* from any member.
+  Two units are positively different when:
+  - their cohesion is below `leaf_different` (≈ 0.55); otherwise never, if the folder is named
+    after its files (its names and variant sets are parts of the map it names); otherwise
+  - their **names differ** (no shared head word, the first identity token; or different series:
+    `Volcanic Path` / `Volcanic Path Vol2`) **and** either both are variant sets (≥ 2 files) or the
+    folder has *catalog names* (≥ 3 keyed files, ≥ 80% with a 2-token key of their own); or
+  - one of those cues alone (names differ, or two variant sets), unless they share one production
+    with cohesion ≥ `leaf_same_production` (≈ 0.80), or have cohesion ≥ `leaf_same` (≈ 0.84).
+
+  The head word rather than shared words, because one maker's maps share topic words (`forest
+  path` / `rocky forest`) while one map's variant sets share its head (`airships deck` /
+  `airships hull`). On dev, joins the leaf default makes are the same map 98.9% of the time.
+  It needs embeddings, so the paths-only walk withholds it.
 
 The joined child folders become the group's **sub-groups**.
 
@@ -313,14 +347,16 @@ Suggestions are computed but not shown yet.
    a2 joins equal names (`Beast_Prison_var01` across renditions). a5 fires because the files
    share `beast prison`, the folder's name. Each room becomes one unit.
 2. **`Never Ending Wizard Tower`:**
-   - **Not a container:** its name is specific, it holds 5 units, it doesn't recur, and it isn't
-     a house prefix.
+   - **Not a container:** its name is specific, it doesn't recur, and it isn't a house prefix.
+     It holds only child folders, each a self-contained room, but they are all one production
+     (12x12, one aspect and canvas), so it is not a pack either.
    - **c1 applies:** the five room units are in different child folders, all 12x12 with one
      aspect (fingerprint compatible), and cohesive (cross-room cosine ≈ 0.79, raised by layout
      overlap where rooms reuse the tower's walls).
    - **Result:** they join, and the five rooms become sub-groups.
-3. **`Moonlight Maps`:** a container (house-prefix name). It seals the tower off from the maker's
-   other maps.
+3. **`Moonlight Maps`:** a container (house-prefix name, spread over the maker's map folders).
+   It seals the tower off from the maker's other maps. Imported on its own, the tower groups the
+   same way.
 
 A pack folder of five *different* Moonlight maps fails c1: their cross-map cohesion is ≈ 0.63 and
 nothing names them together, so they stay five groups.
@@ -364,7 +400,8 @@ Encoder-independent thresholds are research-tuned on the benchmark's dev split; 
 | `big_family` | 8 | a shared base over more units is gated |
 | `layout_overlap` | 0.25 | mean edge correlation that raises unit cohesion |
 | `aspect_tolerance` | 0.03 | fingerprint aspect compatibility |
-| `max_units` / `max_units_named` | 8 / 60 | container cap |
+| `canvas_tolerance` | 0.02 | relative pixel-size difference of one canvas |
+| `max_units` | 40 | safety cap: a container, and no leaf default, above it |
 | `big_join` | 20 | x1 between two groups this large is a suggestion |
 | `candidate_phash_bits`, `knn_embedding`, `knn_edge` | 20, 25, 15 | candidate search |
 
@@ -372,14 +409,15 @@ The embedding thresholds depend on the encoder and ship per model as
 `backend/app/data/heads/grouping/<vision encoder sha256>.json`, produced by scene-atlas-learning
 (`grouping/e5/calibrate.py`) from embeddings computed the way Scene Atlas computes them:
 
-| Model | agree | parent (c1) | whole folder (c0) | shared base | suggest |
-|---|---|---|---|---|---|
-| small (B/32 rc3) | 0.673 | 0.787 | 0.771 | 0.652 | 0.630 |
-| medium (base-384 rc4) | 0.701 | 0.813 | 0.796 | 0.682 | 0.662 |
-| large (L-384 rc4) | 0.696 | 0.818 | 0.797 | 0.677 | 0.657 |
+| Model | agree | parent (c1) | whole folder (c0) | shared base | suggest | leaf different / same + production / same |
+|---|---|---|---|---|---|---|
+| small (B/32 rc3) | 0.673 | 0.787 | 0.771 | 0.652 | 0.630 | 0.498 / 0.774 / 0.810 |
+| medium (base-384 rc4) | 0.701 | 0.813 | 0.796 | 0.682 | 0.662 | 0.55 / 0.80 / 0.84 |
+| large (L-384 rc4) | 0.696 | 0.818 | 0.797 | 0.677 | 0.657 | 0.545 / 0.803 / 0.843 |
 
-Each set was quantile-mapped from E5's medium values. All three keep E5's quality (test
-0.976, new makers 0.943–0.944).
+The first five were quantile-mapped from E5's medium values and keep E5's quality (test 0.976,
+new makers 0.943–0.944). The leaf thresholds were tuned in E6 on the medium encoder and
+quantile-mapped onto the others the same way (`grouping/e6/calibrate_leaf.py`).
 
 A dev-grid retune was rejected: +0.001 F1 for more wrong joins in same-maker packs (17% → 23%).
 With no matching calibration, the embedding rules are off. Test F1 is then 0.85: renditions,
