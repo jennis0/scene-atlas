@@ -17,6 +17,7 @@ from .database import (
     get_engine,
     get_session_local,
     init_db,
+    listed_images,
     seed_default_settings,
     seed_tag_categories,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "get_engine",
     "get_session_local",
     "init_db",
+    "listed_images",
     "seed_default_settings",
     "seed_tag_categories",
     # Schemas

@@ -30,7 +30,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import joinedload, selectinload
 
-from backend.app.models.database import Image
+from backend.app.models.database import Image, listed_images
 from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
@@ -50,7 +50,9 @@ def export_library(output_dir: str, progress_fn=None) -> dict:
     Returns a summary dict: {total, exported, skipped, output_dir}.
     """
     with pipeline_db() as db:
-        all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]
+        all_ids = [
+            row[0] for row in db.query(Image.id).filter(listed_images()).order_by(Image.id).all()
+        ]
     total = len(all_ids)
 
     dest = Path(output_dir)

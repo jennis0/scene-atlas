@@ -281,10 +281,7 @@ def edit_group(
     payload: GroupEditRequest,
     db: Session = Depends(get_db),
 ):
-    """Edit a group: update metadata, delete images, update images, split off new groups.
-
-    A user edit: the group, and any group split off it, is never regrouped automatically.
-    """
+    """Edit a group: update metadata, delete images, update images, split off new groups."""
     group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -292,7 +289,6 @@ def edit_group(
     # 1. Update group-level metadata
     group.base_name = payload.base_name
     group.author = payload.author
-    group_service.mark_edited(group)
 
     # 2. Delete only what the client asked to delete (never inferred from omission).
     # Images kept or referenced in new_groups (moved, not deleted) are protected.
@@ -352,7 +348,6 @@ def edit_group(
             base_name=new_group_payload.base_name,
             author=new_group_payload.author,
         )
-        group_service.mark_edited(new_group)
         db.add(new_group)
         db.flush()  # get new_group.id
         for img_id in new_group_payload.image_ids:
@@ -408,8 +403,7 @@ def move_images(
     """Move specific images from source group to target group.
 
     Unlike merge, this moves only the listed images and keeps the source group
-    alive (unless it becomes empty, in which case it is auto-deleted). Both groups count
-    as edited by the user.
+    alive (unless it becomes empty, in which case it is auto-deleted).
     """
     if group_id == payload.target_group_id:
         raise HTTPException(status_code=400, detail="Source and target group are the same")
@@ -449,7 +443,6 @@ def move_images(
 
     group_service.reassign_images(images, target)
     images_moved = len(images)
-    group_service.mark_edited(source, target)
     group_service.repair_cover(db, source)
     source_deleted = group_service.delete_if_empty(db, source)
 
@@ -475,7 +468,7 @@ def merge_group(
 
     Moves all images from source (group_id) into target (payload.target_group_id).
     Updates each image's group_id and author to match the target.
-    Deletes the now-empty source group. The target counts as edited by the user.
+    Deletes the now-empty source group.
     """
     if group_id == payload.target_group_id:
         raise HTTPException(status_code=400, detail="Cannot merge a group into itself")
@@ -489,7 +482,6 @@ def merge_group(
         raise HTTPException(status_code=404, detail="Target group not found")
 
     images_moved = group_service.merge_groups(db, target, [source])
-    group_service.mark_edited(target)
     db.commit()
 
     return GroupMergeResponse(

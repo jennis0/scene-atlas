@@ -16,7 +16,7 @@ references computed in the research environment.
 
 Stored in ``image_grouping_features`` (one row per image, written at commit, replaced
 by a linked refresh). Videos have no row; an image whose features couldn't be computed
-has NULLs. ``load_grouping_features`` reads them back for grouping refinement.
+has NULLs. ``load_grouping_features`` reads them back for an import's grouping phase.
 """
 
 from __future__ import annotations

@@ -1,20 +1,14 @@
-"""Changing gallery groups: moving images between them, merging and emptying them, and
-recording that the user edited them.
+"""Changing gallery groups: minting them, moving images between them, merging and emptying
+them.
 
-Shared by the groups API (the user's edits) and by grouping refinement
-(``backend/pipeline/refine_groups.py``, ADR-028), so both move images with the same side
-effects:
+Used by the groups API (the user's edits) and the import's grouping phase
+(``backend/pipeline/group_jobs.py``, which mints groups). Moving images has the same side
+effects everywhere:
 
 - an image takes its new group's author, which is part of its search text, so the search
   text is rebuilt (the images' tags must be loaded);
 - a group left without images is deleted;
 - a group whose cover image left it gets another one.
-
-**Provenance** (design/variant-grouping.md §6): every user edit of a group's metadata or
-membership sets ``ImageGroup.edited_at`` (``mark_edited`` / ``mark_groups_edited``), and
-automatic grouping never changes an edited group, as re-detection never changes a
-``grid_source = user`` grid. Refinement itself doesn't mark the groups it merges: they are
-still the importer's.
 
 Nothing here commits; callers own the transaction.
 """
@@ -23,37 +17,28 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import Image, ImageGroup
-from ..timeutil import utcnow
 from .fts_service import search_text_for
 from .linked_files import chunks
 
-# Provenance
+# Minting
 
 
-def mark_edited(*groups: ImageGroup | None) -> None:
-    """Record a user edit of these groups (None entries are ignored)."""
-    now = utcnow()
-    for group in groups:
-        if group is not None:
-            group.edited_at = now
-
-
-def mark_groups_edited(db: Session, group_ids: Iterable[int | None]) -> None:
-    """Record a user edit of the groups with these ids, without loading them. Unknown ids
-    and None (an image without a group) are ignored."""
-    ids = sorted({gid for gid in group_ids if gid is not None})
-    now = utcnow()
-    for chunk in chunks(ids):
-        db.execute(
-            update(ImageGroup)
-            .where(ImageGroup.id.in_(chunk))
-            .values(edited_at=now)
-            .execution_options(synchronize_session=False)
+def mint_groups(db: Session, names: Sequence[tuple[str, str | None]]) -> list[int]:
+    """New, empty gallery groups, one per (name, author); returns their ids in order. One
+    batched ``INSERT .. RETURNING`` (thousands of groups for a large import). The import's
+    grouping phase mints its groups with this (ADR-028); the caller puts images in them."""
+    if not names:
+        return []
+    return list(
+        db.scalars(
+            insert(ImageGroup).returning(ImageGroup.id, sort_by_parameter_order=True),
+            [{"base_name": name, "author": author} for name, author in names],
         )
+    )
 
 
 # Membership

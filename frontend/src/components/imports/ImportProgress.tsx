@@ -1,11 +1,12 @@
 /**
  * The import dialog's progress view, below the frame (design/import-progress.md §3):
- * one overall bar with the groups done and the time left, the few groups importing
- * now, and any problems in a line. The full group list is the report, once it's done.
+ * one overall bar with the files done and the time left, then "Identifying groups" once
+ * every file is settled, and any problems in a line. The groups are the report's, once
+ * they have been identified (ADR-028).
  */
 
-import { ACTIVE_GROUPS } from '@/lib/import/importClient'
-import type { ImportCounts, ImportGroupSummary, ImportJobSummary } from '@/lib/import/types'
+import { Loader2 } from 'lucide-react'
+import type { ImportCounts, ImportJobSummary } from '@/lib/import/types'
 import { finishedCount, plural, timeLeftText } from './format'
 
 interface ProgressSummaryProps {
@@ -13,10 +14,13 @@ interface ProgressSummaryProps {
   secondsPerItem: number | null | undefined
 }
 
-/** The bar, and under it: groups done and the time left. */
+/** The bar, and under it: files done and the time left, or the grouping phase. */
 export function ProgressSummary({ job, secondsPerItem }: ProgressSummaryProps) {
   const { counts } = job
-  const parts = [`${job.groups_done.toLocaleString()} of ${plural(job.group_count, 'group')} done`]
+  const grouping = job.status === 'grouping'
+  const parts = [
+    `${finishedCount(counts).toLocaleString()} of ${plural(counts.total, 'file')} done`,
+  ]
   const timeLeft = timeLeftText(counts, secondsPerItem)
   if (timeLeft) parts.push(timeLeft)
   return (
@@ -25,26 +29,39 @@ export function ProgressSummary({ job, secondsPerItem }: ProgressSummaryProps) {
         received={counts.total - counts.awaiting_bytes}
         finished={finishedCount(counts)}
         total={counts.total}
+        settling={grouping}
       />
-      {job.planned && (
-        <p className="text-xs text-foreground/90 hc:text-foreground">{parts.join(' · ')}</p>
-      )}
+      {job.planned &&
+        (grouping ? (
+          <p className="flex items-center gap-2 text-xs text-foreground/90 hc:text-foreground">
+            <Loader2
+              className="h-3 w-3 animate-spin motion-reduce:animate-none text-primary"
+              aria-hidden
+            />
+            Identifying groups…
+          </p>
+        ) : (
+          <p className="text-xs text-foreground/90 hc:text-foreground">{parts.join(' · ')}</p>
+        ))}
     </div>
   )
 }
 
 /**
  * One track, two layers: how much the server has received (quiet) and how much
- * is finished (amber). The gap between them is work waiting to be processed.
+ * is finished (amber). The gap between them is work waiting to be processed. While the
+ * groups are identified (``settling``) the full bar breathes.
  */
 function ProgressMeter({
   received,
   finished,
   total,
+  settling = false,
 }: {
   received: number
   finished: number
   total: number
+  settling?: boolean
 }) {
   const pct = (n: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : '0%')
   return (
@@ -62,7 +79,9 @@ function ProgressMeter({
           style={{ width: pct(received) }}
         />
         <div
-          className="absolute inset-y-0 left-0 bg-primary/80 transition-[width] duration-700 ease-out"
+          className={`absolute inset-y-0 left-0 bg-primary/80 transition-[width] duration-700 ease-out ${
+            settling ? 'animate-pulse motion-reduce:animate-none' : ''
+          }`}
           style={{ width: pct(finished) }}
         />
       </div>
@@ -74,58 +93,6 @@ function ProgressMeter({
         </span>
       </div>
     </div>
-  )
-}
-
-interface NowImportingProps {
-  /** The first groups with files still to import, in processing order */
-  groups: ImportGroupSummary[]
-  planned: boolean
-}
-
-export function NowImporting({ groups, planned }: NowImportingProps) {
-  if (!planned || groups.length === 0) return null
-  return (
-    <section aria-labelledby="now-importing" className="space-y-1">
-      <h3 id="now-importing" className="text-xs text-muted-foreground">
-        Now importing
-      </h3>
-      <ul>
-        {groups.slice(0, ACTIVE_GROUPS).map((group) => (
-          <ImportingGroupRow key={group.id} group={group} />
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function ImportingGroupRow({ group }: { group: ImportGroupSummary }) {
-  const { counts } = group
-  // Count against what this import could add: files already in the library or
-  // skipped are settled, not missing, so a finished group never reads "3/6".
-  const importable = counts.total - counts.duplicate - counts.skipped
-  const ratio = counts.total > 0 ? finishedCount(counts) / counts.total : 0
-  const started = counts.processing > 0 || finishedCount(counts) > 0
-  return (
-    <li className="py-2">
-      <div className="flex items-baseline gap-3 min-w-0">
-        <span className="font-display text-sm truncate" title={group.group_name}>
-          {group.group_name}
-        </span>
-        <span className="text-2xs text-muted-foreground truncate shrink min-w-0">
-          {group.author}
-        </span>
-        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-          {started ? `${counts.done}/${importable}` : 'waiting'}
-        </span>
-      </div>
-      <div className="mt-1.5 h-px bg-border/40 overflow-hidden" aria-hidden>
-        <div
-          className="h-full bg-primary/80 transition-[width] duration-700 ease-out"
-          style={{ width: `${Math.round(ratio * 100)}%` }}
-        />
-      </div>
-    </li>
   )
 }
 

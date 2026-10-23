@@ -47,6 +47,8 @@ images
   media_type       TEXT DEFAULT 'image'      -- "image" | "video"
   image_type       TEXT DEFAULT 'battlemap'  -- "battlemap" | "scene"
   import_job_id    TEXT FK → import_jobs.id  -- NULL for images that predate import jobs
+  awaiting_grouping BOOLEAN NOT NULL DEFAULT 0  -- Committed by an import not yet grouped
+                                       --   (migration 029, ADR-028): listed nowhere
   thumbnail_key    TEXT                -- Medium thumbnail key
   created_at, updated_at  DATETIME
 
@@ -57,8 +59,6 @@ variant_groups                         -- ORM: ImageGroup
   primary_image_id INTEGER FK → images.id
   image_count      INTEGER NOT NULL DEFAULT 0   -- Maintained by triggers on images
   created_at       DATETIME
-  edited_at        DATETIME            -- Last user edit (migration 029, ADR-028); automatic
-                                       --   grouping never changes an edited group
 
 image_grouping_features                -- Variant-grouping features (migration 029, ADR-028)
   image_id         INTEGER PK FK → images.id
@@ -98,7 +98,8 @@ colors
 
 import_jobs
   id               TEXT PK             -- UUID hex
-  status           TEXT NOT NULL DEFAULT 'active'  -- active | paused | completed | cancelled
+  status           TEXT NOT NULL DEFAULT 'active'  -- active | paused | grouping |
+                                       --   completed | cancelled
                                        --   (derived from item counts)
   source_label     TEXT                -- e.g. "Pack.zip"
   default_image_type TEXT NOT NULL DEFAULT 'battlemap'
@@ -107,10 +108,10 @@ import_jobs
   dismissed_at     DATETIME            -- Hidden from the activity dock
   source_roots     TEXT                -- Local imports: JSON list of folders read from
   library_source_id INTEGER FK → library_sources.id  -- A scan of the linked folder (no Undo)
-  grouping_refined_at DATETIME         -- Groups refined by content (migration 029, ADR-028)
+  grouped_at       DATETIME            -- Its grouping phase ran (migration 029, ADR-028)
   created_at, updated_at, completed_at  DATETIME
 
-import_groups                          -- Groups planned at seal time
+import_groups                          -- Groups found by the import's grouping phase
   id               INTEGER PK
   job_id           TEXT FK → import_jobs.id NOT NULL
   author           TEXT

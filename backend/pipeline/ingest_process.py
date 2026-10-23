@@ -1,8 +1,11 @@
 """Process one claimed batch of import items (ADR-018, design/ingestion.md §5.3).
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
-    transaction) → vectors (LanceDB, after commit) → staging cleanup → refinement of the
-    jobs it finished (``refine_groups``)
+    transaction) → vectors (LanceDB, after commit) → staging cleanup → the grouping
+    phase of the jobs it finished (``group_jobs``)
+
+A committed image has no group yet: it is ``awaiting_grouping`` and listed nowhere until its
+import has finished and its grouping phase has grouped it (ADR-028).
 
 Auto items (design §5.6) stop prepare after decoding: their type, and so whether grid
 detection runs, comes from the image-type head, which reads the embedding. They are
@@ -40,7 +43,7 @@ from sqlalchemy import delete
 
 from backend.app.config import settings
 from backend.app.file_hash import file_sha256
-from backend.app.models import Color, Image, ImageGroup, ImportGroup, ImportItem, Tag
+from backend.app.models import Color, Image, ImageGroup, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
 from backend.app.services import (
     get_image_store,
@@ -59,6 +62,7 @@ from backend.app.services.validation import verify_media_mime
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .filename_grid import filename_grid_counts
+from .group_jobs import schedule_grouping
 from .grouping_features import GroupingFeatures, compute_grouping_features, store_grouping_features
 from .image_hashes import perceptual_hash, pixel_hash
 from .ingest_queue import (
@@ -91,7 +95,6 @@ from .ingest_queue import (
 )
 from .linked_refresh import RefreshTarget, grid_snapshot, refresh_grid, refreshed_image
 from .pipeline_config import PipelineConfig
-from .refine_groups import schedule_refinements
 from .stored_format import FORMAT_ORIGINAL
 from .stored_format import convert as convert_stored_format
 from .tasks import color_extraction, embedding_generation, grid_detection
@@ -903,23 +906,6 @@ def _existing_hash_matches(db, prepared: list[PreparedItem]) -> tuple[dict, dict
     return by_bytes, by_pixels
 
 
-def _resolve_group(db, import_group_id: int | None, cache: dict) -> tuple[ImageGroup | None, str]:
-    """The gallery group for an import group, created on first use. Returns (group, name)."""
-    if import_group_id is None:
-        return None, ""
-    if import_group_id in cache:
-        return cache[import_group_id]
-    import_group = db.get(ImportGroup, import_group_id)
-    group = db.get(ImageGroup, import_group.image_group_id) if import_group.image_group_id else None
-    if group is None:
-        group = ImageGroup(base_name=import_group.group_name, author=import_group.author)
-        db.add(group)
-        db.flush()
-        import_group.image_group_id = group.id
-    cache[import_group_id] = (group, import_group.group_name)
-    return cache[import_group_id]
-
-
 def _place(temp: Path, final: Path, placed: list[Path]) -> None:
     final.parent.mkdir(parents=True, exist_ok=True)
     os.replace(temp, final)
@@ -941,7 +927,6 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
     try:
         with write_session() as db:
             by_bytes, by_pixels = _existing_hash_matches(db, prepared)
-            group_cache: dict = {}
             item_rows = {
                 row.id: row
                 for row in db.query(ImportItem).filter(
@@ -985,18 +970,16 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 for key, temp in d.temp_thumbnails.items():
                     _place(temp, thumbnail_store.get_path(key), placed)
 
-                group, group_name = _resolve_group(db, p.item.import_group_id, group_cache)
                 parsed = p.item.parsed
-                author = group.author if group is not None else None
-                name = parsed.get("name") or group_name or Path(p.item.filename).stem
+                name = parsed.get("name") or Path(p.item.filename).stem
                 tags = parsed.get("tags") or []
+                # No group, author or subgroup yet: the grouping phase gives them
                 image = Image(
                     filename=p.item.filename,
                     storage_key=p.storage_key,
                     source_file_id=p.item.source_file_id,
                     name=name,
-                    author=author,
-                    group_id=group.id if group is not None else None,
+                    awaiting_grouping=True,
                     width=d.width,
                     height=d.height,
                     file_size=p.file_size,
@@ -1007,7 +990,6 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     grid_type=p.grid.get("grid_type"),
                     grid_confidence=p.grid.get("grid_confidence"),
                     grid_source=p.grid.get("grid_source"),
-                    subgroup=parsed.get("subgroup"),
                     image_type=p.item.image_type,
                     media_type=p.media_type,
                     content_hash=d.source_hash,
@@ -1015,13 +997,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     pixel_hash=d.pixel_hash,
                     phash=d.phash,
                     import_job_id=p.item.job_id,
-                    search_text=build_search_text(
-                        name=name,
-                        filename=p.item.filename,
-                        author=author,
-                        tags=tags,
-                        subgroup=parsed.get("subgroup"),
-                    ),
+                    search_text=build_search_text(name=name, filename=p.item.filename, tags=tags),
                 )
                 db.add(image)
                 db.flush()
@@ -1045,7 +1021,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 row.staging_key = None
 
                 _index(p, image.id, (by_bytes, by_pixels))
-                result.done.append(CommittedImage(p, image.id, group_name or None, author))
+                result.done.append(CommittedImage(p, image.id, None, None))
 
             # New and refreshed images alike: a refresh replaces the image's features
             store_grouping_features(
@@ -1306,12 +1282,9 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
     outcome.done += len(split.unchanged)
     outcome.duplicates += len(split.early)
 
-    # A job or partition this batch finished (nothing left open) has its map groups refined
-    # now that its vectors are written (ADR-028); the worker's idle sweep catches any missed
-    schedule_refinements(
-        {item.job_id for item in items},
-        {item.import_group_id for item in items if item.import_group_id is not None},
-    )
+    # A job this batch finished (nothing left open) enters its grouping phase now that its
+    # vectors are written (ADR-028); the worker's idle sweep catches any missed here
+    schedule_grouping({item.job_id for item in items})
 
     logger.info(
         "Ingest batch: %d done, %d duplicate, %d sorted out, %d failed",

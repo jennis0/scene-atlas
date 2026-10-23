@@ -17,7 +17,7 @@
  * The server owns the lifecycle; nothing here is persisted locally.
  */
 
-import { importClient as defaultClient, type DetailScope, type ImportClient } from './importClient'
+import { importClient as defaultClient, type ImportClient } from './importClient'
 import { createHasher, type Hasher } from './hasher'
 import type {
   ImageType,
@@ -161,7 +161,8 @@ const isRetryableStatus = (status: number) => status >= 500 || status === 408 ||
 
 class Aborted extends Error {}
 
-const OPEN_STATUSES = new Set(['active', 'paused'])
+// Not finished yet: importing, or identifying its groups (ADR-028)
+const OPEN_STATUSES = new Set(['active', 'paused', 'grouping'])
 const ACTIVE_PHASES = new Set<UploadPhase>([
   'reading',
   'describing',
@@ -211,8 +212,8 @@ export class ImportManager {
   /** Files this tab gave up on, kept so "Try again" works without re-picking. */
   private failedFiles = new Map<string, PendingFile[]>()
   /** Jobs whose detail a mounted view needs, with a reference count. */
-  /** Per watched job, one entry per watcher: the groups it needs. */
-  private watched = new Map<string, DetailScope[]>()
+  /** Per watched job, how many watchers keep its detail fresh. */
+  private watched = new Map<string, number>()
 
   private etag: string | null = null
   private pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -801,11 +802,6 @@ export class ImportManager {
     return this.client.sortedOutCounts()
   }
 
-  async skipGroup(jobId: string, groupId: number): Promise<void> {
-    await this.client.skipGroup(jobId, groupId)
-    await this.refresh()
-  }
-
   /** Undo: delete every image the import created, then the import itself. */
   async undo(jobId: string): Promise<number> {
     this.runs.get(jobId)?.controller.abort()
@@ -842,22 +838,19 @@ export class ImportManager {
   /**
    * Keep ``snapshot.details[jobId]`` fresh while the returned function hasn't
    * been called. Detail is re-fetched only when the summary poll reports a
-   * change, so an idle open dialog costs nothing. ``active`` watchers need only
-   * the groups importing now; the detail carries every group if any watcher
-   * asks for ``all``.
+   * change, so an idle open dialog costs nothing.
    */
-  watchJob(jobId: string, scope: DetailScope = 'all'): () => void {
-    const before = this.detailScope(jobId)
-    this.watched.set(jobId, [...(this.watched.get(jobId) ?? []), scope])
-    if (this.detailScope(jobId) !== before) void this.fetchDetail(jobId)
+  watchJob(jobId: string): () => void {
+    const watchers = this.watched.get(jobId) ?? 0
+    this.watched.set(jobId, watchers + 1)
+    if (watchers === 0) void this.fetchDetail(jobId)
     let released = false
     return () => {
       if (released) return
       released = true
-      const scopes = [...(this.watched.get(jobId) ?? [])]
-      scopes.splice(scopes.indexOf(scope), 1)
-      if (scopes.length > 0) {
-        this.watched.set(jobId, scopes)
+      const left = (this.watched.get(jobId) ?? 1) - 1
+      if (left > 0) {
+        this.watched.set(jobId, left)
         return
       }
       this.watched.delete(jobId)
@@ -872,15 +865,9 @@ export class ImportManager {
     return this.client.get(jobId)
   }
 
-  private detailScope(jobId: string): DetailScope | undefined {
-    const scopes = this.watched.get(jobId)
-    if (!scopes?.length) return undefined
-    return scopes.includes('all') ? 'all' : 'active'
-  }
-
   private async fetchDetail(jobId: string): Promise<void> {
     try {
-      const detail = await this.client.get(jobId, this.detailScope(jobId))
+      const detail = await this.client.get(jobId)
       if (this.watched.has(jobId)) {
         this.set({ details: { ...this.snapshot.details, [jobId]: detail } })
       }

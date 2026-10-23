@@ -1,4 +1,4 @@
-"""Migration 029 (variant grouping) adds a table and four columns without rebuilding any
+"""Migration 029 (variant grouping) adds a table and two columns without rebuilding any
 table, so the triggers on images keep working, and it downgrades cleanly."""
 
 from pathlib import Path
@@ -60,9 +60,8 @@ def test_upgrade_keeps_triggers_and_downgrade_removes_the_schema(tmp_path):
     command.upgrade(cfg, "029")
 
     with engine.begin() as conn:
-        assert "edited_at" in _columns(conn, "variant_groups")
-        assert "grouping_refined_at" in _columns(conn, "import_jobs")
-        assert {"partition_key", "grouping_refined_at"} <= _columns(conn, "import_groups")
+        assert "grouped_at" in _columns(conn, "import_jobs")
+        assert "awaiting_grouping" in _columns(conn, "images")
         assert _columns(conn, "image_grouping_features") == {
             "image_id",
             "version",
@@ -82,15 +81,13 @@ def test_upgrade_keeps_triggers_and_downgrade_removes_the_schema(tmp_path):
             ),
             {"hash": bytes(32)},
         )
-        conn.execute(sa.text("UPDATE variant_groups SET edited_at = '2026-10-22 00:00:00'"))
 
     command.downgrade(cfg, "028")
 
     with engine.begin() as conn:
         assert "image_grouping_features" not in sa.inspect(conn).get_table_names()
-        assert "edited_at" not in _columns(conn, "variant_groups")
-        assert not {"grouping_refined_at", "grouping_refinable"} & _columns(conn, "import_jobs")
-        assert not {"partition_key", "grouping_refined_at"} & _columns(conn, "import_groups")
+        assert "grouped_at" not in _columns(conn, "import_jobs")
+        assert "awaiting_grouping" not in _columns(conn, "images")
         conn.execute(sa.text("DELETE FROM images WHERE name = 'Fort Day'"))
         assert _image_count(conn) == 1
         assert _search(conn, "day") == []
@@ -158,17 +155,15 @@ def _seed_imports(conn) -> None:
         )
 
 
-def test_imports_sealed_before_029_keep_their_groups(tmp_path, monkeypatch):
-    """ADR-028: libraries imported before this keep their groups. Every sealed job is
-    stamped refined (and its groups stay reviewable) and is never refined, even when it
-    finishes later or re-opens."""
+def test_imports_sealed_before_029_are_already_grouped(tmp_path, monkeypatch):
+    """Every finished job is stamped grouped, so none enters the grouping phase and its groups
+    stay as they are. One still running finishes into the groups its seal planned."""
     from sqlalchemy.orm import Session
 
     from backend.app.api.imports import _summaries
-    from backend.app.models import ImportGroup, ImportItem, ImportJob
-    from backend.app.services import variant_grouping
+    from backend.app.models import Image, ImageGroup, ImportItem, ImportJob
+    from backend.pipeline import group_jobs
     from backend.pipeline import ingest_queue as q
-    from backend.pipeline import refine_groups as rg
 
     url = f"sqlite:///{tmp_path / 'm.db'}"
     cfg = _config(url)
@@ -180,43 +175,42 @@ def test_imports_sealed_before_029_keep_their_groups(tmp_path, monkeypatch):
 
     with Session(engine) as db:
         jobs = {j.id: j for j in db.query(ImportJob)}
-        assert {
-            j: (jobs[j].grouping_refinable, jobs[j].grouping_refined_at is not None) for j in jobs
-        } == {
-            "done": (False, True),
-            "running": (False, True),
-            "unsealed": (True, False),  # the tree walk will seal it
+        assert {j: jobs[j].grouped_at is not None for j in jobs} == {
+            "done": True,
+            "running": False,  # it will group what it still imports
+            "unsealed": False,
         }
-        assert all(g.grouping_refined_at is not None for g in db.query(ImportGroup))
-        assert rg.due_jobs(db) == [] and rg.due_partitions(db) == []
+        assert group_jobs.due_jobs(db) == []
+        assert {i.awaiting_grouping for i in db.query(Image)} == {False}
         summaries = {s.id: s for s in _summaries(db, list(jobs.values()))}
         assert summaries["done"].groups_reviewable == 1  # reviewable as before
 
-        # The running import finishes: still nothing to refine
-        db.get_one(ImportItem, 4).state = "done"
+        # The running import's last file commits ungrouped, then the job finishes
+        db.add(
+            Image(
+                id=4,
+                filename="m4.png",
+                name="m4",
+                storage_key="m4.png",
+                import_job_id="running",
+                image_type="battlemap",
+                awaiting_grouping=True,
+            )
+        )
+        item = db.get_one(ImportItem, 4)
+        item.state, item.image_id = "done", 4
         q.recompute_job_status(db, "running")
         db.commit()
-        assert db.get_one(ImportJob, "running").status == "completed"
-        assert rg.due_jobs(db) == []
-
-        # A retry re-opens it; once it finishes again it is only stamped, never walked
-        db.get_one(ImportItem, 4).state = "failed"
-        q.recompute_job_status(db, "running")
-        q.retry_items(db, "running")
-        db.commit()
-        assert db.get_one(ImportGroup, 2).grouping_refined_at is None
-        db.get_one(ImportItem, 4).state = "done"
-        q.recompute_job_status(db, "running")
-        db.commit()
-        assert rg.due_jobs(db) == ["running"]
-
-    def no_walk(*_args, **_kwargs):
-        raise AssertionError("an import sealed before 029 must never be refined")
+        assert db.get_one(ImportJob, "running").status == "grouping"
+        assert group_jobs.due_jobs(db) == ["running"]
 
     monkeypatch.setattr("backend.app.config.settings.database_url", url)
-    monkeypatch.setattr(variant_grouping, "group_with_content", no_walk)
-    assert rg.refine_job_groups("running", readiness=lambda: rg.Readiness.OFF) == rg.Outcome.REFINED
+    assert group_jobs.group_job("running", readiness=lambda: group_jobs.Readiness.OFF) == (
+        group_jobs.Outcome.GROUPED
+    )
     with Session(engine) as db:
-        assert db.get_one(ImportGroup, 2).grouping_refined_at is not None
-        assert db.get_one(ImportJob, "running").grouping_refined_at is not None
+        image = db.get_one(Image, 4)
+        assert (image.group_id, image.awaiting_grouping) == (2, False)  # its seal's group
+        assert db.query(ImageGroup).count() == 2
+        assert db.get_one(ImportJob, "running").status == "completed"
     engine.dispose()

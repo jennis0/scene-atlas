@@ -1,11 +1,13 @@
 """Content evidence: per-file features, candidate pairs and pair signals (design §2 and §4).
 
 Signals are kept separate, never fused into one score: a pHash rendition is *certain* evidence,
-layout agreement needs the edge map **and** the embedding to agree. Candidate pairs are found in
-row blocks so no dense n × n matrix is held (CPU, numpy only):
+layout agreement needs the edge map **and** the embedding to agree. Candidate pairs are found
+without holding a dense n × n matrix (CPU, numpy only):
 
-- every pair within ``candidate_phash_bits`` of 256 pHash bits;
-- each file's top-k neighbours by embedding cosine and by edge-map correlation;
+- every pair within ``candidate_phash_bits`` of 256 pHash bits, by exact multi-index hashing
+  (``phash_index``);
+- each file's top-k neighbours by embedding cosine and by edge-map correlation, in row blocks,
+  within its top-level folder (``candidate_pairs``);
 - every pair inside small folders and small subtrees (the walk compares those exhaustively).
 
 A file without a feature never takes part in a signal that needs it: the join is withheld, not
@@ -19,12 +21,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .phash_index import radius_pairs, sorted_unique
+
 PHASH_BYTES = 32  # 256-bit pHash (imagehash.phash(hash_size=16), MSB-first)
 PHASH_BITS = PHASH_BYTES * 8
 EDGE_DIM = 1024  # 32 × 32 edge-map layout descriptor
 
 # Rows per block for the dense candidate searches: a block × n float32 matrix (40 MB at n = 10k).
 _BLOCK_ROWS = 1024
+# Rows per k-NN block: argpartition holds a block × n int64 array (200 MB at n = 50k).
+_KNN_BLOCK_ROWS = 512
+# Extra neighbours a k-NN row may keep when they tie with its k-th (identical renditions).
+_KNN_TIES = 16
 # Pairs per chunk when computing pair signals (bounds the gathered feature rows).
 _PAIR_CHUNK = 65536
 # Bits set per byte value, for Hamming distances on packed hashes.
@@ -109,43 +117,50 @@ class FeatureMatrix:
 # ----------------------------------------------------------------------------- candidate pairs
 
 
-def _phash_signs(fm: FeatureMatrix, rows: np.ndarray) -> np.ndarray:
-    """pHash bits of ``rows`` as ±1 floats: the dot of two such rows is 256 - 2 × Hamming."""
-    bits = np.unpackbits(fm.phash[rows], axis=1).astype(np.float32)
-    return bits * 2.0 - 1.0
-
-
 def _phash_pairs(fm: FeatureMatrix, max_bits: int) -> np.ndarray:
-    """All pairs (i < j) of hashed files within ``max_bits`` Hamming distance."""
+    """All pairs (i < j) of hashed files within ``max_bits`` Hamming distance, over the whole
+    input: renditions join across the tree (x1), so this search is never bucketed."""
     idx = np.flatnonzero(fm.has_phash)
-    if len(idx) < 2:
-        return np.zeros((0, 2), dtype=np.int64)
-    signs = _phash_signs(fm, idx)
-    need = PHASH_BITS - 2 * max_bits  # exact: integers <= 256 are exact in float32
-    out = []
-    for s in range(0, len(idx), _BLOCK_ROWS):
-        block = signs[s : s + _BLOCK_ROWS] @ signs.T
-        r, c = np.nonzero(block >= need)
-        r = r + s
-        keep = r < c
-        out.append(np.stack([idx[r[keep]], idx[c[keep]]], axis=1))
-    return np.concatenate(out)
+    local = radius_pairs(fm.phash[idx], max_bits)
+    return idx[local] if len(local) else np.zeros((0, 2), dtype=np.int64)
 
 
-def _knn_pairs(rows: np.ndarray, has: np.ndarray, k: int) -> np.ndarray:
-    """Each row's top-``k`` neighbours by dot product among rows with ``has``, as (i, j) pairs."""
+def _knn_pairs(
+    rows: np.ndarray, has: np.ndarray, k: int, buckets: np.ndarray | None = None
+) -> np.ndarray:
+    """Each row's top-``k`` neighbours by dot product among rows with ``has``, as (i, j) pairs,
+    searched within each bucket (all rows when ``buckets`` is None)."""
     idx = np.flatnonzero(has)
+    if buckets is None:
+        return _knn_in(rows, idx, k)
+    idx = idx[np.argsort(buckets[idx], kind="stable")]  # group by bucket, file order within
+    ids = buckets[idx]
+    cuts = np.flatnonzero(ids[1:] != ids[:-1]) + 1
+    out = [_knn_in(rows, part, k) for part in np.split(idx, cuts)]
+    return np.concatenate(out) if out else np.zeros((0, 2), dtype=np.int64)
+
+
+def _knn_in(rows: np.ndarray, idx: np.ndarray, k: int) -> np.ndarray:
+    """Top-``k`` neighbour pairs among the rows ``idx``, in row blocks.
+
+    Neighbours tied with the k-th are kept too (up to ``_KNN_TIES`` extra), so the result does
+    not depend on how ties are broken: renditions often have identical embeddings. That also
+    makes a bucket's neighbours a superset of the same-bucket part of a global search.
+    """
     k = min(k, len(idx) - 1)
     if k < 1:
         return np.zeros((0, 2), dtype=np.int64)
+    wide = min(k + _KNN_TIES, len(idx) - 1)
     sub = rows[idx]
     out = []
-    for s in range(0, len(idx), _BLOCK_ROWS):
-        sim = sub[s : s + _BLOCK_ROWS] @ sub.T
+    for s in range(0, len(idx), _KNN_BLOCK_ROWS):
+        sim = sub[s : s + _KNN_BLOCK_ROWS] @ sub.T
         sim[np.arange(sim.shape[0]), np.arange(s, s + sim.shape[0])] = -np.inf
-        top = np.argpartition(-sim, k - 1, axis=1)[:, :k]
-        src = np.repeat(np.arange(s, s + sim.shape[0]), k)
-        out.append(np.stack([idx[src], idx[top.ravel()]], axis=1))
+        top = np.argpartition(-sim, wide - 1, axis=1)[:, :wide]
+        values = np.take_along_axis(sim, top, axis=1)
+        kth = -np.partition(-values, k - 1, axis=1)[:, k - 1 : k]
+        src, col = np.nonzero(values >= kth)
+        out.append(np.stack([idx[src + s], idx[top[src, col]]], axis=1))
     return np.concatenate(out)
 
 
@@ -166,18 +181,28 @@ def candidate_pairs(
     phash_bits: int,
     knn_embedding: int,
     knn_edge: int,
+    buckets: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Unique candidate pairs (i < j), sorted: content neighbours plus ``exhaustive`` groups."""
+    """Unique candidate pairs (i < j), sorted: content neighbours plus ``exhaustive`` groups.
+
+    ``buckets`` (an id per file) limits the embedding and edge neighbour searches to files of
+    one bucket: the walk passes the top-level effective folder. That is exact for every join
+    except the global suggestions: layout agreement, cohesion and gated shared bases only join
+    at non-container folders, the root is always a container, so a pair whose files lie under
+    different top-level folders can only join as a pHash rendition, and pHash candidates stay
+    global. Each file's in-bucket top-k contains every same-bucket neighbour of its global
+    top-k (ties aside).
+    """
     parts = [
         _phash_pairs(fm, phash_bits),
-        _knn_pairs(fm.embedding, fm.has_embedding, knn_embedding),
-        _knn_pairs(fm.edge, fm.has_edge, knn_edge),
+        _knn_pairs(fm.embedding, fm.has_embedding, knn_embedding, buckets),
+        _knn_pairs(fm.edge, fm.has_edge, knn_edge, buckets),
         *_all_pairs(exhaustive),
     ]
     pairs = np.concatenate(parts).astype(np.int64)
     lo, hi = np.minimum(pairs[:, 0], pairs[:, 1]), np.maximum(pairs[:, 0], pairs[:, 1])
     keep = lo != hi
-    key = np.unique(lo[keep] * fm.n + hi[keep])
+    key = sorted_unique(lo[keep] * fm.n + hi[keep])
     return np.stack([key // fm.n, key % fm.n], axis=1)
 
 

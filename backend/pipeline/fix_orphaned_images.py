@@ -1,7 +1,8 @@
 """Fix orphaned images that have no group.
 
 Finds all images with group_id = NULL and assigns them all
-to a single "Uncategorised" group.
+to a single "Uncategorised" group. Images an import hasn't grouped yet are not orphans: their
+import's grouping phase will group them (ADR-028).
 
 Usage:
     uv run python -m backend.pipeline.fix_orphaned_images
@@ -9,7 +10,7 @@ Usage:
 
 import logging
 
-from backend.app.models.database import Image, ImageGroup
+from backend.app.models.database import Image, ImageGroup, listed_images
 from backend.pipeline.db import pipeline_db
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ UNCATEGORISED_NAME = "Uncategorised"
 def fix_orphaned_images():
     """Add all ungrouped images to a single 'Uncategorised' group."""
     with pipeline_db() as db:
-        orphans = db.query(Image).filter(Image.group_id.is_(None)).all()
+        orphans = db.query(Image).filter(Image.group_id.is_(None), listed_images()).all()
 
         if not orphans:
             print("No orphaned images found.")

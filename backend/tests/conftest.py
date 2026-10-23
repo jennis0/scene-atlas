@@ -56,27 +56,28 @@ def shutdown_signal_cleared():
 
 
 @pytest.fixture(autouse=True)
-def grouping_refinement_inline(monkeypatch):
-    """Grouping refinement (ADR-028) runs synchronously where it is scheduled, never on the
-    JobRunner's threads, and without embeddings (no model in tests). Tests that need the
-    embedding rules install their own scheduler."""
-    from backend.pipeline import refine_groups
+def grouping_inline(monkeypatch):
+    """An import's grouping phase (ADR-028) runs synchronously where it is scheduled, never
+    on the JobRunner's threads, and without embeddings (no model in tests). Tests that need
+    another readiness install their own scheduler."""
+    from backend.pipeline import group_jobs
 
-    scheduler = refine_groups.RefinementScheduler.inline(lambda: refine_groups.Readiness.OFF)
-    monkeypatch.setattr(refine_groups, "_scheduler", scheduler)
+    scheduler = group_jobs.GroupingScheduler.inline(lambda: group_jobs.Readiness.OFF)
+    monkeypatch.setattr(group_jobs, "_scheduler", scheduler)
     return scheduler
 
 
 @pytest.fixture
-def no_grouping_refinement(monkeypatch):
-    """No grouping refinement at all, e.g. for tests counting a batch's queries."""
-    from backend.pipeline import refine_groups
+def no_grouping(monkeypatch):
+    """No grouping phase at all: jobs stay ``grouping`` (tests of that state, and tests
+    counting a batch's queries)."""
+    from backend.pipeline import group_jobs
 
-    class _Off(refine_groups.RefinementScheduler):
-        def schedule(self, job_ids=None, import_group_ids=None):
+    class _Off(group_jobs.GroupingScheduler):
+        def schedule(self, job_ids=None):
             return []
 
-    monkeypatch.setattr(refine_groups, "_scheduler", _Off())
+    monkeypatch.setattr(group_jobs, "_scheduler", _Off())
 
 
 @pytest.fixture

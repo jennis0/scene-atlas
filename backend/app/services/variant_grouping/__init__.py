@@ -1,13 +1,16 @@
 """Variant grouping v2: the bottom-up tree walk (design/variant-grouping.md, ADR-028).
 
-Pure: no database, no filesystem, no model loading. Two entry points, one per pass:
+Pure: no database, no filesystem, no model loading. Entry points:
 
-- ``group_by_paths``: the seal pass, from paths alone (tree, names, folders, containers);
-- ``group_with_content``: the refinement pass, adding pHash renditions, layout agreement and the
-  cohesion-gated parent rules. Content only adds joins, so its groups are unions of the seal
-  pass's groups (merge-only).
+- ``group_with_content``: what an import's grouping phase runs once it has finished
+  (``backend/pipeline/group_jobs.py``): paths plus pHash renditions, layout agreement and the
+  cohesion-gated parent rules;
+- ``group_by_paths``: from paths alone (tree, names, folders, containers), every content join
+  withheld. Content only adds joins, so ``group_with_content``'s groups are unions of these
+  (tested; the research parity bench measures both);
+- ``effective_folders``: each file's effective folder (ingest finds a file's siblings by it).
 
-Both return a ``Grouping`` that is deterministic and independent of input order.
+The groupings are deterministic and independent of input order.
 
 Modules: ``vocab`` (word lists), ``names`` (tokens, identity, folder IDF, hubs, levels),
 ``tree`` (effective tree), ``evidence`` (features, candidate pairs, pair signals), ``cohesion``
@@ -41,30 +44,24 @@ __all__ = [
     "ProposedGroup",
     "Suggestion",
     "group_by_paths",
+    "effective_folders",
     "group_with_content",
-    "partition_keys",
 ]
 
 
-def partition_keys(paths: Iterable[str]) -> dict[str, str]:
-    """Each path's partition: the canonical name of its effective top-level folder, "" for
-    files at the root.
+def effective_folders(paths: Iterable[str]) -> dict[str, str]:
+    """Each path's effective folder ("/"-joined canonical names, "" for the root).
 
-    Rendition and variant folders are transparent, so ``Gridded/X/a.png`` and
-    ``No Grid/X/a.png`` share the partition of ``X/a.png``, and mirror siblings
-    (``Forest Road Gridded`` / ``Forest Road Gridless``) share one. The walk never joins
-    files of different top-level folders from their paths (the root is always a container),
-    so a seal group lies within one partition; only content (cross-tree renditions) joins
-    across them. Ingest refines large imports partition by partition (ADR-028).
+    Rendition and variant folders are transparent, so ``X/Gridded/a.png`` and
+    ``X/No Grid/b.png`` share ``X``'s, as do mirror siblings (``Forest Road Gridded`` /
+    ``Forest Road Gridless``). A folder's effective name depends only on its own path, not on
+    the other paths given. Ingest uses it to find a file's siblings at seal, before any
+    grouping (``ingest_queue``: grid sizes named by sibling files).
     """
     ordered = list(dict.fromkeys(paths))
     folders = {path: N.split_path(path)[0] for path in ordered}
     tree = build_tree(folders.values())
-    keys: dict[str, str] = {}
-    for path, folder in folders.items():
-        effective = tree.effective_of[folder]
-        keys[path] = effective[0] if effective else ""
-    return keys
+    return {path: "/".join(tree.effective_of[folder]) for path, folder in folders.items()}
 
 
 def group_by_paths[K: Hashable](
@@ -73,7 +70,7 @@ def group_by_paths[K: Hashable](
     params: GroupingParams | None = None,
     known_authors: Collection[str] = (),
 ) -> Grouping[K]:
-    """Group files from their paths alone (the seal pass, design §3).
+    """Group files from their paths alone (no content evidence).
 
     Every join that needs content is withheld, never guessed, so ``group_with_content`` on the
     same files only merges these groups. ``known_authors`` are the creators already in the
@@ -89,7 +86,7 @@ def group_with_content[K: Hashable](
     parser: ImageParser,
     known_authors: Collection[str] = (),
 ) -> Grouping[K]:
-    """Group files from their paths and content features (the refinement pass, design §3).
+    """Group files from their paths and content features (an import's grouping, design §3).
 
     Files missing from ``features``, or missing a feature, take part through names and folders
     only. ``params.embedding`` is the encoder's calibration; None switches embedding rules off.

@@ -28,11 +28,6 @@ import type {
 
 const BASE = '/imports'
 
-/** Which groups a job's detail carries: all of them (the report), or the few importing now. */
-export type DetailScope = 'all' | 'active'
-/** Groups the progress view lists under "Now importing". */
-export const ACTIVE_GROUPS = 3
-
 export interface UploadOptions {
   signal?: AbortSignal
   onProgress?: (loadedBytes: number) => void
@@ -57,10 +52,9 @@ export const importClient = {
     return { data: response.status === 304 ? null : response.data, etag: newEtag }
   },
 
-  /** The job and its groups; ``active``: only the first few groups still importing. */
-  async get(jobId: string, scope: DetailScope = 'all'): Promise<ImportJobDetail> {
-    const params = scope === 'active' ? { groups: 'active', limit: ACTIVE_GROUPS } : undefined
-    const { data } = await api.get<ImportJobDetail>(`${BASE}/${jobId}`, { params })
+  /** The job and its groups (none until its groups have been identified). */
+  async get(jobId: string): Promise<ImportJobDetail> {
+    const { data } = await api.get<ImportJobDetail>(`${BASE}/${jobId}`)
     return data
   },
 
@@ -168,11 +162,6 @@ export const importClient = {
     const { data } = await api.post<ActionResult>(`${BASE}/${jobId}/${name}`, {
       item_ids: itemIds ?? null,
     })
-    return data
-  },
-
-  async skipGroup(jobId: string, groupId: number): Promise<ActionResult> {
-    const { data } = await api.post<ActionResult>(`${BASE}/${jobId}/groups/${groupId}/skip`)
     return data
   },
 

@@ -71,7 +71,7 @@ def test_full_flow(api):
 
     detail = api.client.post(f"{BASE}/{job_id}/seal").json()
     assert detail["planned"] is True
-    assert [g["group_name"] for g in detail["groups"]] == ["Forest"]
+    assert detail["groups"] == []  # groups are identified once the import has finished
 
     for ref, data in (("a", day), ("b", night)):
         r = api.put(job_id, by_ref[ref]["item_id"], data)
@@ -82,6 +82,7 @@ def test_full_flow(api):
 
     detail = api.detail(job_id)
     assert detail["status"] == "completed"
+    assert [g["group_name"] for g in detail["groups"]] == ["Forest"]
     assert detail["counts"]["done"] == 2 and detail["counts"]["skipped"] == 1
     assert detail["groups"][0]["counts"]["done"] == 2
     assert detail["groups"][0]["image_group_id"] is not None
@@ -294,6 +295,8 @@ def test_byte_duplicate_detected_on_upload(api):
     job_id, ids = import_files(api, {"B/H/copy.png": data})
     item = api.client.get(f"{BASE}/{job_id}/items").json()["items"][0]
     assert item["state"] == "duplicate" and item["duplicate_tier"] == "bytes"
+    assert api.detail(job_id)["status"] == "grouping"  # nothing open: its groups are next
+    api.worker.drain()
     assert api.detail(job_id)["status"] == "completed"
 
 
@@ -362,7 +365,9 @@ def test_flat_archive_is_grouped_under_its_name_and_folder(api):
     body = _zip({"Day.png": image_bytes(15), "Night.png": image_bytes(16)})
     name = "Creator/Golden Forest.zip"
     api.client.put(f"{BASE}/{job_id}/archives", params={"name": name}, content=body)
-    groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
+    api.client.post(f"{BASE}/{job_id}/seal")
+    api.worker.drain()
+    groups = api.detail(job_id)["groups"]
     assert [(g["author"], g["group_name"], g["counts"]["total"]) for g in groups] == [
         ("Creator", "Golden Forest", 2)
     ]
@@ -375,7 +380,9 @@ def test_lone_flat_archive_names_its_group(api):
         {"GoldenForest_Day.png": image_bytes(17), "GoldenForest_Night_Snow.png": image_bytes(18)}
     )
     api.client.put(f"{BASE}/{job_id}/archives", params={"name": "Golden Forest.zip"}, content=body)
-    groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
+    api.client.post(f"{BASE}/{job_id}/seal")
+    api.worker.drain()
+    groups = api.detail(job_id)["groups"]
     assert [(g["author"], g["group_name"]) for g in groups] == [("Unknown", "Golden Forest")]
 
 
@@ -463,20 +470,9 @@ def test_finish_upload_skips_missing_files(api):
     api.manifest(job_id, [{"relative_path": "A/G/a.png"}])
     api.client.post(f"{BASE}/{job_id}/seal")
     r = api.client.post(f"{BASE}/{job_id}/finish-upload")
-    assert r.json() == {"affected": 1, "status": "completed"}
-
-
-def test_skip_group(api):
-    job_id = api.create()
-    api.manifest(
-        job_id,
-        [{"relative_path": "Czepeku/One/One.png"}, {"relative_path": "Czepeku/Two/Two.png"}],
-    )
-    groups = api.client.post(f"{BASE}/{job_id}/seal").json()["groups"]
-    one = next(g for g in groups if g["group_name"] == "One")
-    r = api.client.post(f"{BASE}/{job_id}/groups/{one['id']}/skip")
-    assert r.json()["affected"] == 1
-    assert api.client.post(f"{BASE}/{job_id}/groups/999999/skip").status_code == 404
+    # Nothing open: the grouping phase is next (run straight away; inline in tests)
+    assert r.json() == {"affected": 1, "status": "grouping"}
+    assert api.detail(job_id)["status"] == "completed"
 
 
 def test_dismiss_only_when_finished(api):
@@ -650,7 +646,8 @@ def test_undo_of_an_import_that_added_nothing(api):
 
 
 def test_progress_fields(api):
-    """Group totals, the active-groups detail and the measured rate (design/import-progress.md)."""
+    """Per-file progress while importing, then the groups once grouped, and the measured
+    rate (design/import-progress.md)."""
     names = ("Amber", "Brook", "Cedar", "Dune")
     files = {
         f"Czepeku/{name}/{name} {variant}.png": image_bytes(g * 10 + i)
@@ -673,15 +670,22 @@ def test_progress_fields(api):
     def summary():
         return next(j for j in api.client.get(BASE).json()["jobs"] if j["id"] == job_id)
 
-    assert summary()["group_count"] == 4
-    assert summary()["groups_done"] == 1  # Amber has both files; the rest await bytes
-    # Nothing is reviewable until the import finishes and its grouping is refined (ADR-028)
-    assert summary()["groups_reviewable"] == 0
-    assert api.detail(job_id)["reviewable_group_ids"] == []
-
-    active = api.client.get(f"{BASE}/{job_id}", params={"groups": "active", "limit": 2}).json()
-    assert [g["group_name"] for g in active["groups"]] == ["Brook", "Cedar"]
-    assert len(api.detail(job_id)["groups"]) == 4
-
+    running = summary()
+    assert (running["status"], running["counts"]["done"], running["counts"]["total"]) == (
+        "active",
+        3,
+        8,
+    )
+    # No groups until the import has finished (ADR-028)
+    assert (running["group_count"], running["groups_reviewable"]) == (0, 0)
+    assert running["grouped_at"] is None and api.detail(job_id)["groups"] == []
     queue = api.client.get(BASE).json()["queue"]
     assert queue["seconds_per_item"] is not None and queue["seconds_per_item"] > 0
+
+    for path in set(files) - set(sent):
+        assert api.put(job_id, ids[path], files[path]).status_code == 200
+    api.worker.drain()
+    done = summary()
+    assert done["status"] == "completed" and done["grouped_at"] is not None
+    assert (done["group_count"], done["groups_reviewable"]) == (4, 4)
+    assert [g["group_name"] for g in api.detail(job_id)["groups"]] == list(names)

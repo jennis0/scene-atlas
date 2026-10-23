@@ -269,8 +269,11 @@ class _Walk:
             for e, idx in self.subtree.items()
             if e and len(idx) <= p.small_subtree and len(idx) > len(self.own.get(e, ()))
         ]
+        top_level = {e[:1] for e in self.eff}
+        bucket_of = {e: k for k, e in enumerate(sorted(top_level))}
+        buckets = np.array([bucket_of[e[:1]] for e in self.eff], dtype=np.int64)
         pairs = candidate_pairs(
-            self.fm, exhaustive, p.candidate_phash_bits, p.knn_embedding, p.knn_edge
+            self.fm, exhaustive, p.candidate_phash_bits, p.knn_embedding, p.knn_edge, buckets
         )
         sig = pair_signals(self.fm, pairs, p.pair_thresholds())
         if sig.agree.any():

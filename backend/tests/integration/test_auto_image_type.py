@@ -180,14 +180,15 @@ def test_auto_sorts_each_image(auto):
     assert detail["status"] == "completed"
     assert detail["counts"]["done"] == 2 and detail["counts"]["skipped"] == 4
     assert detail["counts"]["sorted_out"] == 4
-    # Per group, by type: the report shows these so surprising sorts stand out
-    group = detail["groups"][0]
+    # One group: the vista, which the head called a scene, joins the map of its folder. The
+    # report shows the counts by type so surprising sorts stand out
+    (group,) = detail["groups"]
     assert (group["map_count"], group["scene_count"]) == (1, 1)
     summaries = auto.client.post(
         "/api/v1/groups/summaries", json={"ids": [group["image_group_id"]]}
     ).json()
     assert (summaries[0]["map_count"], summaries[0]["scene_count"]) == (1, 1)
-    assert detail["groups"][0]["counts"]["sorted_out"] == 4
+    assert group["counts"]["sorted_out"] == 4
     with auto.SessionLocal() as db:
         assert db.query(Image).count() == 2
     assert incoming_files() == []
@@ -241,7 +242,8 @@ def test_scene_takes_the_scene_parse(auto):
     as_scene = image_for(auto, items["A/Keep/Keep_Night_Gridded_30x20.png"])
     assert (as_map.gridded, as_map.grid_width, as_map.grid_height) == (True, 30, 20)
     assert (as_scene.gridded, as_scene.grid_width, as_scene.grid_height) == (None, None, None)
-    assert as_map.group_id == as_scene.group_id  # one group, as before
+    assert as_map.group_id is not None
+    assert as_map.group_id == as_scene.group_id  # the scene joins its folder's map
 
 
 def test_grid_detection_runs_only_for_maps(auto, monkeypatch):
@@ -755,57 +757,6 @@ def test_auto_video_is_classified_from_its_first_frame(auto, tmp_path):
 # ---------------------------------------------------------------------------
 # Review: which gallery groups the editor can open
 # ---------------------------------------------------------------------------
-
-
-def test_reviewable_groups_wait_for_every_import_group_that_feeds_them(auto):
-    """Two import groups resolving to one gallery group: it is reviewable only once both
-    are finished, and counted once. Nothing is reviewable before the import finishes and
-    its grouping is refined (ADR-028). Distinct aspects keep the solid images from being
-    renditions of each other."""
-    from backend.app.models import ImageGroup, ImportGroup
-
-    files = {
-        "Czepeku/One/One.png": solid("red", size=(60, 40)),
-        "Czepeku/Two/Two.png": solid("red", size=(40, 60)),
-        "Czepeku/Three/Three.png": solid("red", size=(50, 50)),
-    }
-    job_id = auto.create("Test", image_type="auto")
-    result = auto.manifest(job_id, [{"relative_path": p, "size": len(d)} for p, d in files.items()])
-    ids = {i["relative_path"]: i["item_id"] for i in result["items"]}
-    auto.client.post(f"{BASE}/{job_id}/seal")
-    with auto.SessionLocal() as db:
-        shared = ImageGroup(base_name="Shared", author="Czepeku")
-        db.add(shared)
-        db.flush()
-        shared_id = shared.id
-        for group in db.query(ImportGroup).filter_by(job_id=job_id):
-            if group.group_name in ("One", "Two"):
-                group.image_group_id = shared_id
-                group.merged_into_existing = True
-        db.commit()
-
-    for path in ("Czepeku/One/One.png", "Czepeku/Three/Three.png"):
-        auto.put(job_id, ids[path], files[path])
-    auto.worker.drain()
-    detail = auto.detail(job_id)
-    three = next(g for g in detail["groups"] if g["group_name"] == "Three")
-    assert three["image_group_id"] is not None
-    # Two is still open, so the import isn't finished and its grouping not refined
-    assert detail["grouping_refined_at"] is None
-    assert detail["reviewable_group_ids"] == []
-    assert detail["groups_reviewable"] == 0
-
-    auto.put(job_id, ids["Czepeku/Two/Two.png"], files["Czepeku/Two/Two.png"])
-    auto.worker.drain()
-    detail = auto.detail(job_id)
-    assert detail["grouping_refined_at"] is not None
-    order = {g["image_group_id"]: g["sort_order"] for g in reversed(detail["groups"])}
-    assert detail["reviewable_group_ids"] == sorted(
-        {shared_id, three["image_group_id"]}, key=order.get
-    )
-    assert detail["groups_reviewable"] == 2
-    summary = next(j for j in auto.client.get(BASE).json()["jobs"] if j["id"] == job_id)
-    assert summary["groups_reviewable"] == 2
 
 
 def test_a_group_with_only_sorted_out_items_is_not_reviewable(auto):

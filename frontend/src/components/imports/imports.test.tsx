@@ -167,29 +167,28 @@ describe('ImportDialog: progress', () => {
       reviewable_group_ids: [41],
     })
 
-  it('shows overall progress, groups done, time left and the groups importing now', async () => {
+  it('shows overall progress, files done and the time left', async () => {
     const running = counts({ done: 3, ready: 900 })
     ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: running, group_count: 347, groups_done: 103 })],
+      jobs: [jobSummary({ counts: running })],
       queue: { ...idleQueue, seconds_per_item: 2 },
-      details: {
-        job1: jobDetail({
-          groups: [
-            group({ group_name: 'Forest Ponds', counts: counts({ done: 12, ready: 6 }) }),
-            group({ id: 2, group_name: 'Frozen Lake', counts: counts({ awaiting_bytes: 4 }) }),
-          ],
-        }),
-      },
     }))
     renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
-    const now = await screen.findByRole('region', { name: 'Now importing' })
-    const rows = within(now).getAllByRole('listitem')
-    expect(rows[0]).toHaveTextContent('Forest Ponds')
-    expect(rows[0]).toHaveTextContent('12/18')
-    expect(rows[1]).toHaveTextContent('waiting')
-    expect(screen.getByText('103 of 347 groups done · about 30 min left')).toBeInTheDocument()
+    expect(await screen.findByText('3 of 903 files done · about 30 min left')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
-    expect(client.get).toHaveBeenCalledWith('job1', 'active')
+    expect(screen.queryByRole('region', { name: 'Now importing' })).not.toBeInTheDocument()
+    expect(client.get).not.toHaveBeenCalled() // no groups to show while importing
+  })
+
+  it('says it is identifying groups once every file is settled', async () => {
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [jobSummary({ status: 'grouping', counts: counts({ done: 40, failed: 2 }) })],
+    }))
+    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
+    expect(await screen.findByText('Identifying groups…')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42')
+    expect(screen.queryByText(/files done/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel import' })).toBeInTheDocument()
   })
 
   it('pauses and cancels from the footer, and says the import carries on once closed', async () => {
@@ -208,17 +207,6 @@ describe('ImportDialog: progress', () => {
     expect(toast).toHaveBeenCalledWith('Forest Pack is still importing', expect.anything())
   })
 
-  it('counts a group against what it could import, not files already in the library', async () => {
-    const partly = group({ counts: counts({ done: 3, duplicate: 3, skipped: 1, ready: 2 }) })
-    ;({ manager, client } = await installFakeImportManager({
-      jobs: [jobSummary({ counts: partly.counts })],
-      details: { job1: jobDetail({ groups: [partly] }) },
-    }))
-    renderWithProviders(<ImportDialog jobId="job1" open onClose={noop} onStarted={noop} />)
-    const row = await screen.findByRole('listitem')
-    expect(row).toHaveTextContent('3/5')
-  })
-
   it('sums up problems in one line while importing', async () => {
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ counts: counts({ ready: 5, duplicate: 98, failed: 3 }) })],
@@ -230,7 +218,7 @@ describe('ImportDialog: progress', () => {
     )
   })
 
-  it('reviews the groups imported so far', async () => {
+  it('reviews the groups once they have been identified', async () => {
     const onReviewGroups = vi.fn()
     ;({ manager, client } = await installFakeImportManager({
       jobs: [jobSummary({ counts: counts({ ready: 5, done: 6 }), groups_reviewable: 2 })],

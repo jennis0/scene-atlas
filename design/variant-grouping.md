@@ -1,6 +1,7 @@
 # Variant grouping v2: bottom-up tree walk
 
-**Status:** In progress (ADR-028). Replaces `ImageParser.group_files` for maps.
+**Status:** In progress (ADR-028). Replaces `ImageParser.group_files` for maps; groups are
+identified once, when an import has finished (§3).
 **Research:** scene-atlas-learning `docs/variant-grouping-results.md` (experiments E0–E5) and
 `docs/superpowers/specs/2026-10-21-variant-grouping-design.md`. The algorithm is E5
 (`grouping/e5/`), Joe's bottom-up tree walk, in narrow mode.
@@ -19,6 +20,9 @@ failures are structural:
 E5 scores 0.976 on the benchmark and 0.944 on new makers, with no whole-folder lumps.
 
 ## 2. The algorithm (E5, narrow mode)
+
+A step-by-step technical walkthrough of the algorithm is in
+[variant-grouping-algorithm.md](variant-grouping-algorithm.md); this section is the summary.
 
 Inputs: a set of files with paths relative to the import root and, optionally, content features
 per file. The output is a partition into groups, a sub-group label per file, a reason for every
@@ -64,83 +68,50 @@ Numbered families with no name (`IMG_0012`, `NumberedGLMaps_52`) carry no identi
 
 Sub-group labels come only from joined child folders, or from level names (`floor 2`, `roof`).
 
-## 3. Where it runs
+## 3. Where it runs: once, when an import has finished
 
-Content features exist only after the ingest worker has processed an image, but groups are
-planned at seal time. Grouping therefore runs twice:
+User decision (2026-10-22): **groups are minted once, at the end of an import, and the pipeline
+never changes them afterwards.** The best evidence (pHash renditions, layout, embeddings) exists
+only once an image is processed, so grouping waits for it rather than guessing at seal and
+correcting later.
 
-| Pass | When | Evidence | Effect |
-|---|---|---|---|
-| **Seal** | `compute_plan`, before the write lock (as `seal_scan` already did) | paths only: tree, names, containers, parent rules without the content gate (see below) | creates the import groups |
-| **Refinement** | per partition as each finishes (imports of more than 500 maps), then over the whole job once its last item is committed and its vectors written | paths + pHash256 + edge map + embeddings | **merges only**, within the partition / job |
+1. **Importing.** The seal only parses each path (name, tags, grid hints; `compute_plan`).
+   Items are processed as before; a committed image has no group and is
+   `images.awaiting_grouping`, listed nowhere (gallery, search, facets, counts, exports:
+   `models.listed_images()`). Progress is per file.
+2. **Identifying groups.** When the job has nothing open (every file done, a duplicate, failed or
+   skipped) its status is `grouping` (`import_jobs.grouped_at IS NULL`). `group_jobs.group_job`
+   runs once over all of the job's files, by **detected** type:
+   - maps (battlemaps, Auto files the head called maps, and files of a map type that made no
+     image) through `group_with_content`, with the images' features;
+   - other types (scenes, tokens and art imported as scenes) join their folder's map group when
+     the nearest effective folder above them (their own included) that holds maps holds maps of
+     one group only (`group_jobs.attach_to_map_groups`; research: 0.98–0.99 precision there).
+     They take no subgroup unless they sit in a folder whose maps of that group share a
+     sub-group label. The rest go through `ImageParser.group_files`.
 
-Merge-only is by construction: refinement re-runs the full walk and, for each resulting group,
-merges the gallery groups it touches. It never splits. That is safe because content only
-*adds* joins (renditions, agreement, cohesion-gated parents), and at seal time every
-content-gated join is withheld rather than guessed.
+   Each group becomes an `ImportGroup` and, if any of its files made an image, a gallery group:
+   an existing one with the same `(name, author)` when the name identifies the map
+   (`ProposedGroup.name_is_identity`) and no other map group of the import has it, else a new
+   one. The images get their group, author, subgroup and search text, and the job is
+   `completed`, all in one write transaction (compute before it, outside the lock).
+3. **Late files.** Retry, Include (sorted out) and Import as copy re-open the job, which clears
+   `grouped_at`; when it has finished again it is grouped again. That run walks every file of the
+   job for context, but places only images still awaiting a group, and moves nothing: a file
+   keeps the import group it had and its image joins that group's gallery group; an import group
+   without one takes the gallery group of this job its proposal overlaps most, else a new one
+   (`plan_grouping`, pure).
 
-**Seal matching.** A map group adds to an existing gallery group with the same `(name, author)`
-only when its name identifies the map (`ProposedGroup.name_is_identity`) and no other map group
-of the import has that name: the seal can leave one map split under one name (a folder-named
-folder whose parts are joined only by content), and such a name says nothing about which map it
-is. Files already settled at seal (failed or skipped by the manifest) take no part.
+The phase is durable (a status derived from item counts and `grouped_at`), runs in one
+transaction (a crash leaves the job `grouping`, and it is grouped again), and runs one at a time
+per job. It is started after the batch that settles a job, after the API actions that can
+(cancel, finish without missing files), on every idle wake of the worker, at startup once the
+model is ready, and by hourly maintenance. While the model is loading or switching it waits; with
+no model it runs without embeddings. Lifecycle: [ingestion.md §5.8](ingestion.md#58-identifying-groups).
 
-**Eligible groups.** Refinement only touches gallery groups that:
-- this job created (`ImportGroup.merged_into_existing = false`), and
-- the user has not edited (`variant_groups.edited_at IS NULL`).
-
-It never reshapes pre-existing groups or another job's groups. An eligible group the content walk
-spreads over two of its groups (paths and content disagree, which merge-only says shouldn't
-happen) is left exactly as it is: merging through it would chain the two together.
-
-**Partitions** (user decision 2026-10-22: groups become reviewable as they close). An import with
-more than `PARTITION_MIN_MAP_FILES` (500) map files is sealed with a partition per import group:
-its effective top-level folder (`partition_keys`; rendition and variant folders are transparent,
-root files are `""`). A seal group never spans two, since the walk never joins top-level folders
-from paths (the root is a container). As soon as none of a partition's items is open, the walk
-runs over all of the job's map items, with content features only for the partition's (the
-others join by names and folders only, as at seal: name analysis depends on the whole file set,
-so a partition-only walk could break merge-only), and merges within the partition's eligible
-groups; its import groups are
-stamped (`import_groups.grouping_refined_at`) and become reviewable. When the whole job has
-finished, the whole-job pass below runs once more over everything, which adds the joins across
-partitions (cross-tree renditions, `x1`). Both are merge-only. Smaller imports have no partitions
-and get only the whole-job pass.
-
-**Trigger.** A job is due when it is sealed, has nothing open (completed, or cancelled with
-nothing left processing) and `grouping_refined_at IS NULL`; a partition when none of its items is
-open and one of its import groups isn't stamped. `process_batch` submits, after `write_vectors`,
-the job its batch touched if due, else the due partitions of the batch's import groups (one
-grouped query). The worker's idle loop sweeps every due scope at most once a minute (jobs finished
-without a batch: cancel, skip, finish without missing files; and deferred runs). Because
-JobRunner state is lost on restart, startup (once the model has loaded) and the hourly
-`ingest_maintenance` sweep too. One run per scope (job, or job and partition) at a time.
-Re-opened items (retry, import as copy, include sorted-out) clear their partitions' stamps
-(`_unrefine`) and the job's (`recompute_job_status`), so they refine again when they finish.
-Refinement is idempotent.
-
-**Model availability.** While the model is loading or switching (the worker is held), a run is
-deferred and a later sweep runs it; with no model at all it runs without embeddings.
-
-**Reviewable.** A gallery group becomes reviewable in the import editor only once every import
-group of the job feeding it is closed and stamped (its partition, or the whole job, refined), so
-the editor doesn't show a group a pass is about to merge. The whole-job pass after partitions may
-still merge a reviewed group away (a twin across top-level folders); the editor drops groups that
-no longer exist. The job summary's `grouping_refined_at` is the latest stamp, and the gallery
-refreshes when it changes. Re-opened items clear their partitions' stamps and the job's.
-
-**Apply.**
-1. Compute outside any transaction. The walk runs over every map item the seal grouped, those
-   that made no image included (by path), so its tree is the seal's; `known_authors` are the
-   creators of groups that existed when the job was sealed.
-2. In one short `write_session()`: nothing if the job was undone, re-opened or refined
-   meanwhile; read again if it finished again. Otherwise re-read membership (images may have
-   moved or been deleted) and eligibility, plan with the pure `plan_merges`, and merge into the
-   group with the most images (ties: lowest id), keeping its id, name, author and cover.
-3. Re-point every `ImportGroup.image_group_id` that named a merged group, so Undo still finds
-   the survivor.
-4. Update `Image.author`, `search_text` and `subgroup` (`group_service.merge_groups`).
-5. Set `grouping_refined_at` and `bump()` the worker.
+**Measured** (WSL, 2026-10-22, 19.8k synthetic map paths, 7,410 groups): the phase took 7.4 s, of
+which 2.1 s under the write lock (mostly the image updates and their triggers); the seal's
+parsing 3.4 s.
 
 ## 4. Content features
 
@@ -179,38 +150,28 @@ the file's stem), `embedding_dim`, and `thresholds` with exactly the research's 
 `agree_emb`, `coh`, `coh_all`, `coh_key`, `coh_suggest` (→ `EmbeddingThresholds.agree`,
 `parent`, `whole_folder`, `shared_base`, `suggest`), each in [-1, 1]. Files are loaded once; a
 malformed one is logged and skipped. A calibration whose `embedding_dim` doesn't match the
-vectors in hand is not used. None ship yet, so embedding rules are off until the research side
-produces them.
+vectors in hand is not used. One ships for each bundled model (the image-type heads' encoders).
 
-## 6. Provenance
+## 6. User edits
 
-`variant_groups.edited_at` is set by every user edit of a group's metadata or membership
-(`group_service.mark_edited` / `mark_groups_edited`):
-
-- `api/groups.py`: edit (rename, author, per-image deletes and updates), split (the group and
-  each new one), move (source and target), merge (the survivor), bulk author
-  (`bulk_edit_service.set_groups_author`);
-- `api/images.py`: a subgroup change (`PATCH /images/{id}`), deleting an image;
-- `bulk_edit_service`: a bulk subgroup change and its undo (only groups whose subgroups change).
-
-Tag, grid and type edits are not group structure and leave it alone. Refinement never touches an
-edited group, and doesn't mark the groups it merges. This is the same rule as `grid_source = user`.
-The group-mutation helpers (reassign, merge, delete if empty, cover repair) live in
-`group_service`, shared by the API and refinement.
+The pipeline never changes a group after it is minted, so user edits need no protection from it:
+there is no edit provenance (an earlier design recorded `edited_at`; dropped with refinement).
+The group-mutation helpers the groups API uses (reassign, merge, delete if empty, cover repair)
+and the grouping phase's `mint_groups` live in `group_service`.
 
 ## 7. Scope
 
 **In:**
-- maps (battlemap and Auto items);
-- new imports and linked-folder scans (each scan job refines its own new images).
+- maps (battlemap and Auto items the head called maps), by the walk;
+- new imports and linked-folder scans (a scan job's images appear after its grouping phase; a
+  refreshed image keeps its group).
 
 **Out (for now):**
-- other image types, which keep `group_files`;
+- other image types where their folder holds several map groups (or none), which keep
+  `group_files` (in the same phase);
 - suggestions in the UI (computed and logged at DEBUG, not stored);
-- attaching tokens and scene art to map groups;
-- regrouping existing libraries: migration 029 marks every job sealed before it
-  `grouping_refinable = false` and stamps it refined, so refinement never runs on imports the old
-  parser grouped (their groups may have been curated before `edited_at` existed);
+- regrouping existing libraries: migration 029 stamps every finished job grouped; one still
+  running finishes into the groups its seal planned;
 - cross-import joins beyond the existing exact `(name, author)` match.
 
 ## 8. Code
@@ -227,13 +188,13 @@ The group-mutation helpers (reassign, merge, delete if empty, cover repair) live
 | `walk.py` | the walk, with `GroupingParams` and the per-folder decision log |
 | `naming.py` | group names and authors, via `ImageParser`'s public `clean_group_name` / `author_from_stem` |
 | `schema.py` | `GroupingFile`, `ProposedGroup`, `Suggestion`, `Grouping` |
-| `__init__.py` | `group_by_paths()` and `group_with_content()` (both take `known_authors`) |
+| `__init__.py` | `group_with_content()` (the pipeline's), `group_by_paths()` (paths only: the research parity bench), `effective_folders()` (seal: a file's siblings) |
 
 ### Deviations from E5
 
 The port matched E5 narrow exactly (same partitions on the benchmark test split, 27 recipes, and
 on reserved), then took these deliberate changes. Each was checked with the research parity
-bench: full-content BCubed stays within noise of E5, merge-only holds, the seal pass improves.
+bench: full-content BCubed stays within noise of E5 (and the paths-only pass improved).
 
 - **Dropped:** local / global modes, ablation switches, learned axis words, content-component
   sub-groups, the `kcap` family cap (1000, never reached), unused signals (struct map, pixel dims).
@@ -258,12 +219,12 @@ bench: full-content BCubed stays within noise of E5, merge-only holds, the seal 
 - **Determinism:** set-order tie-breaks made explicit; files are walked in path order.
 
 `backend/pipeline/` holds the DB glue:
-- seal: `compute_plan` (`_plan_maps`);
+- seal: `compute_plan` (parsing only);
 - features: `ingest_process`;
-- refinement: `refine_groups.py` (lifecycle and triggers: [ingestion.md §5.8](ingestion.md#58-grouping-refinement)).
+- the grouping phase: `group_jobs.py` (lifecycle and triggers: [ingestion.md §5.8](ingestion.md#58-identifying-groups)).
 
-`backend/app/services/` holds the shared pieces: `group_service.py` (group mutations and
-provenance) and `grouping_calibration.py` (per-encoder thresholds).
+`backend/app/services/` holds the shared pieces: `group_service.py` (group mutations,
+`mint_groups`) and `grouping_calibration.py` (per-encoder thresholds).
 
 ## 9. Validation
 
@@ -272,11 +233,13 @@ provenance) and `grouping_calibration.py` (per-encoder thresholds).
   makers, given the same features.
 - **Feature parity.** `phash256` bit-identical to `imagehash` on fixture images; `edge` equal to
   the research descriptor within float16 tolerance.
-- **Seal-time quality.** The paths-only pass is measured on the benchmark; it should not be
-  worse than `group_files`. Merge-only is checked: full-walk groups never split a seal group.
-- **Integration.**
-  - seal + refinement merge twin folders;
-  - edited groups are untouched;
-  - Undo after refinement removes the job's groups;
-  - re-opened jobs refine again;
-  - the editor gates on refinement.
+- **Integration** (`test_grouping_phase.py`):
+  - images import ungrouped and unlisted, then appear grouped;
+  - twin folders become one group;
+  - maps through the walk, scenes through `group_files`;
+  - scenes and tokens join the one map group of their folder, not a folder of two;
+  - existing-group matching, and names two maps share never match;
+  - cancelled imports are grouped; the model being busy waits; a failed write leaves the job
+    `grouping`; files changed meanwhile are read again;
+  - late files join their group, or a new one, and nothing moves;
+  - Undo removes the groups the import minted.

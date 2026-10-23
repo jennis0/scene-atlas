@@ -36,10 +36,12 @@ MAX_ATTEMPTS = 3
 
 JOB_ACTIVE = "active"
 JOB_PAUSED = "paused"
+# Every file settled; the grouping phase is identifying the job's groups (ADR-028)
+JOB_GROUPING = "grouping"
 JOB_COMPLETED = "completed"
 JOB_CANCELLED = "cancelled"
 
-JOB_STATES = (JOB_ACTIVE, JOB_PAUSED, JOB_COMPLETED, JOB_CANCELLED)
+JOB_STATES = (JOB_ACTIVE, JOB_PAUSED, JOB_GROUPING, JOB_COMPLETED, JOB_CANCELLED)
 
 
 class ItemEvent(StrEnum):
@@ -130,20 +132,24 @@ def retry_delay(attempts: int) -> timedelta:
     return timedelta(seconds=5 * 4 ** max(0, attempts - 1))
 
 
-def compute_job_status(current: str, planned: bool, counts: Mapping[str, int]) -> str:
-    """Derive a job's status from its control state and item counts.
+def compute_job_status(
+    current: str, planned: bool, counts: Mapping[str, int], grouped: bool = True
+) -> str:
+    """Derive a job's status from its control state, item counts and whether its grouping
+    phase has run.
 
-    - ``cancelled`` is sticky.
-    - A job with no open items (nothing awaiting bytes, ready or processing)
-      is ``completed`` once planned, even if it was paused.
-    - Otherwise a paused job stays paused and everything else is active. A
-      completed job that gets open items again (retry) re-opens to active.
+    - ``cancelled`` is sticky (a cancelled job is still grouped, see ``group_jobs``).
+    - A planned job with no open items (nothing awaiting bytes, ready or processing) is
+      ``grouping`` until its grouping phase has run, then ``completed``, even if it was
+      paused.
+    - Otherwise a paused job stays paused and everything else is active. A finished job
+      that gets open items again (retry) re-opens to active.
     """
     if current == JOB_CANCELLED:
         return JOB_CANCELLED
     open_count = sum(counts.get(state, 0) for state in OPEN_ITEM_STATES)
     if planned and open_count == 0:
-        return JOB_COMPLETED
+        return JOB_COMPLETED if grouped else JOB_GROUPING
     if current == JOB_PAUSED:
         return JOB_PAUSED
     return JOB_ACTIVE

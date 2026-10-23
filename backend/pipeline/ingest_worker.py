@@ -27,20 +27,16 @@ from backend.app.config import settings
 from backend.app.services import get_image_store, get_thumbnail_store
 from backend.app.services.prepare_pool import get_prepare_pool
 
+from .group_jobs import schedule_grouping
 from .ingest_process import BatchOutcome, clear_incoming, process_batch, settled_count
 from .ingest_queue import claim_next_batch, recover_interrupted
 from .ingest_rate import ProcessingRate
 from .pipeline_config import PipelineConfig, load_pipeline_config
-from .refine_groups import schedule_refinements
 
 logger = logging.getLogger(__name__)
 
 # Below this much free space on any ingest volume, the queue pauses.
 MIN_FREE_BYTES = 512 * 1024 * 1024
-# While idle, jobs due for grouping refinement are looked for at most this often. Catches
-# jobs finished without a batch (cancel, skip, finish without missing files) and ones
-# deferred while the model was busy (design/ingestion.md §5.8).
-REFINEMENT_SWEEP_SECONDS = 60.0
 
 Probe = Callable[[], str | None]
 
@@ -107,7 +103,6 @@ class IngestWorker:
         self._holds: dict[str, str] = {}  # external pauses, e.g. a model switch
         self._busy = False
         self._last_probe = 0.0
-        self._last_refinement_sweep: float | None = None
         self._version = 0
         self._rate = ProcessingRate()
 
@@ -234,7 +229,10 @@ class IngestWorker:
         cfg = self._config_loader()
         job_id, items = claim_next_batch(self._cursor, max(1, cfg.ingestion_batch_size))
         if not items:
-            self._sweep_refinements()
+            # Jobs settled without a batch (every file a duplicate, recovery, cancel) and ones
+            # that waited while the model was busy enter their grouping phase: one cheap
+            # query per idle wake (design/ingestion.md §5.8)
+            schedule_grouping()
             return False
 
         self._cursor = job_id
@@ -252,14 +250,6 @@ class IngestWorker:
             self._last_probe = time.monotonic()
             self._set_system_reason(outcome.system_reason)
         return True
-
-    def _sweep_refinements(self) -> None:
-        now = time.monotonic()
-        last = self._last_refinement_sweep
-        if last is not None and now - last < REFINEMENT_SWEEP_SECONDS:
-            return
-        self._last_refinement_sweep = now
-        schedule_refinements()
 
     def drain(self, max_batches: int = 10_000) -> int:
         """Run batches synchronously until there's no claimable work (tests, CLI)."""

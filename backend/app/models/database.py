@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ColumnElement,
     DateTime,
     Float,
     ForeignKey,
@@ -20,7 +21,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    false,
     select,
+    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -108,6 +111,19 @@ class SourceFile(Base):
         return f"<SourceFile(id={self.id}, key='{self.rel_key}', state='{self.state}')>"
 
 
+# Images the library lists (``listed_images``): partial indexes over them keep the facet,
+# browse and count queries on covering indexes despite the predicate (migration 029)
+LISTED_IMAGES_SQL = "awaiting_grouping = 0"
+LISTED_IMAGE_INDEXES = {
+    "ix_images_listed_id": ("id",),
+    "ix_images_listed_author": ("author",),
+    "ix_images_listed_grid": ("gridded", "grid_type"),
+    "ix_images_listed_type": ("image_type",),
+    "ix_images_listed_media": ("media_type",),
+    "ix_images_listed_created": ("created_at",),
+}
+
+
 class Image(Base):
     """Main image table."""
 
@@ -115,6 +131,10 @@ class Image(Base):
     __table_args__ = (
         Index("ix_images_gridded_grid_type", "gridded", "grid_type"),
         Index("ix_images_source_file_id", "source_file_id", unique=True),
+        *(
+            Index(name, *columns, sqlite_where=text(LISTED_IMAGES_SQL))
+            for name, columns in LISTED_IMAGE_INDEXES.items()
+        ),
         CheckConstraint(
             "storage_key IS NOT NULL OR source_file_id IS NOT NULL", name="ck_images_original"
         ),
@@ -181,6 +201,9 @@ class Image(Base):
     import_job_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
     )
+    # Committed by an import whose grouping phase hasn't run yet (ADR-028): the image has
+    # no group and is listed nowhere (``listed_images``) until its import groups it
+    awaiting_grouping: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     thumbnail_key: Mapped[str | None] = mapped_column(String)
 
     created_at: Mapped[datetime | None] = mapped_column(
@@ -236,6 +259,14 @@ class Image(Base):
         return f"<Image(id={self.id}, name='{self.name}', filename='{self.filename}')>"
 
 
+def listed_images() -> ColumnElement[bool]:
+    """The images the library shows anywhere (gallery, search, facets, counts, exports):
+    every image but those an import has committed and not yet grouped (ADR-028). Add it to
+    every query that lists or counts images; lookups by id don't need it. It renders as
+    ``LISTED_IMAGES_SQL``, the condition of the partial indexes SQLite matches it against."""
+    return Image.awaiting_grouping == false()
+
+
 class ImageGroup(Base):
     """Groups related scenes together."""
 
@@ -253,8 +284,6 @@ class ImageGroup(Base):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=datetime.utcnow, index=True
     )
-    # Last user edit (ADR-028): automatic grouping never changes an edited group
-    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     images: Mapped[list["Image"]] = relationship(
         "Image", back_populates="group", foreign_keys="[Image.group_id]"
@@ -399,12 +428,9 @@ class ImportJob(Base):
     library_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("library_sources.id"), nullable=True
     )
-    # When the whole-job grouping refinement last ran (ADR-028); cleared when the job
-    # re-opens, so it refines again once it completes
-    grouping_refined_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # Sealed by the variant-grouping walk, so refinement may merge its groups. False for jobs
-    # sealed before migration 029 (the old parser): they keep their groups
-    grouping_refinable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # When the grouping phase last grouped the job's images (ADR-028). A sealed job with
+    # nothing open and this unset is in the grouping phase; cleared when items re-open
+    grouped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -433,10 +459,11 @@ class AppSetting(Base):
 
 
 class ImportGroup(Base):
-    """A group planned from the uploaded paths at seal time (ADR-018).
+    """A group the grouping phase found among an import's files (ADR-018, ADR-028).
 
-    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``)
-    or one created when the first image of the group commits.
+    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``), one
+    minted for it, or none when none of its files became an image (all duplicates, failed or
+    sorted out).
     """
 
     __tablename__ = "import_groups"
@@ -453,12 +480,6 @@ class ImportGroup(Base):
     merged_into_existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    # Large imports are refined partition by partition (ADR-028): the group's effective
-    # top-level folder, NULL when the import is refined as a whole
-    partition_key: Mapped[str | None] = mapped_column(String, nullable=True)
-    # When the group's partition (or the whole import) was last refined; the group is
-    # reviewable only once set. Cleared when the partition re-opens.
-    grouping_refined_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")
 

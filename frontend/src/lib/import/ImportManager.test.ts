@@ -42,7 +42,6 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     planned: true,
     dismissed: false,
     upload_interrupted: false,
-    groups_done: 0,
     groups_reviewable: 0,
     local: false,
     linked: false,
@@ -53,7 +52,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     updated_at: null,
     completed_at: null,
     last_upload_at: null,
-    grouping_refined_at: null,
+    grouped_at: null,
   }
 }
 
@@ -126,7 +125,6 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
       return { affected: 0, status: 'cancelled' }
     }),
     itemAction: vi.fn(async () => ({ affected: 2, status: 'active' })),
-    skipGroup: vi.fn(async () => ({ affected: 1, status: 'active' })),
     dismissFinished: vi.fn(async () => 0),
     undo: vi.fn(async () => ({ affected: 3, status: 'deleted' })),
     probeQueue: vi.fn(async () => queue),
@@ -221,23 +219,20 @@ describe('localLabel', () => {
 })
 
 describe('watchJob', () => {
-  it('fetches only the groups importing now until a watcher needs them all', async () => {
+  it('fetches the detail once for many watchers and drops it after the last', async () => {
     const calls: Calls = []
     const client = fakeClient(calls, {
-      get: vi.fn(async (jobId: string, scope: string) => ({
-        ...summary(jobId),
-        groups: [],
-        scope,
-      })),
+      get: vi.fn(async (jobId: string) => ({ ...summary(jobId), groups: [] })),
     })
     const { manager } = track(makeManager(client))
-    const releaseActive = manager.watchJob('job1', 'active')
-    await vi.waitFor(() => expect(client.get).toHaveBeenLastCalledWith('job1', 'active'))
-    const releaseAll = manager.watchJob('job1', 'all')
-    await vi.waitFor(() => expect(client.get).toHaveBeenLastCalledWith('job1', 'all'))
-    expect(client.get).toHaveBeenCalledTimes(2)
-    releaseAll()
-    releaseActive()
+    const first = manager.watchJob('job1')
+    await vi.waitFor(() => expect(manager.getSnapshot().details.job1).toBeDefined())
+    const second = manager.watchJob('job1')
+    expect(client.get).toHaveBeenCalledTimes(1)
+    expect(client.get).toHaveBeenLastCalledWith('job1')
+    first()
+    expect(manager.getSnapshot().details.job1).toBeDefined()
+    second()
     expect(manager.getSnapshot().details.job1).toBeUndefined()
   })
 })

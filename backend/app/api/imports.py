@@ -18,9 +18,9 @@ import shutil
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path, PurePath, PurePosixPath
-from typing import Literal, cast
+from typing import cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
+from ...pipeline.group_jobs import schedule_grouping
 from ...pipeline.ingest_archive import expand_archive
 from ...pipeline.ingest_local import (
     ArchiveLimits,
@@ -127,25 +128,19 @@ def _counts(by_state: dict[str, int], sorted_out: int = 0) -> ImportCounts:
 
 @dataclass
 class _GroupTotals:
-    total: int = 0
+    total: int = 0  # import groups: none until the job's grouping phase has run
     reviewable: int = 0  # gallery groups the review editor can open (_is_reviewable)
-    open: int = 0  # import groups with items still awaiting bytes, ready or processing
-    refined_at: datetime | None = None  # the latest refinement of any of its partitions
 
 
 def _per_gallery_group(db: Session, ids: list[str]):
     """Each job's import groups, merged where they resolved to the same gallery group:
-    whether any has an imported image, whether any is still open (items awaiting bytes,
-    ready or processing), how many import groups are open, the first sort order, and
-    whether all of them are refined (their partition, or the whole import). Import groups
-    without a gallery group yet stay one row each."""
-    is_open = ImportItem.state.in_(st.OPEN_ITEM_STATES)
+    whether any has an imported image, whether the job is grouped, and the first sort
+    order. Import groups without a gallery group stay one row each."""
     per_group = (
         db.query(
             ImportItem.job_id.label("job_id"),
             ImportItem.import_group_id.label("import_group_id"),
             func.max(case((ImportItem.state == st.DONE, 1), else_=0)).label("has_done"),
-            func.max(case((is_open, 1), else_=0)).label("has_open"),
         )
         .filter(ImportItem.job_id.in_(ids), ImportItem.import_group_id.isnot(None))
         .group_by(ImportItem.job_id, ImportItem.import_group_id)
@@ -157,14 +152,11 @@ def _per_gallery_group(db: Session, ids: list[str]):
             per_group.c.job_id.label("job_id"),
             gallery.label("image_group_id"),
             func.max(per_group.c.has_done).label("has_done"),
-            func.max(per_group.c.has_open).label("has_open"),
-            func.sum(per_group.c.has_open).label("open_groups"),
             func.min(ImportGroup.sort_order).label("first_order"),
-            func.min(case((ImportGroup.grouping_refined_at.isnot(None), 1), else_=0)).label(
-                "refined"
-            ),
+            func.max(case((ImportJob.grouped_at.isnot(None), 1), else_=0)).label("grouped"),
         )
         .join(ImportGroup, ImportGroup.id == per_group.c.import_group_id)
+        .join(ImportJob, ImportJob.id == per_group.c.job_id)
         .group_by(
             per_group.c.job_id, gallery, case((gallery.is_(None), per_group.c.import_group_id))
         )
@@ -173,45 +165,33 @@ def _per_gallery_group(db: Session, ids: list[str]):
 
 
 def _is_reviewable(per_gallery):
-    """A gallery group the review editor can open for a job: at least one of the job's
-    import groups that resolved to it has an imported image, none of them is still open,
-    and each is refined (its partition, or the whole import: ADR-028). An unfinished group
-    is held back so the editor never loads a group that is still filling (two import groups
-    can resolve to one gallery group, so one finished import group isn't enough), and an
-    unrefined one because refinement is about to merge into it or merge it away. A later
-    pass (the whole-job pass after partitions) may still merge a reviewed group away; the
-    editor drops groups that no longer exist, and edited groups are never touched."""
+    """A gallery group the review editor can open for a job: one of the job's import groups
+    that resolved to it has an imported image, and the job is grouped (ADR-028: groups are
+    minted once the job has finished, and not before; a job re-opened by late files waits
+    until those are grouped too)."""
     return (
         per_gallery.c.image_group_id.isnot(None)
         & (per_gallery.c.has_done == 1)
-        & (per_gallery.c.has_open == 0)
-        & (per_gallery.c.refined == 1)
+        & (per_gallery.c.grouped == 1)
     )
 
 
 def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
-    """Per job: its groups, how many gallery groups are reviewable, and how many import
-    groups are still open."""
+    """Per job: its import groups, and how many gallery groups are reviewable."""
     totals = {job_id: _GroupTotals() for job_id in ids}
     rows = (
-        db.query(
-            ImportGroup.job_id,
-            func.count(ImportGroup.id),
-            func.max(ImportGroup.grouping_refined_at),
-        )
+        db.query(ImportGroup.job_id, func.count(ImportGroup.id))
         .filter(ImportGroup.job_id.in_(ids))
         .group_by(ImportGroup.job_id)
     )
-    for job_id, total, refined_at in rows:
-        totals[job_id].total, totals[job_id].refined_at = total, refined_at
+    for job_id, total in rows:
+        totals[job_id].total = total
     per_gallery = _per_gallery_group(db, ids)
     state_rows = db.query(
-        per_gallery.c.job_id,
-        func.sum(case((_is_reviewable(per_gallery), 1), else_=0)),
-        func.sum(per_gallery.c.open_groups),
+        per_gallery.c.job_id, func.sum(case((_is_reviewable(per_gallery), 1), else_=0))
     ).group_by(per_gallery.c.job_id)
-    for job_id, reviewable, open_groups in state_rows:
-        totals[job_id].reviewable, totals[job_id].open = reviewable or 0, open_groups or 0
+    for job_id, reviewable in state_rows:
+        totals[job_id].reviewable = reviewable or 0
     return totals
 
 
@@ -277,23 +257,17 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         waiting_for=_waiting_for(job, counts),
         counts=counts,
         group_count=groups.total,
-        groups_done=groups.total - groups.open if job.planned_at is not None else 0,
         groups_reviewable=groups.reviewable,
         created_at=job.created_at,
         updated_at=job.updated_at,
         completed_at=job.completed_at,
         last_upload_at=job.last_upload_at,
-        grouping_refined_at=_latest(job.grouping_refined_at, groups.refined_at),
+        grouped_at=job.grouped_at,
     )
 
 
-def _latest(*times: datetime | None) -> datetime | None:
-    return max((t for t in times if t is not None), default=None)
-
-
-def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> ImportJobDetail:
-    """The job with its groups. ``active_limit``: only the first that many groups that
-    still have open items (the progress view), and no covers."""
+def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
+    """The job with its groups (none until its grouping phase has run)."""
     (summary,) = _summaries(db, [job])
     by_group: dict[int | None, dict[str, int]] = {}
     sorted_out: dict[int | None, int] = {}
@@ -328,15 +302,13 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
         .filter(ImportItem.job_id == job.id, ImportItem.state == st.DONE)
         .group_by(ImportItem.import_group_id)
     )
-    covers: dict[int | None, tuple[int | None, int, int]] = {}
-    if active_limit is None:
-        covers = {gid: (cover, maps, scenes) for gid, cover, maps, scenes in cover_rows}
-    query = db.query(ImportGroup).filter(ImportGroup.job_id == job.id)
-    if active_limit is not None:
-        open_ids = [gid for gid, by_state in by_group.items() if _is_open(by_state)]
-        query = query.filter(ImportGroup.id.in_(open_ids))
-    query = query.order_by(ImportGroup.sort_order, ImportGroup.id)
-    groups = (query.limit(active_limit) if active_limit is not None else query).all()
+    covers = {gid: (cover, maps, scenes) for gid, cover, maps, scenes in cover_rows}
+    groups = (
+        db.query(ImportGroup)
+        .filter(ImportGroup.job_id == job.id)
+        .order_by(ImportGroup.sort_order, ImportGroup.id)
+        .all()
+    )
     return ImportJobDetail(
         **summary.model_dump(),
         reviewable_group_ids=[gid for (gid,) in reviewable],
@@ -356,10 +328,6 @@ def _detail(db: Session, job: ImportJob, active_limit: int | None = None) -> Imp
             for g in groups
         ],
     )
-
-
-def _is_open(by_state: dict[str, int]) -> bool:
-    return any(by_state.get(state) for state in st.OPEN_ITEM_STATES)
 
 
 def _queue_status() -> QueueStatus:
@@ -478,15 +446,9 @@ def list_imports(
 
 
 @router.get("/{job_id}", response_model=ImportJobDetail)
-def get_import(
-    job_id: str,
-    groups: Literal["all", "active"] = "all",
-    limit: int = Query(3, ge=1, le=50),
-    db: Session = Depends(get_db),
-):
-    """The job and its groups. ``groups=active``: only the first ``limit`` groups still
-    importing, for the progress view (a big import has thousands of groups)."""
-    return _detail(db, _job_or_404(db, job_id), active_limit=limit if groups == "active" else None)
+def get_import(job_id: str, db: Session = Depends(get_db)):
+    """The job and its groups (once its grouping phase has run)."""
+    return _detail(db, _job_or_404(db, job_id))
 
 
 @router.get("/{job_id}/items", response_model=ImportItemPage)
@@ -922,7 +884,12 @@ async def upload_content(job_id: str, item_id: int, request: Request):
 def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> ActionResult:
     db.commit()
     _changed(wake=wake)
-    return ActionResult(affected=affected, status=db.get_one(ImportJob, job_id).status)
+    result = ActionResult(affected=affected, status=db.get_one(ImportJob, job_id).status)
+    db.rollback()  # end the read before the grouping phase writes
+    # An action that settles the job's last files (cancel, finish without them) starts its
+    # grouping phase now rather than at the worker's next idle sweep
+    schedule_grouping([job_id])
+    return result
 
 
 @router.post("/{job_id}/pause", response_model=ActionResult)
@@ -981,17 +948,6 @@ def finish_without_missing(job_id: str, db: Session = Depends(get_db)):
     job = _job_or_404(db, job_id)
     _require_sealed(job)
     affected = q.skip_items(db, job_id, "Not uploaded", states={st.AWAITING_BYTES})
-    return _action(db, job_id, affected)
-
-
-@router.post("/{job_id}/groups/{group_id}/skip", response_model=ActionResult)
-@write_locked
-def skip_group(job_id: str, group_id: int, db: Session = Depends(get_db)):
-    _job_or_404(db, job_id)
-    group = db.get(ImportGroup, group_id)
-    if group is None or group.job_id != job_id:
-        raise HTTPException(status_code=404, detail="Group not found")
-    affected = q.skip_items(db, job_id, "Skipped", import_group_id=group_id)
     return _action(db, job_id, affected)
 
 

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 # auto: the image-type head picks battlemap or scene, and sorts out tokens and other
 # images (design/ingestion.md §5.6)
 ImageType = Literal["battlemap", "scene", "auto"]
-JobStatus = Literal["active", "paused", "completed", "cancelled"]
+JobStatus = Literal["active", "paused", "grouping", "completed", "cancelled"]
 
 MAX_MANIFEST_CHUNK = 2000
 MAX_HASH_CHUNK = 2000
@@ -62,19 +62,18 @@ class ImportJobSummary(BaseModel):
     linked: bool = False
     waiting_for: list[str] = []  # derived: a local import's folders that are missing
     counts: ImportCounts
+    # Import groups: none until the job's grouping phase has run (ADR-028)
     group_count: int
-    groups_done: int = 0  # groups with no open items (planned jobs)
     # Gallery groups the review editor can open: one of this import's groups that resolved
-    # to it has an imported image, and none of them is still importing
+    # to it has an imported image, and the import is grouped
     groups_reviewable: int = 0
     created_at: datetime | None
     updated_at: datetime | None
     completed_at: datetime | None
     last_upload_at: datetime | None
-    # The latest refinement of the job's map groups (ADR-028): a partition's, or the whole
-    # import's. Its groups are reviewable once their partition is refined, and the gallery
-    # refreshes when this changes. None until the first refinement.
-    grouping_refined_at: datetime | None = None
+    # When the grouping phase last grouped the job's images; None until then, and while
+    # files it re-opened are importing. The gallery refreshes when it changes.
+    grouped_at: datetime | None = None
 
 
 class ImportJobDetail(ImportJobSummary):

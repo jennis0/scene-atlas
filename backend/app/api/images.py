@@ -13,6 +13,7 @@ from ..config import settings
 from ..models import (
     Image,
     ImageResponse,
+    listed_images,
 )
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
@@ -23,7 +24,7 @@ from ..models.schemas import (
     ImageScope,
     ImageScopeFacets,
 )
-from ..services import get_thumbnail_store, group_service, safe_delete_image
+from ..services import get_thumbnail_store, safe_delete_image
 from ..services.bulk_edit_service import (
     bulk_edit_images,
     forget_undo,
@@ -68,7 +69,7 @@ def list_authors(db: Session = Depends(get_db)):
     rows = cast(
         list[tuple[str]],
         db.query(Image.author)
-        .filter(Image.author.isnot(None), Image.author != "")
+        .filter(listed_images(), Image.author.isnot(None), Image.author != "")
         .distinct()
         .all(),
     )
@@ -78,7 +79,14 @@ def list_authors(db: Session = Depends(get_db)):
 @router.get("/", response_model=list[ImageResponse])
 def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
-    return db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
+    return (
+        db.query(Image)
+        .options(*_WITH_RELATIONS)
+        .filter(listed_images())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.post("/bulk-edit", response_model=BulkImageEditResponse)
@@ -144,9 +152,6 @@ def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db))
     if any(f in updates and updates[f] != getattr(image, f) for f in GRID_FIELDS):
         image.grid_source = GRID_SOURCE_USER
         image.grid_confidence = None
-    if "subgroup" in updates and updates["subgroup"] != image.subgroup:
-        # A subgroup is part of the group's structure: the user's now (ADR-028)
-        group_service.mark_groups_edited(db, [image.group_id])
     for field, value in updates.items():
         setattr(image, field, value)
     db.commit()
@@ -156,13 +161,11 @@ def patch_image(image_id: int, patch: ImagePatch, db: Session = Depends(get_db))
 
 @router.delete("/{image_id}")
 def delete_image(image_id: int, db: Session = Depends(get_db)):
-    """Delete an image and its files from stores (ref-counted). Its group counts as edited
-    by the user (ADR-028)."""
+    """Delete an image and its files from stores (ref-counted)."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    group_service.mark_groups_edited(db, [image.group_id])
     safe_delete_image(db, image)
     db.commit()
     return {"message": "Image deleted successfully"}

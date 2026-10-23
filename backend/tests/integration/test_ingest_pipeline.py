@@ -289,13 +289,11 @@ def test_group_merges_into_existing_gallery_group(env):
         existing_id = existing.id
 
     job_id = make_job(env, {"Czepeku/Island Fort/IslandFort_Rain.png": image_bytes(4)})
+    env.worker.drain()  # the grouping phase finds the group once the job has finished
     with env.SessionLocal() as db:
         group = db.query(ImportGroup).filter(ImportGroup.job_id == job_id).one()
         assert group.merged_into_existing is True
         assert group.image_group_id == existing_id
-
-    env.worker.drain()
-    with env.SessionLocal() as db:
         assert db.query(Image).one().group_id == existing_id
         assert db.query(ImageGroup).count() == 1
 
@@ -629,6 +627,8 @@ def test_item_that_keeps_crashing_is_failed(env):
     assert env.worker.recover() == {"recovered": 0, "crashed": 1}
     item = items_by_path(env, job_id)["A/Map/a.png"]
     assert (item.state, item.error_reason) == (st.FAILED, "Repeatedly crashed during processing")
+    assert job_status(env, job_id) == st.JOB_GROUPING  # nothing open: its groups are next
+    env.worker.drain()
     assert job_status(env, job_id) == st.JOB_COMPLETED
 
 
@@ -705,21 +705,27 @@ def test_round_robin_between_jobs(env):
     assert order == [a, b, a, b]
 
 
-def test_items_claimed_in_group_order(env):
-    job_id = make_job(
+def test_items_claimed_in_manifest_order_with_their_siblings_grid_sizes(env):
+    """No groups exist while a job imports (ADR-028): items are claimed in manifest order,
+    and the grid sizes their sibling files name come from the seal's parse of their folder
+    (rendition folders included: Keep/Gridded is Keep)."""
+    make_job(
         env,
         {
             "Author/Zeta/z1.png": image_bytes(70),
-            "Author/Alpha/a1.png": image_bytes(71),
-            "Author/Zeta/z2.png": image_bytes(72),
+            "Author/Alpha/Alpha 30x20.png": image_bytes(71),
+            "Author/Zeta/Gridded/z2 22x17.png": image_bytes(72),
         },
     )
     _, claimed = claim_next_batch(None, 10)
-    groups = [c.import_group_id for c in claimed]
-    # Each group's items are contiguous.
-    assert groups == sorted(groups, key=groups.index)
-    assert len(set(groups)) == 2
-    assert job_id
+    assert [c.relative_path for c in claimed] == [
+        "Author/Zeta/z1.png",
+        "Author/Alpha/Alpha 30x20.png",
+        "Author/Zeta/Gridded/z2 22x17.png",
+    ]
+    by_path = {c.relative_path: set(c.sibling_grid_counts) for c in claimed}
+    assert by_path["Author/Zeta/z1.png"] == {(22, 17), (17, 22)}
+    assert by_path["Author/Alpha/Alpha 30x20.png"] == {(30, 20), (20, 30)}
 
 
 # ---------------------------------------------------------------------------
@@ -943,6 +949,7 @@ def test_abandon_stale_uploads(env):
     assert abandon_stale_uploads(now=later) == 1
     item = items_by_path(env, job_id)["A/Map/a.png"]
     assert (item.state, item.error_reason) == (st.SKIPPED, "Not uploaded")
+    env.worker.drain()  # its (empty) grouping phase
     assert job_status(env, job_id) == st.JOB_COMPLETED
 
 
@@ -953,6 +960,7 @@ def test_release_staged_bytes_follows_item_state(env):
     make_job(env, {"A/Map/a.png": data})
     env.worker.drain()
     dup_job = make_job(env, {"B/Map/copy.png": data})
+    env.worker.drain()  # its grouping phase finishes it
     dup = items_by_path(env, dup_job)["B/Map/copy.png"]
     staged = staged_path(dup_job, dup.staging_key)
 
@@ -970,6 +978,7 @@ def test_released_duplicate_bytes_mean_copy_needs_upload(env):
     make_job(env, {"A/Map/a.png": data})
     env.worker.drain()
     dup_job = make_job(env, {"B/Map/copy.png": data})
+    env.worker.drain()  # its grouping phase finishes it
     release_staged_bytes(now=ingest_queue.utcnow() + timedelta(days=8))
     with env.SessionLocal() as db:
         ingest_queue.import_as_copy(db, dup_job)
@@ -1039,7 +1048,6 @@ def _claimed(kind="image", image_type="battlemap"):
     return ingest_queue.ClaimedItem(
         id=1,
         job_id="j",
-        import_group_id=None,
         kind=kind,
         relative_path="a.jpg",
         filename="a.jpg",
@@ -1111,9 +1119,7 @@ def _files(count: int, seed: int, groups: int = 2) -> dict[str, bytes]:
     }
 
 
-def test_batch_commit_selects_do_not_scale_with_batch_size(
-    env, query_counter, no_grouping_refinement
-):
+def test_batch_commit_selects_do_not_scale_with_batch_size(env, query_counter, no_grouping):
     env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
     counts = []
     for count, seed in ((2, 1000), (8, 2000)):
@@ -1124,9 +1130,7 @@ def test_batch_commit_selects_do_not_scale_with_batch_size(
     assert counts[0] == counts[1], counts
 
 
-def test_recording_failures_does_not_scale_with_failures(
-    env, query_counter, no_grouping_refinement
-):
+def test_recording_failures_does_not_scale_with_failures(env, query_counter, no_grouping):
     env.config = PipelineConfig(enable_image_grid_detection=False, ingestion_batch_size=16)
     counts = []
     for count in (2, 8):
@@ -1137,7 +1141,7 @@ def test_recording_failures_does_not_scale_with_failures(
     assert counts[0] == counts[1], counts
 
 
-def test_planning_queries_do_not_scale_with_groups(env, query_counter):
+def test_sealing_queries_do_not_scale_with_files(env, query_counter):
     counts = []
     for groups in (2, 8):
         with env.SessionLocal() as db:
@@ -1149,13 +1153,9 @@ def test_planning_queries_do_not_scale_with_groups(env, query_counter):
             )
             db.commit()
             with query_counter as q:
-                assert len(plan_job(db, job.id)) == groups
+                plan_job(db, job.id)
             db.commit()
-        # One INSERT per group is inherent: SQLAlchemy can't batch INSERT .. RETURNING
-        # on SQLite (row order isn't guaranteed). Everything else must be constant.
-        counts.append(
-            len([x for x in q.statements if not x.startswith("INSERT INTO import_groups")])
-        )
+        counts.append(q.count)
     assert counts[0] == counts[1], counts
 
 

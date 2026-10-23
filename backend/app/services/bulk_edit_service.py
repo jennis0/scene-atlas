@@ -8,9 +8,7 @@ single-image endpoints:
 - a changed grid field marks the grid as the user's (``grid_source``) and drops the
   detector's confidence, as ``PATCH /images/{id}`` does;
 - setting ``gridded`` to False clears the grid fields the change doesn't set;
-- tags and subgroup feed ``search_text``, so it's rebuilt for the images they touch;
-- a changed subgroup is a change to its group's structure, so the group counts as edited
-  by the user (``group_service.mark_groups_edited``, ADR-028), as do groups given an author.
+- tags and subgroup feed ``search_text``, so it's rebuilt for the images they touch.
 
 Each edit returns an ``UndoRecord`` (the images' previous state and the tags it added),
 which ``restore_images`` puts back: the editor's undo. A 50k-image edit's record is several
@@ -31,7 +29,6 @@ from sqlalchemy.orm import Session
 from ..models import Image, ImageGroup, Tag
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import TagCreate
-from .group_service import mark_groups_edited
 from .image_parser import build_search_text
 
 # Restorable fields: everything a bulk edit can change, plus what a grid change
@@ -66,7 +63,6 @@ class _ImageRow:
     tags) for 50k images was most of a whole-import edit's time."""
 
     id: int
-    group_id: int | None
     name: str | None
     filename: str
     author: str | None
@@ -83,7 +79,6 @@ class _ImageRow:
 
 _IMAGE_COLUMNS = (
     Image.id,
-    Image.group_id,
     Image.name,
     Image.filename,
     Image.author,
@@ -242,16 +237,7 @@ def bulk_edit_images(
         rows.append(_edit_row(image, changes, new if reindex else None))
     added_ids = list(db.scalars(insert(Tag).returning(Tag.id), tag_rows)) if tag_rows else []
     _update_rows(db, rows)
-    if "subgroup" in changes:
-        _mark_subgroups_edited(db, images, {image.id: changes["subgroup"] for image in images})
     return len(images), UndoRecord(previous, added_ids)
-
-
-def _mark_subgroups_edited(
-    db: Session, images: Sequence[_ImageRow], subgroups: dict[int, str | None]
-) -> None:
-    """The groups of images whose subgroup these values change are edited by the user."""
-    mark_groups_edited(db, (i.group_id for i in images if subgroups[i.id] != i.subgroup))
 
 
 def restore_images(db: Session, record: UndoRecord) -> int:
@@ -264,10 +250,8 @@ def restore_images(db: Session, record: UndoRecord) -> int:
     removing = set(record.added_tag_ids)
     rows: list[dict[str, Any]] = []
     doomed: list[int] = []
-    subgroups: dict[int, str | None] = {}
     for image in images:
         state = dict(zip(_RESTORED_FIELDS, record.previous[image.id], strict=True))
-        subgroups[image.id] = state["subgroup"]
         doomed += [t.id for t in image.tags if t.id in removing]
         tags = [(t.category, t.value) for t in image.tags if t.id not in removing]
         rows.append(
@@ -284,7 +268,6 @@ def restore_images(db: Session, record: UndoRecord) -> int:
             delete(Tag).where(Tag.id.in_(chunk)).execution_options(synchronize_session=False)
         )
     _update_rows(db, rows)
-    _mark_subgroups_edited(db, images, subgroups)
     return len(images)
 
 
@@ -312,6 +295,5 @@ def set_groups_author(db: Session, group_ids: Sequence[int], author: str | None)
         ]
     if found:
         db.execute(update(ImageGroup), [{"id": gid, "author": author} for gid in found])
-        mark_groups_edited(db, found)
     _update_rows(db, rows)
     return len(found)

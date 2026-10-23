@@ -112,11 +112,13 @@ def test_folder_is_listed_grouped_and_imported(local, tmp_path):
     assert day.state == st.READY and day.source_path == str(src / "Czepeku/Forest/Forest_Day.png")
 
     detail = local.client.post(f"{BASE}/{job_id}/seal").json()
-    assert [g["group_name"] for g in detail["groups"]] == ["Forest"]
+    assert detail["groups"] == []  # identified once the import has finished
     assert detail["local"] is True and detail["upload_interrupted"] is False
 
     local.worker.drain()
-    assert local.detail(job_id)["status"] == "completed"
+    detail = local.detail(job_id)
+    assert detail["status"] == "completed"
+    assert [g["group_name"] for g in detail["groups"]] == ["Forest"]
     with local.SessionLocal() as db:
         images = db.query(Image).all()
         assert len(images) == 2 and {i.author for i in images} == {"Czepeku"}

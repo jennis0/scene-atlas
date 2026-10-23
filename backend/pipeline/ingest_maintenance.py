@@ -16,6 +16,7 @@ from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
 
+from .group_jobs import schedule_grouping
 from .ingest_queue import (
     KIND_SORTED_OUT,
     expire_sorted_out,
@@ -25,7 +26,6 @@ from .ingest_queue import (
     utcnow,
     write_session,
 )
-from .refine_groups import schedule_refinements
 
 logger = logging.getLogger(__name__)
 
@@ -218,8 +218,8 @@ def run_ingest_maintenance() -> dict[str, int]:
         "released": release_staged_bytes,
         "pruned": prune_dismissed_jobs,
         "stray": sweep_stray_staging_files,
-        # Refinements lost with a restart or deferred while the model was busy (ADR-028)
-        "refining": lambda: len(schedule_refinements()),
+        # Grouping phases lost with a restart or waiting while the model was busy (ADR-028)
+        "grouping": lambda: len(schedule_grouping()),
     }
     result = {}
     for key, step in steps.items():

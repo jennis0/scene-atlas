@@ -23,6 +23,7 @@ from ..models import (
     SourceFile,
     Tag,
     TagCategory,
+    listed_images,
     seed_tag_categories,
 )
 from ..models.schemas import UpdateCheckResponse
@@ -63,7 +64,7 @@ def system_info(db: Session = Depends(get_db)):
     Intended for the desktop settings panel (app mode).  Also available in
     server mode for diagnostics.
     """
-    image_count = db.query(Image).count()
+    image_count = db.query(Image).filter(listed_images()).count()
     group_count = db.query(ImageGroup).count()
 
     images_bytes = _dir_size(settings.store_images_dir)
