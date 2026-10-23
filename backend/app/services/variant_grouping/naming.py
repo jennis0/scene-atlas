@@ -279,7 +279,7 @@ class GroupNamer:
         fragments: Counter[str] = Counter()
         for i in named:
             stem = self._files.stems[i]
-            span = _identity_span(N.tokenize_spans(stem), prefix)
+            span = _identity_span(N.tokenize_spans(stem, split_glued=True), prefix)
             if span is not None:
                 fragments[stem[span[0] : span[1]]] += 1
         cleaned: Counter[str] = Counter()

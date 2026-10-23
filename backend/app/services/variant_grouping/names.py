@@ -91,13 +91,76 @@ def _blank(m: re.Match[str]) -> str:
     return " " * len(m.group(0))
 
 
-def tokenize_spans(text: str) -> list[Token]:
+# Shortest vocabulary word a glued token may be split into
+_GLUE_MIN = 2
+
+
+@functools.lru_cache(maxsize=_NAME_CACHE)
+def _glued_parts(tok: str) -> tuple[str, ...] | None:
+    """A lower-case run glued from rendition and variant words (``ungriddedprint``,
+    ``printgridless``, ``vttgrid``): its parts, when the whole token is a sequence of such words
+    with at least one rendition word, else None. Only whole decompositions count, so map names
+    keep their letters, and the rendition word keeps variant compounds (``firelight``) whole."""
+    if tok in V.REND or tok in V.AXIS or len(tok) < 2 * _GLUE_MIN:
+        return None
+    vocab = V.REND | V.AXIS
+    best: dict[int, tuple[str, ...]] = {0: ()}  # end -> fewest words spelling tok[:end]
+    for end in range(1, len(tok) + 1):
+        for start in range(max(0, end - 12), end - _GLUE_MIN + 1):
+            if start in best and tok[start:end] in vocab:
+                candidate = (*best[start], tok[start:end])
+                if end not in best or len(candidate) < len(best[end]):
+                    best[end] = candidate
+    parts = best.get(len(tok))
+    if not parts or len(parts) < 2 or not any(t in V.REND for t in parts):
+        return None
+    return parts
+
+
+def _split_glued(tokens: list[Token], text: str) -> list[Token]:
+    """Split glued rendition suffixes (``_glued_parts``), and re-split an upper-case rendition
+    run glued to a lower-case word: the word pattern reads ``GDprint`` as ``g`` + ``dprint``;
+    it is ``gd`` + ``print`` when ``gd`` is a rendition word and ``print`` is one or decomposes
+    into them."""
+    out: list[Token] = []
+    k = 0
+    while k < len(tokens):
+        t = tokens[k]
+        nxt = tokens[k + 1] if k + 1 < len(tokens) else None
+        if (
+            nxt is not None
+            and t.end == nxt.start
+            and text[t.start : t.end].isupper()
+            and text[t.start : t.end].isalpha()
+            and len(nxt.text) > 2
+            and text[nxt.start].isupper()
+            and text[nxt.start + 1 : nxt.end].islower()
+        ):
+            head, rest = t.text + nxt.text[0], nxt.text[1:]
+            if head in V.REND and (rest in V.REND or rest in V.AXIS or _glued_parts(rest)):
+                out.append(Token(head, t.start, nxt.start + 1))
+                t = Token(rest, nxt.start + 1, nxt.end)
+                k += 1
+        parts = _glued_parts(t.text) if t.text.isalpha() else None
+        if parts:
+            pos = t.start
+            for part in parts:
+                out.append(Token(part, pos, pos + len(part)))
+                pos += len(part)
+        else:
+            out.append(t)
+        k += 1
+    return out
+
+
+def tokenize_spans(text: str, split_glued: bool = False) -> list[Token]:
     """Tokens of a file stem or folder name, with spans (E2 ``tokenize``).
 
     Bracketed tag lists are ignored, an ``NxM`` size becomes the ``DIMS`` marker, words split at
     case changes and letter/digit boundaries, ordinal suffixes are dropped after a number
-    ("1st" -> "1") and split platform names are glued back ("Roll20"). Spans let naming map
-    identity tokens back to the original text.
+    ("1st" -> "1") and split platform names are glued back ("Roll20"). ``split_glued`` (file
+    stems) also splits rendition suffixes glued onto words (``GDprint``, ``Ungriddedvtt``). Spans
+    let naming map identity tokens back to the original text.
     """
     masked = _BRACKET_RE.sub(_blank, text) if "[" in text else text
     found = [(m.start(), m.end(), V.DIMS) for m in _DIMS_RE.finditer(masked)]
@@ -114,12 +177,12 @@ def tokenize_spans(text: str) -> list[Token]:
             out[-1] = Token(out[-1].text + tok, out[-1].start, end)
             continue
         out.append(Token(tok, start, end))
-    return out
+    return _split_glued(out, text) if split_glued else out
 
 
-def tokenize(text: str) -> list[str]:
+def tokenize(text: str, split_glued: bool = False) -> list[str]:
     """Lower-case tokens of ``text`` (see ``tokenize_spans``)."""
-    return [t.text for t in tokenize_spans(text)]
+    return [t.text for t in tokenize_spans(text, split_glued)]
 
 
 @functools.lru_cache(maxsize=_NAME_CACHE)

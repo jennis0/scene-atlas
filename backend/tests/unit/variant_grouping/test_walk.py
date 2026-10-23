@@ -446,6 +446,54 @@ def test_small_flat_maker_folder_keeps_maps_apart():
     assert len(run_paths(Scenario(out).grouping_files()).groups) == 4  # the gate needs content
 
 
+MONSTER_HUNTER_VARIANTS = [
+    "autumn",
+    "candlelight",
+    "closing",
+    "dark",
+    "desert-day",
+    "desert-night",
+    "ebony-day",
+    "ebony-night",
+    "empty-day",
+    "empty-night",
+    "fighting-pit-1-day",
+    "fighting-pit-1-night",
+    "fighting-pit-2-night",
+    "fighting-pit-3-night",
+    "fighting-pit-4-night",
+    "fighting-pit-5-night",
+    "fireflies",
+    "fog",
+    "haunted",
+    "massacre",
+    "murder-mystery",
+    "natural-day",
+    "natural-night",
+    "opulent-day",
+    "opulent-night",
+    "original-night",
+    "rain",
+    "spring-day",
+    "spring-night",
+    "winter-day",
+    "winter-night",
+]
+
+
+def test_named_map_reads_names_before_the_prefix_strip():
+    """A lone Czepeku map whose files all start ``MonsterHunterRestaurant_``: the strip reads
+    ``monster hunter`` as a prefix (a hub), so the folder's name is checked against each file's
+    identity with the stripped tokens put back, and a5 joins the map's files (test audit)."""
+    paths = [
+        f"Czepeku/monster-hunter-restaurant/MonsterHunterRestaurant_{v}.webp"
+        for v in MONSTER_HUNTER_VARIANTS
+    ]
+    g = run_paths(files(paths))
+    main = group_of(g, paths[0])
+    assert len(main.keys) >= 25 and main.reasons["a5 folder-named"] >= 1
+
+
 def test_folder_name_followed_by_variant_words_is_the_map():
     """Only variant words follow the folder's name: the folder is the map (unchanged)."""
     paths = [f"Forest Road/Forest_Road_{v}.jpg" for v in ("Day", "Night", "Snow_Night")]

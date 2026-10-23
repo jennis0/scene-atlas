@@ -25,6 +25,24 @@ class TestTokenize:
     def test_tokens(self, text, tokens):
         assert N.tokenize(text) == tokens
 
+    @pytest.mark.parametrize(
+        ("text", "tokens"),
+        [
+            ("SirinkmanFirehall01Ungriddedvtt", ["sirinkman", "firehall", "01", "ungridded", "vtt"]),
+            ("Lighthouse_Printgrid", ["lighthouse", "print", "grid"]),
+            ("TheMagmaChamberVTTgrid", ["the", "magma", "chamber", "vtt", "grid"]),
+            ("Firelight_Tavern", ["firelight", "tavern"]),  # no rendition word: a map name
+            ("Darkfire", ["darkfire"]),
+        ],
+    )  # fmt: skip
+    def test_glued_rendition_suffixes_split_in_file_stems(self, text, tokens):
+        assert N.tokenize(text, split_glued=True) == tokens
+
+    def test_glued_spans_cover_the_text(self):
+        text = "TheMagmaChamberVTTgrid"
+        spans = N.tokenize_spans(text, split_glued=True)
+        assert [text[t.start : t.end] for t in spans][-2:] == ["VTT", "grid"]
+
     def test_spans_point_into_the_text(self):
         text = "Docks of the Dead - Tropical"
         spans = N.tokenize_spans(text)

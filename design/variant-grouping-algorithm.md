@@ -91,6 +91,9 @@ first.
 - `[tag,lists]` and OS copy suffixes (`name (2)`) are removed;
 - `22x30` becomes one `<nxm>` marker;
 - `Roll20`, `1st` and similar are glued back together.
+- In file names, rendition suffixes glued onto a word are split (`Ungriddedvtt` → `ungridded vtt`,
+  `GDprint` → `gd print`), but only when the whole run decomposes into rendition and variant
+  words, so map names such as `Firelight` or `Lighthouse` keep their letters.
 
 ### 4.2 Identity tokens
 
@@ -252,7 +255,7 @@ folder's subtree that are not sealed. Every join records a reason code.
 | a2 | same-name | equal full identity. Certain. Different level tags join as different floors of one map. |
 | a3 | same-layout | agreement (§6.2), counted at unit level: a quarter of the cross pairs between two units must agree |
 | a4 | shared-base | the same 2-token key. **Gated** by cohesion in house-prefix folders (found by folder IDF, or carried by ≥ 80% of the folder's files as a prefix the global strip removed, so a small import gates as a large one does), and for families spanning more than 8 units (a large family is a series of different maps) |
-| a5 | folder-named | the folder's common tokens are the map's name (§4.3), and every file with a name key carries them: its named files that carry the name join (a minority map in the folder keeps its own) |
+| a5 | folder-named | the folder's common tokens are the map's name (§4.3), and every file with a name key carries them, read before the prefix strip (a lone map whose files all start with its name, read as a hub): its named files that carry the name join (a minority map in the folder keeps its own) |
 | a6 | variant-only folder | a specific, non-recurring folder where ≥ 80% of files have no identity (`Golden Forest/Night.webp`, `Day.webp`) is one map |
 
 After stage a, any remaining split stands: different units are different maps, unless stage b

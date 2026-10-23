@@ -188,7 +188,7 @@ class WalkFiles:
             stem = N.file_stem(file_name)
             folders.append(folder)
             stems.append(stem)
-            tokens.append(N.tokenize(stem))
+            tokens.append(N.tokenize(stem, split_glued=True))
             nxm.append(N.nxm_of(stem))
         return cls(folders, stems, tokens, nxm)
 
@@ -460,7 +460,7 @@ class _Walk:
         that name are one map (a minority map in the folder keeps its own)."""
         info = self.names.folder_info.get(P)
         common = set(info.common) if info is not None else set()
-        named = [i for i in own if self.names.named[i] and common <= set(self.names.full[i] or ())]
+        named = [i for i in own if self.names.named[i] and common <= self._identity_before_strip(i)]
         for i in named[1:]:
             self._join(named[0], i, "a5 folder-named", d)
 
@@ -491,10 +491,16 @@ class _Walk:
         nm = self.names
         common = set(info.common)
         return all(
-            common <= set(nm.full[i] or ())
+            common <= self._identity_before_strip(i)
             for i in self.own.get(P, [])
             if nm.veto_key[i] is not None
         )
+
+    def _identity_before_strip(self, i: int) -> set[str]:
+        """A file's identity tokens with those the prefix strip removed put back: the folder's
+        common name may be exactly what was stripped (a lone ``monster-hunter-restaurant/`` map,
+        whose files all start with ``monster hunter``)."""
+        return set(self.names.full[i] or ()) | self.names.stripped[i]
 
     def _container(self, P: Folder, n_units: int) -> tuple[bool, str, bool]:
         """(container?, why, over the unit cap?) for a folder holding ``n_units`` units, from
