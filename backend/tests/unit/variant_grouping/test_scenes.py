@@ -1,6 +1,7 @@
-"""Scenes in an import's grouping (variant_grouping.scenes, research E7), through the public API."""
+"""Scenes in an import's grouping (variant_grouping.scenes), through the public API."""
 
 import dataclasses
+import random
 
 from backend.app.services.variant_grouping import (
     GroupingFile,
@@ -135,18 +136,19 @@ class TestAttachByName:
         assert not scenes.attachments
 
 
-class TestRenditionOfAMap:
-    def test_a_copy_of_a_map_joins_it_anywhere(self):
+class TestNoContentAttach:
+    def test_a_copy_of_a_map_elsewhere_stays_a_scene(self):
+        """Scenes and maps are never linked by content: a scene typed for a copy of a map,
+        filed away from it, attaches to nothing."""
         files = keep_maps()
         files |= {
             f"Maker/Fort/Fort_{v}.jpg": (MAP, Look("fort", variant=k))
             for k, v in enumerate(["Day", "Night"])
         }
         files["Elsewhere/Downloads/keep copy.jpg"] = (SCENE, Look("keep", "keep", rendition=1))
-        grouping, scenes = run(files)
-        attachment = scenes.attachments["Elsewhere/Downloads/keep copy.jpg"]
-        assert attachment.reason == "r7 rendition of a map"
-        assert grouping.groups[attachment.group].keys[0] == "Maker/Keep/Keep_Day.jpg"
+        _, scenes = run(files)
+        assert not scenes.attachments
+        assert partition(scenes) == {frozenset({"Elsewhere/Downloads/keep copy.jpg"})}
 
 
 class TestSceneGroups:
@@ -217,17 +219,17 @@ class TestSceneGroups:
 
 class TestInvariance:
     def test_a_scene_never_bridges_two_map_groups(self):
-        """A copy of two different maps (two map groups' renditions) joins neither."""
-        files = keep_maps()
-        files |= {
-            f"Maker/Fort/Fort_{v}.jpg": (MAP, Look("fort", variant=k))
-            for k, v in enumerate(["Day", "Night"])
-        }
-        files["Elsewhere/keep.jpg"] = (SCENE, Look("keep", "keep", rendition=1))
-        files["Elsewhere/fort.jpg"] = (SCENE, Look("fort", rendition=1))
+        """Two scenes attached by name to two different maps stay apart, even as copies of
+        one picture (a rendition pair)."""
+        files = TestAttachByName.wharf_and_mine()
+        files["TC/TC_Anglers Wharf Scene.jpg"] = (SCENE, Look("view"))
+        files["TC/TC_Bellhammer Mine Scene.jpg"] = (SCENE, Look("view", rendition=1))
         grouping, scenes = run(files)
-        groups = {scenes.attachments[p].group for p in ("Elsewhere/keep.jpg", "Elsewhere/fort.jpg")}
-        assert len(groups) == 2 and len(grouping.groups) == 2
+        wharf = attached_to(grouping, scenes, "TC/TC_Anglers Wharf Scene.jpg")
+        mine = attached_to(grouping, scenes, "TC/TC_Bellhammer Mine Scene.jpg")
+        assert wharf is not None and "Anglers" in wharf
+        assert mine is not None and "Bellhammer" in mine
+        assert len(grouping.groups) == 2
 
     def test_scenes_never_change_the_map_groups(self):
         files = keep_maps() | {"Maker/Keep/Keep Scene.jpg": (SCENE, Look("keep", "keep", 1))}
@@ -238,3 +240,33 @@ class TestInvariance:
     def test_no_maps(self):
         _, scenes = run({"Art/a.jpg": (SCENE, Look("a"))})
         assert not scenes.attachments and partition(scenes) == {frozenset({"Art/a.jpg"})}
+
+    def test_output_is_independent_of_input_order(self):
+        files = TestAttachByName.wharf_and_mine() | keep_maps("TC/Keep")
+        files |= {
+            "TC/TC_Anglers Wharf Night_Exterior Scene.jpg": (SCENE, Look("wharf scene")),
+            "TC/Keep/Keep Scene.jpg": (SCENE, Look("keep vista")),
+            "Art/Tavern Day.jpg": (SCENE, Look("a")),
+            "Art/Tavern Night.jpg": (SCENE, Look("b")),
+            "Art/With Text/castle.jpg": (SCENE, Look("castle")),
+            "Art/No Text/castle-clean.jpg": (SCENE, Look("castle", rendition=1)),
+            "Art/0.jpg": (SCENE, Look("swamp")),
+            "Art/3.jpg": (SCENE, Look("swamp", variant=1)),
+        }
+
+        def snapshot(items: list[tuple[str, tuple[str, Look]]]):
+            grouping, scenes = run(dict(items))
+            assert grouping is not None
+            attached = {
+                key: (tuple(grouping.groups[a.group].keys), a.reason)
+                for key, a in scenes.attachments.items()
+            }
+            return attached, scenes.groups, scenes.joins
+
+        expected = snapshot(list(files.items()))
+        assert expected[0] and expected[1]
+        rng = random.Random(0)
+        for _ in range(3):
+            items = list(files.items())
+            rng.shuffle(items)
+            assert snapshot(items) == expected

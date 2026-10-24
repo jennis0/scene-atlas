@@ -67,7 +67,6 @@ image_grouping_features                -- Variant-grouping features (migration 0
                                        --   MSB-first row-major
   edge             BLOB(2048)          -- 32×32 edge map, 1024 little-endian float16, z-scored
                                        --   (a·b / 1024 = correlation)
-  computed_at      DATETIME NOT NULL
 
 tags
   id               INTEGER PK

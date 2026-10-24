@@ -1,4 +1,4 @@
-"""The effective folder tree (design/variant-grouping.md §2, "Effective tree").
+"""The effective folder tree (design/variant-grouping-algorithm.md §5).
 
 Each raw folder is classified against its parent's and grandparent's names
 (``names.folder_class``):
@@ -12,8 +12,7 @@ Each raw folder is classified against its parent's and grandparent's names
 - **generic** (``Maps``, ``Pack 03``) and **specific** folders stay.
 
 An effective folder is a tuple of canonical names (lower-case identity words, digits kept), so
-mirror siblings collapse simply by producing the same tuple. Ported from scene-atlas-learning
-``grouping/e5/tree.py`` (narrow mode).
+mirror siblings collapse simply by producing the same tuple.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ class EffectiveTree:
         """Names of effective folders with >= 2 children that occur at >= 2 places in the tree.
 
         Such a folder is an author or topic folder (``Forests/Moonlight Maps`` and
-        ``Caves/Moonlight Maps``), not a location: a container (design §2, step 2).
+        ``Caves/Moonlight Maps``), not a location: a container.
         """
         places: dict[str, int] = defaultdict(int)
         for folder, kids in self.children.items():
@@ -132,3 +131,24 @@ def build_tree(raw_folders: Iterable[Folder]) -> EffectiveTree:
         if tree.name_class.get(eff) is not FolderClass.SPECIFIC:
             tree.name_class[eff] = cls
     return tree
+
+
+def effective_folders(paths: Iterable[str]) -> dict[str, str]:
+    """Each path's effective folder ("/"-joined canonical names, "" for the root).
+
+    Rendition and variant folders are transparent, so ``X/Gridded/a.png`` and
+    ``X/No Grid/b.png`` share ``X``'s, as do mirror siblings (``Forest Road Gridded`` /
+    ``Forest Road Gridless``). A folder's effective name depends only on its own path, not on
+    the other paths given. Ingest uses it to find a file's siblings before any grouping
+    (``ingest_queue``: grid sizes named by sibling files).
+    """
+    ordered = list(dict.fromkeys(paths))
+    folders = {path: N.split_path(path)[0] for path in ordered}
+    tree = build_tree(folders.values())
+    return {path: "/".join(tree.effective_of[folder]) for path, folder in folders.items()}
+
+
+def ancestors(folder: str) -> list[str]:
+    """A "/"-joined folder and its ancestors, nearest first, ending with the root ""."""
+    parts = folder.split("/") if folder else []
+    return ["/".join(parts[:k]) for k in range(len(parts), -1, -1)]

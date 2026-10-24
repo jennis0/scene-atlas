@@ -67,7 +67,6 @@ def test_upgrade_keeps_triggers_and_downgrade_removes_the_schema(tmp_path):
             "version",
             "phash256",
             "edge",
-            "computed_at",
         }
         # The rows came through and the triggers on images still fire
         assert _image_count(conn) == 1
@@ -76,8 +75,8 @@ def test_upgrade_keeps_triggers_and_downgrade_removes_the_schema(tmp_path):
         assert _search(conn, "night") == ["Fort Night"]
         conn.execute(
             sa.text(
-                "INSERT INTO image_grouping_features (image_id, version, phash256, computed_at) "
-                "VALUES (1, 1, :hash, '2026-10-22 00:00:00')"
+                "INSERT INTO image_grouping_features (image_id, version, phash256) "
+                "VALUES (1, 1, :hash)"
             ),
             {"hash": bytes(32)},
         )

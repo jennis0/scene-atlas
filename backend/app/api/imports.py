@@ -742,11 +742,12 @@ def seal_import(
     db: Session = Depends(get_db),
     _admission: None = Depends(acquire_heavy_op),
 ):
-    """Close the file list: work out groups server-side and start processing. Idempotent.
+    """Close the file list: parse every path and start processing. Idempotent. The files
+    are grouped once the job has finished (``group_jobs``).
 
-    Parsing and grouping take seconds for a large import (about 4 s for 20k maps), so they
-    run before the write lock is taken; the plan is written in one short transaction, as a
-    linked scan's seal does (design/ingestion.md §7).
+    Parsing takes seconds for a large import (about 3.4 s for 20k maps), so it runs before
+    the write lock is taken; the parses are written in one short transaction, as a linked
+    scan's seal does (design/ingestion.md §7).
     """
     job = _job_or_404(db, job_id)
     if job.planned_at is None:
@@ -888,7 +889,7 @@ def _action(db: Session, job_id: str, affected: int, wake: bool = False) -> Acti
     db.rollback()  # end the read before the grouping phase writes
     # An action that settles the job's last files (cancel, finish without them) starts its
     # grouping phase now rather than at the worker's next idle sweep
-    schedule_grouping([job_id])
+    schedule_grouping()
     return result
 
 

@@ -9,8 +9,9 @@ job's files, by their detected type, and assigns the images in one write transac
 - **maps** (battlemaps, and Auto items the image-type head called maps, plus files of a map
   type that made no image) go through ``variant_grouping.group_with_content`` with the
   images' content features (pHash renditions, edge maps, embeddings);
-- **other types** (scenes) join their folder's map group when the nearest folder holding maps
-  holds one map group only (``attach_to_map_groups``); the rest keep ``ImageParser.group_files``.
+- **scenes** (everything else: Auto skips tokens and assets, and Include imports them as maps
+  or scenes) are attached to a map group or grouped among themselves
+  (``variant_grouping.group_scenes``).
 
 Each resulting group becomes an ``ImportGroup`` of the job (the report, Undo, the review
 editor and the sorted-out lists work from these) and, if any of its files became an image,
@@ -33,11 +34,16 @@ again.
 **Model availability.** While the embedding model is loading or switching (the worker is
 held, or the model is loading) grouping waits: the job stays ``grouping`` and a later sweep
 runs it. With no model at all it runs without embeddings. Without a calibration for the
-active encoder the embedding rules are off (``grouping_calibration``).
+active encoder the embedding rules are off (``grouping_calibration``). Groups are minted once,
+so a run first embeds the job's images that have no vector (a failed write is otherwise only
+repaired by reconciliation, at startup and daily), and while many still have none (the index
+unreadable) waits, for a few minutes at most, then groups without them.
 
-Scheduling (``GroupingScheduler``): ``process_batch`` asks for the job its batch touched;
-the worker's idle loop, hourly maintenance and startup sweep every job due, since JobRunner
-work is lost on restart. One run per job at a time.
+Scheduling (``GroupingScheduler``): every batch (``process_batch``), every idle wake of the
+worker and the API actions that can settle a job sweep every job due; JobRunner work lost on
+restart is found by the first sweep. One run per job at a time. A run that raises is retried
+by later sweeps; after ``_MAX_FAILED_RUNS`` the job is grouped by its paths alone, so its
+images don't stay hidden.
 """
 
 from __future__ import annotations
@@ -45,9 +51,10 @@ from __future__ import annotations
 import logging
 import math
 import threading
+import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import PurePosixPath
 
@@ -56,7 +63,7 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.app.models import Image, ImageGroup, ImportGroup, ImportItem, ImportJob, Tag
-from backend.app.services import ImageParser, group_service, variant_grouping
+from backend.app.services import ImageParser, variant_grouping
 from backend.app.services import ingest_state as st
 from backend.app.services.image_parser import build_search_text
 from backend.app.services.linked_files import chunks
@@ -89,6 +96,8 @@ logger = logging.getLogger(__name__)
 _EMBEDDING_CHUNK = 500  # ids per LanceDB lookup
 MAPS = BATTLEMAP  # the bucket grouped by the tree walk
 UNKNOWN_AUTHOR = "Unknown"
+# The map and scene groupings of a run: their decisions are logged at DEBUG
+_Debug = variant_grouping.Grouping[int] | variant_grouping.SceneGrouping[int]
 
 
 # Planning (pure)
@@ -277,9 +286,10 @@ class _JobFiles:
 
 def _bucket(item_type: str, image_type: str | None) -> str:
     """Grouped by detected type: an image's own type, else the type the file was imported
-    as (an Auto file that made no image is grouped with the maps)."""
+    as (an Auto file that made no image is grouped with the maps). Every other file is a
+    scene: Auto skips tokens and assets, and Include imports them as maps or scenes."""
     kind = image_type if image_type is not None else item_type
-    return MAPS if in_map_bucket(kind) else kind
+    return MAPS if in_map_bucket(kind) else SCENE
 
 
 def _job_files(db: Session, job: ImportJob) -> list[_File]:
@@ -347,36 +357,53 @@ def _is_due(db: Session, job: ImportJob) -> bool:
     )
 
 
-def _load_embeddings(image_ids: list[int], readiness: Readiness):
-    """(vectors by image id, thresholds): the active encoder's calibration and the vectors
-    of its dimension; ({}, None) when embedding rules are off."""
+def _lookup_vectors(image_ids: list[int]) -> dict[int, np.ndarray]:
+    """The images' vectors; a failed lookup finds none (``get_embeddings`` logs it)."""
     from backend.app.services import get_lancedb_service
-    from backend.app.services.grouping_calibration import active_calibration, active_thresholds
 
-    if readiness != Readiness.USE or not image_ids or active_calibration() is None:
-        return {}, None
     service = get_lancedb_service()
     vectors: dict[int, np.ndarray] = {}
     for chunk in chunks(image_ids, _EMBEDDING_CHUNK):
         for image_id, vector in service.get_embeddings(list(chunk)).items():
             vectors[image_id] = np.asarray(vector, dtype=np.float32)
-    if not vectors:
-        return {}, None
-    dim, _ = Counter(len(v) for v in vectors.values()).most_common(1)[0]
-    thresholds = active_thresholds(dim)
-    if thresholds is None:
-        return {}, None
-    return {i: v for i, v in vectors.items() if len(v) == dim}, thresholds
+    return vectors
 
 
-def _features(
-    db: Session, files: list[_File], readiness: Readiness
-) -> tuple[dict[int, ContentFeatures], EmbeddingThresholds | None]:
-    """Content features of the map and scene files that made an image, by item id."""
+def _load_embeddings(
+    image_ids: list[int], readiness: Readiness, repair: bool
+) -> tuple[dict[int, np.ndarray], EmbeddingThresholds | None]:
+    """(vectors by image id, thresholds): the active encoder's calibration and the images'
+    vectors; ({}, None) when embedding rules are off. ``repair``: images without a vector
+    are embedded first (``vector_reconcile.repair_missing``), since reconciliation would
+    only repair them at the next startup or daily run, after the groups were minted."""
+    from backend.app.services.grouping_calibration import active_calibration
+
+    from .vector_reconcile import repair_missing
+
+    if readiness != Readiness.USE or not image_ids:
+        return {}, None
+    calibration = active_calibration()
+    if calibration is None:
+        return {}, None
+    vectors = _lookup_vectors(image_ids)
+    missing = [i for i in image_ids if i not in vectors]
+    if repair and missing:
+        try:
+            if repair_missing(missing):
+                vectors.update(_lookup_vectors(missing))
+        except Exception:
+            logger.warning(
+                "Couldn't repair the vectors of %d image(s)", len(missing), exc_info=True
+            )
+    return vectors, calibration.thresholds
+
+
+def _features(db: Session, files: list[_File]) -> dict[int, ContentFeatures]:
+    """Content features of the map and scene files that made an image, by item id, without
+    their embeddings (``_with_embeddings``)."""
     grouped = [f for f in files if f.bucket in (MAPS, SCENE) and f.image_id is not None]
     image_ids = sorted(f.image_id for f in grouped if f.image_id is not None)
     rows = load_grouping_features(db, image_ids)
-    vectors, thresholds = _load_embeddings(image_ids, readiness)
     features: dict[int, ContentFeatures] = {}
     for f in grouped:
         if f.image_id is None:
@@ -386,10 +413,21 @@ def _features(
             phash256=row.phash256 if row else None,
             edge=row.edge if row else None,
             log_aspect=math.log(f.pixels[0] / f.pixels[1]) if f.pixels else None,
-            embedding=vectors.get(f.image_id),
             pixels=f.pixels,
         )
-    return features, thresholds
+    return features
+
+
+def _with_embeddings(
+    files: list[_File], features: dict[int, ContentFeatures], readiness: Readiness, repair: bool
+) -> tuple[dict[int, ContentFeatures], EmbeddingThresholds | None]:
+    """The features with the images' vectors, and the thresholds (``_load_embeddings``)."""
+    image_of = {f.item_id: f.image_id for f in files if f.item_id in features and f.image_id}
+    vectors, thresholds = _load_embeddings(sorted(image_of.values()), readiness, repair)
+    return {
+        item: replace(content, embedding=vectors.get(image_of[item]))
+        for item, content in features.items()
+    }, thresholds
 
 
 def _tags(db: Session, image_ids: list[int]) -> dict[int, list[dict]]:
@@ -406,64 +444,24 @@ def _tags(db: Session, image_ids: list[int]) -> dict[int, list[dict]]:
 # Compute
 
 
-def _ancestors(folder: str) -> list[str]:
-    """An effective folder and its ancestors, nearest first, ending with the root ""."""
-    parts = folder.split("/") if folder else []
-    return ["/".join(parts[:k]) for k in range(len(parts), -1, -1)]
-
-
-def attach_to_map_groups(
+def joined_subgroups(
     map_groups: Sequence[Sequence[int]],
     map_subgroups: Sequence[Mapping[int, str | None]],
     folders: Mapping[int, str],
-    others: Iterable[int],
-) -> dict[int, tuple[int, str | None]]:
-    """Non-map files that belong with a map group: item → (map group index, subgroup).
-
-    A token or other non-map, non-scene file belongs to its folder's map when the nearest
-    effective folder above it (its own included) that holds maps in its subtree holds maps of
-    one group only (research: 0.98–0.99 precision there). It takes no subgroup unless it sits
-    in a folder whose maps of that group all carry one label (``_subgroup_in_folder``). Files
-    whose nearest map folder holds several map groups are left out (grouped by type).
-    ``folders``: each file's effective folder (``variant_grouping.effective_folders``).
-    """
-    labels = _folder_labels(map_groups, map_subgroups, folders)
-    under: dict[str, set[int]] = {}  # folder → map groups with maps in its subtree
-    for index, items in enumerate(map_groups):
-        for item in items:
-            for ancestor in _ancestors(folders[item]):
-                under.setdefault(ancestor, set()).add(index)
-    attached: dict[int, tuple[int, str | None]] = {}
-    for item in others:
-        folder = folders[item]
-        nearest = next((a for a in _ancestors(folder) if a in under), None)
-        if nearest is None or len(under[nearest]) != 1:
-            continue
-        (index,) = under[nearest]
-        attached[item] = (index, _subgroup_in_folder(labels, index, folder))
-    return attached
-
-
-def _folder_labels(
-    map_groups: Sequence[Sequence[int]],
-    map_subgroups: Sequence[Mapping[int, str | None]],
-    folders: Mapping[int, str],
-) -> dict[tuple[int, str], set[str | None]]:
-    """(map group, effective folder) → the subgroup labels of that group's maps there."""
-    labels: dict[tuple[int, str], set[str | None]] = {}
+    joined: Mapping[int, int],
+) -> dict[int, str | None]:
+    """The subgroup each file joining a map group (item → map group index) takes: the one
+    label of that group's maps in the file's effective folder (its sub-group folder), else
+    none."""
+    labels: dict[tuple[int, str], set[str | None]] = {}  # (group, folder) → its maps' labels
     for index, items in enumerate(map_groups):
         for item in items:
             labels.setdefault((index, folders[item]), set()).add(map_subgroups[index].get(item))
-    return labels
-
-
-def _subgroup_in_folder(
-    labels: Mapping[tuple[int, str], set[str | None]], index: int, folder: str
-) -> str | None:
-    """The subgroup a file in ``folder`` joining map group ``index`` takes: the one label of
-    that group's maps in the folder (its sub-group folder), else none."""
-    here = labels.get((index, folder), set())
-    return next(iter(here)) if len(here) == 1 else None
+    subgroups: dict[int, str | None] = {}
+    for item, index in joined.items():
+        here = labels.get((index, folders[item]), set())
+        subgroups[item] = next(iter(here)) if len(here) == 1 else None
+    return subgroups
 
 
 def _proposals(
@@ -472,14 +470,12 @@ def _proposals(
     thresholds: EmbeddingThresholds | None,
     parser: ImageParser,
     authors: list[str],
-) -> tuple[list[Proposal], variant_grouping.Grouping[int] | None]:
+) -> tuple[list[Proposal], list[_Debug]]:
     """Groups of every file: maps by the content walk; scenes attached to a map group or
-    grouped among themselves (``group_scenes``); other types join their folder's map group when
-    it is the only one there (``attach_to_map_groups``), else ``group_files``."""
+    grouped among themselves (``group_scenes``)."""
     params = GroupingParams(embedding=thresholds)
     maps = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == MAPS]
     scenes = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == SCENE]
-    others = [f for f in files if f.bucket not in (MAPS, SCENE)]
     grouping = None
     map_groups: list[ProposedGroup[int]] = []
     if maps:
@@ -489,23 +485,12 @@ def _proposals(
         map_groups = grouping.groups
     effective = variant_grouping.effective_folders(f.path for f in files)
     folders = {f.item_id: effective[f.path] for f in files}
-    attached = attach_to_map_groups(
-        [g.keys for g in map_groups],
-        [g.subgroups for g in map_groups],
-        folders,
-        (f.item_id for f in others),
-    )
+    map_keys = [g.keys for g in map_groups]
     scene_grouping = variant_grouping.group_scenes(grouping, maps, scenes, features, params)
-    labels = _folder_labels(
-        [g.keys for g in map_groups], [g.subgroups for g in map_groups], folders
-    )
-    for item, attachment in scene_grouping.attachments.items():
-        attached[item] = (
-            attachment.group,
-            _subgroup_in_folder(labels, attachment.group, folders[item]),
-        )
+    attached = {item: attachment.group for item, attachment in scene_grouping.attachments.items()}
+    subgroups = joined_subgroups(map_keys, [g.subgroups for g in map_groups], folders, attached)
     joined: dict[int, list[int]] = {}
-    for item, (index, _) in attached.items():
+    for item, index in attached.items():
         joined.setdefault(index, []).append(item)
 
     proposals: list[Proposal] = []
@@ -518,7 +503,7 @@ def _proposals(
                 (*group.keys, *extra),
                 group.name,
                 author,
-                {**group.subgroups, **{item: attached[item][1] for item in extra}},
+                {**group.subgroups, **{item: subgroups[item] for item in extra}},
                 # A fallback name, or one two of this import's maps share, says nothing
                 # about which map it is: it can't pick an existing group
                 group.name_is_identity and names[(group.name, author)] == 1,
@@ -527,10 +512,18 @@ def _proposals(
     path_of = {f.item_id: f.path for f in files}
     for items in scene_grouping.groups:
         proposals.append(_named_by_parser([(path_of[i], i) for i in items], SCENE, parser, authors))
+    return proposals, [g for g in (grouping, scene_grouping) if g is not None]
+
+
+def _parsed_proposals(
+    files: list[_File], parser: ImageParser, authors: list[str]
+) -> list[Proposal]:
+    """Groups of files from their paths alone, as ``ImageParser.group_files`` makes them,
+    by type."""
     by_type: dict[str, list[_File]] = {}
-    for f in others:
-        if f.item_id not in attached:
-            by_type.setdefault(f.bucket, []).append(f)
+    for f in files:
+        by_type.setdefault(f.bucket, []).append(f)
+    proposals: list[Proposal] = []
     for image_type, typed in sorted(by_type.items()):
         by_path = {f.path: f.item_id for f in typed}
         for group in parser.group_files(
@@ -547,7 +540,7 @@ def _proposals(
                     },
                 )
             )
-    return proposals, grouping
+    return proposals
 
 
 def _named_by_parser(
@@ -621,8 +614,18 @@ def _write(
     Batched: the new rows as ordered ``INSERT .. RETURNING`` batches, the updates as
     executemany."""
     to_mint = [key for key, choice in plan.galleries.items() if choice.group_id is None]
-    names = [(plan.galleries[k].name, plan.galleries[k].author) for k in to_mint]
-    minted = dict(zip(to_mint, group_service.mint_groups(db, names), strict=True))
+    minted_ids = (
+        db.scalars(
+            insert(ImageGroup).returning(ImageGroup.id, sort_by_parameter_order=True),
+            [
+                {"base_name": plan.galleries[k].name, "author": plan.galleries[k].author}
+                for k in to_mint
+            ],
+        ).all()
+        if to_mint
+        else []
+    )
+    minted = dict(zip(to_mint, minted_ids, strict=True))
     gallery = {key: minted.get(key, choice.group_id) for key, choice in plan.galleries.items()}
 
     new_ids = (
@@ -715,10 +718,14 @@ def _orphans(files: list[_File], proposals: list[Proposal]) -> list[Proposal]:
 class Outcome(StrEnum):
     GROUPED = "grouped"
     DEFERRED = "deferred"  # the model is busy; a later sweep runs it
+    NO_VECTORS = "no_vectors"  # many of its images have no vector yet; a later sweep runs it
     NOT_DUE = "not_due"  # unknown, unsealed, still importing, or grouped already
 
 
 _MAX_PASSES = 3  # a job whose files change while it is grouped is read again
+# A run with embedding rules on waits (NO_VECTORS) while more than this share of the job's map
+# and scene images have no vector
+_MISSING_VECTORS_SHARE = 0.1
 
 
 def group_job(
@@ -726,13 +733,20 @@ def group_job(
     progress_fn: Callable[..., None] | None = None,
     *,
     readiness: Callable[[], Readiness] = embedding_readiness,
+    wait_for_vectors: bool = False,
+    paths_only: bool = False,
 ) -> Outcome:
     """Run a job's grouping phase (module docstring). Idempotent: a grouped job, or one
-    still importing, is left alone. ``progress_fn`` is the JobRunner's callback."""
+    still importing, is left alone. ``progress_fn`` is the JobRunner's callback.
+
+    ``wait_for_vectors``: embed its images that have no vector, and return ``NO_VECTORS``
+    rather than group without the vectors of many of them. ``paths_only``: group every file with ``ImageParser.group_files``,
+    without content (for a job whose grouping keeps failing).
+    """
     from .ingest_worker import get_ingest_worker
 
     for _ in range(_MAX_PASSES):
-        ready = readiness()
+        ready = Readiness.OFF if paths_only else readiness()
         if ready == Readiness.DEFER:
             logger.info("Grouping of import %s waits: the model is busy", job_id)
             return Outcome.DEFERRED
@@ -743,13 +757,30 @@ def group_job(
             read = _read(db, job)
             if progress_fn:
                 progress_fn(0, 2, "Reading grouping features")
-            features, thresholds = _features(db, read.files, ready)
+            # Paths only reads no content: a job whose grouping keeps failing must not fail there
+            features = {} if paths_only else _features(db, read.files)
             parser = build_parser(db)
             pending = sorted(f.image_id for f in read.files if f.pending and f.image_id)
             tags = _tags(db, pending)
+        # Outside the read: repairing missing vectors embeds images
+        features, thresholds = _with_embeddings(read.files, features, ready, wait_for_vectors)
+        missing = (
+            sum(f.embedding is None for f in features.values()) if thresholds is not None else 0
+        )
+        if wait_for_vectors and missing > _MISSING_VECTORS_SHARE * len(features):
+            logger.info(
+                "Grouping of import %s waits: %d of %d image(s) have no vector",
+                job_id,
+                missing,
+                len(features),
+            )
+            return Outcome.NO_VECTORS
         if progress_fn:
             progress_fn(1, 2, "Identifying groups")
-        proposals, grouping = _proposals(read.files, features, thresholds, parser, read.authors)
+        if paths_only:
+            proposals, debug = _parsed_proposals(read.files, parser, read.authors), []
+        else:
+            proposals, debug = _proposals(read.files, features, thresholds, parser, read.authors)
         proposals += _orphans(read.files, proposals)
 
         with write_session() as db:
@@ -768,7 +799,13 @@ def group_job(
             job.grouped_at = utcnow()
             recompute_job_status(db, job_id)
         get_ingest_worker().bump()
-        _log(job_id, plan, minted, len(read.files), thresholds is not None, grouping)
+        if paths_only:
+            content = "paths only"
+        elif thresholds is None:
+            content = "embeddings off"
+        else:
+            content = f"embeddings on, {missing} of {len(features)} image(s) without a vector"
+        _log(job_id, plan, minted, len(read.files), content, debug)
         if progress_fn:
             progress_fn(2, 2, "Done")
         return Outcome.GROUPED
@@ -781,52 +818,49 @@ def _log(
     plan: GroupingPlan,
     minted: int,
     files: int,
-    embeddings: bool,
-    grouping: variant_grouping.Grouping[int] | None,
+    content: str,
+    debug: Sequence[_Debug],
 ) -> None:
     logger.info(
         "Grouped import %s: %d file(s), %d image(s) placed, %d new import group(s), "
-        "%d new gallery group(s); embeddings %s",
+        "%d new gallery group(s); %s",
         job_id,
         files,
         len(plan.images),
         len(plan.new_import_groups),
         minted,
-        "on" if embeddings else "off",
+        content,
     )
-    if grouping is not None and logger.isEnabledFor(logging.DEBUG):
-        for line in grouping.debug_lines():
-            logger.debug("Grouping: %s", line)
+    if logger.isEnabledFor(logging.DEBUG):
+        for grouping in debug:
+            for line in grouping.debug_lines():
+                logger.debug("Grouping: %s", line)
 
 
 # Scheduling
 
 
-def due_jobs(db: Session, job_ids: Iterable[str] | None = None) -> list[str]:
+def due_jobs(db: Session) -> list[str]:
     """Jobs in their grouping phase (sealed, nothing open, not grouped; cancelled ones too),
-    oldest first; among ``job_ids`` if given."""
+    oldest first."""
     open_items = (
         select(ImportItem.id)
         .where(ImportItem.job_id == ImportJob.id, ImportItem.state.in_(st.OPEN_ITEM_STATES))
         .exists()
     )
-    query = (
-        select(ImportJob.id)
-        .where(ImportJob.planned_at.isnot(None), ImportJob.grouped_at.is_(None), ~open_items)
-        .order_by(ImportJob.created_at, ImportJob.id)
+    return list(
+        db.scalars(
+            select(ImportJob.id)
+            .where(ImportJob.planned_at.isnot(None), ImportJob.grouped_at.is_(None), ~open_items)
+            .order_by(ImportJob.created_at, ImportJob.id)
+        )
     )
-    if job_ids is None:
-        return list(db.scalars(query))
-    found: list[str] = []
-    for chunk in chunks(sorted(set(job_ids))):
-        found += db.scalars(query.where(ImportJob.id.in_(chunk)))
-    return found
 
 
-Runner = Callable[[str, Callable[[str], Outcome]], None]
+Runner = Callable[[str, Callable[[str], None]], None]
 
 
-def _job_runner(job_id: str, run: Callable[[str], Outcome]) -> None:
+def _job_runner(job_id: str, run: Callable[[str], None]) -> None:
     """Hand a run to the JobRunner. The name starts with "Import" so the activity dock
     leaves it to the import's own row (``useBackgroundJobs``)."""
     from backend.app.services.job_runner import get_job_runner
@@ -834,72 +868,105 @@ def _job_runner(job_id: str, run: Callable[[str], Outcome]) -> None:
     get_job_runner().submit(run, job_id, name=f"Import grouping {job_id[:8]}")
 
 
-def _inline(job_id: str, run: Callable[[str], Outcome]) -> None:
-    run(job_id)
+# Runs of a job that may raise before it is grouped by its paths alone; if that fails too,
+# the job is left alone until a restart
+_MAX_FAILED_RUNS = 3
+# How long a job may wait for missing vectors (NO_VECTORS), from its first such run, before it
+# is grouped without them. Each run repairs what it can first; this covers a vector index that
+# is briefly unreadable.
+_VECTOR_WAIT_SECONDS = 300.0
 
 
 class GroupingScheduler:
     """Starts the grouping phase of due jobs, at most one run per job at a time.
 
     ``runner`` decides where a run happens: the JobRunner by default, inline (synchronous)
-    for tests. ``readiness`` is passed to every run.
+    in tests. ``readiness`` is passed to every run; ``clock`` times waits for vectors.
+
+    Failed runs and waits for vectors are kept per job in memory, not in the database: a
+    restart starts them again, which only repeats a bounded number of runs.
     """
 
     def __init__(
         self,
         runner: Runner = _job_runner,
         readiness: Callable[[], Readiness] = embedding_readiness,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._runner = runner
         self._readiness = readiness
+        self._clock = clock
         self._lock = threading.Lock()
         self._running: set[str] = set()
+        self._failures: Counter[str] = Counter()
+        self._waiting_since: dict[str, float] = {}  # job → its first NO_VECTORS run
 
-    @classmethod
-    def inline(cls, readiness: Callable[[], Readiness] = embedding_readiness):
-        return cls(_inline, readiness)
-
-    def schedule(self, job_ids: Iterable[str] | None = None) -> list[str]:
-        """Start the grouping phase of the due jobs among ``job_ids`` (every due job if
-        None). Returns the jobs started; never raises (a failure is logged, the sweep
-        retries)."""
+    def schedule(self) -> list[str]:
+        """Start the grouping phase of every due job. Returns the jobs started; never raises
+        (a failure is logged, a later sweep retries)."""
         try:
             with _session() as db:
-                due = due_jobs(db, None if job_ids is None else list(job_ids))
+                due = due_jobs(db)
         except Exception:
             logger.exception("Couldn't look up imports due for grouping")
             return []
         started: list[str] = []
         for job_id in due:
             with self._lock:
-                if job_id in self._running:
+                if job_id in self._running or self._failures[job_id] > _MAX_FAILED_RUNS:
                     continue
                 self._running.add(job_id)
             try:
                 self._runner(job_id, self._run)
             except Exception:
-                self._done(job_id)
+                with self._lock:
+                    self._running.discard(job_id)
                 logger.exception("Couldn't start grouping import %s", job_id)
                 continue
             started.append(job_id)
         return started
 
-    def running(self) -> set[str]:
+    def _run(self, job_id: str, progress_fn: Callable[..., None] | None = None) -> None:
+        now = self._clock()
         with self._lock:
-            return set(self._running)
-
-    def _run(self, job_id: str, progress_fn: Callable[..., None] | None = None) -> Outcome:
+            failures = self._failures[job_id]
+            since = self._waiting_since.get(job_id, now)
+        outcome: Outcome | None = None
         try:
-            return group_job(job_id, progress_fn, readiness=self._readiness)
+            outcome = group_job(
+                job_id,
+                progress_fn,
+                readiness=self._readiness,
+                wait_for_vectors=now - since < _VECTOR_WAIT_SECONDS,
+                paths_only=failures >= _MAX_FAILED_RUNS,
+            )
         except Exception:
-            logger.exception("Grouping import %s failed; a sweep retries", job_id)
-            return Outcome.NOT_DUE
+            failures += 1
+            if failures < _MAX_FAILED_RUNS:
+                logger.exception("Grouping import %s failed; a sweep retries", job_id)
+            elif failures == _MAX_FAILED_RUNS:
+                logger.exception(
+                    "Grouping import %s failed %d times; it will be grouped by its file paths "
+                    "alone",
+                    job_id,
+                    failures,
+                )
+            else:
+                logger.exception(
+                    "Grouping import %s by its file paths failed too; its images stay hidden "
+                    "until the app restarts",
+                    job_id,
+                )
         finally:
-            self._done(job_id)
-
-    def _done(self, job_id: str) -> None:
-        with self._lock:
-            self._running.discard(job_id)
+            with self._lock:
+                self._running.discard(job_id)
+                if outcome is None:
+                    self._failures[job_id] = failures
+                elif outcome == Outcome.NO_VECTORS:
+                    self._waiting_since[job_id] = since
+                elif outcome != Outcome.DEFERRED:
+                    self._failures.pop(job_id, None)
+                    self._waiting_since.pop(job_id, None)
 
 
 _scheduler: GroupingScheduler | None = None
@@ -915,6 +982,6 @@ def get_grouping_scheduler() -> GroupingScheduler:
         return _scheduler
 
 
-def schedule_grouping(job_ids: Iterable[str] | None = None) -> list[str]:
-    """Start the grouping phase of due jobs (every one if ``job_ids`` is None)."""
-    return get_grouping_scheduler().schedule(job_ids)
+def schedule_grouping() -> list[str]:
+    """Start the grouping phase of every due job."""
+    return get_grouping_scheduler().schedule()

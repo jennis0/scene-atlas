@@ -62,7 +62,9 @@ def grouping_inline(monkeypatch):
     another readiness install their own scheduler."""
     from backend.pipeline import group_jobs
 
-    scheduler = group_jobs.GroupingScheduler.inline(lambda: group_jobs.Readiness.OFF)
+    scheduler = group_jobs.GroupingScheduler(
+        runner=lambda job_id, run: run(job_id), readiness=lambda: group_jobs.Readiness.OFF
+    )
     monkeypatch.setattr(group_jobs, "_scheduler", scheduler)
     return scheduler
 
@@ -74,7 +76,7 @@ def no_grouping(monkeypatch):
     from backend.pipeline import group_jobs
 
     class _Off(group_jobs.GroupingScheduler):
-        def schedule(self, job_ids=None):
+        def schedule(self):
             return []
 
     monkeypatch.setattr(group_jobs, "_scheduler", _Off())

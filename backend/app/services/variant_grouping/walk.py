@@ -1,4 +1,4 @@
-"""The bottom-up tree walk (design/variant-grouping.md §2), narrow mode.
+"""The bottom-up tree walk (design/variant-grouping-algorithm.md §7).
 
 Each effective folder P is processed deepest first:
 
@@ -17,39 +17,37 @@ Each effective folder P is processed deepest first:
 
    A content split stands unless names or folders give positive evidence.
 2. **Container or meaningful**, decided by what a folder *is*, never by how much it holds, so a
-   subtree is grouped the same alone or inside a large import (design §2.1). Containers stop
-   the ascent: everything below is sealed. A folder is one when it is the root; generically or
-   recurrently named; named after a known author; named by a house prefix spread over several
-   of its folders; a **pack** (only child folders, each a map of its own, of different
-   productions); or over the ``max_units`` safety cap. ``c0 whole-folder`` lets an over-cap or
-   folder-named folder join whole when every unit shares production and theme.
+   subtree is grouped the same alone or inside a large import. Containers stop the ascent:
+   everything below is sealed. A folder is one when it is the root; generically or recurrently
+   named; named after a known author; named by a house prefix spread over several of its
+   folders (all from names: ``folders``); a **pack** (only child folders, each a map of its own,
+   of different productions); or over the ``max_units`` safety cap. ``c0 whole-folder`` lets an
+   over-cap or folder-named folder join whole when every unit shares production and theme.
 3. **Meaningful parent** (stage ``b``): b1–b4 as a1–a4 across its units, ``b5 unnamed parts``
    (``1st_Floor.png`` inside a folder-named map), and ``c1 parent+cohesion``: units from
    different child folders of one production (aspect, ``NxM``, canvas) join, the parent being
    the evidence and cohesion only the gate. In a specific leaf folder, ``a7 leaf default``: with
    no strong evidence either way the folder decides, so its units join unless content or names
    positively say they are different maps (three-valued evidence: same, different, unknown).
-4. **Cross-tree** (narrow): ``x1 rendition`` anywhere, except between two large groups.
-   Everything else is returned as a suggestion.
+4. **Cross-tree**: ``x1 rendition`` anywhere, except between two large groups. Everything else is
+   returned as a suggestion.
 
 Content rules need features; a file without them takes part through names and folders only, so a
-paths-only walk is the full walk with every content join withheld. Ported from
-scene-atlas-learning ``grouping/e5/walk.py`` (``mode="narrow"``, E5 defaults), with the
-scale-invariance changes of ``grouping/e6`` (containers, the leaf default, the c1 canvas).
+paths-only walk is the full walk with every content join withheld.
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Collection, Iterable, Sequence
+from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 
 from . import names as N
 from .cohesion import (
-    CohesionParams,
     average_linkage,
     cohesive_partition,
     gated_distance,
@@ -57,161 +55,24 @@ from .cohesion import (
     unit_similarity,
     whole_folder_cohesive,
 )
-from .evidence import FeatureMatrix, PairSignals, PairThresholds, candidate_pairs, pair_signals
-from .names import Folder, FolderClass, NameEvidence
-from .tree import EffectiveTree, build_tree
-from .vocab import GENERIC, PART_WORDS
+from .evidence import FeatureMatrix, PairSignals, candidate_pairs, pair_signals
+from .folders import FolderFacts, folder_facts
+from .names import Folder, FolderClass
+from .params import EmbeddingThresholds, GroupingParams
+from .schema import FolderDecision, FolderReason, FolderVerdict, SubLabel, WalkFiles, WalkResult
+from .tree import build_tree
+from .vocab import PART_WORDS
 
 # b5: a child unit is "unnamed parts" when this share of its files has no identity of its own.
 UNNAMED_PART_SHARE = 0.8
-# a6: a named leaf folder is one map when this share of its files has no identity at all
-# (``Golden Forest/Night.webp``). The parser's ``group_files`` Pass 0 uses 0.7 for its rule.
-VARIANT_ONLY_SHARE = 0.8
 # a7: complete-linkage distance standing in for "positively different" (cosine distances <= 1
 # here); the cut sits between, so a unit never joins a cluster holding a map it differs from.
 _DIFFERENT = 2.0
 _LEAF_CUT = 1.5
 
 
-@dataclass(frozen=True)
-class EmbeddingThresholds:
-    """Embedding thresholds; they depend on the encoder (design §5).
-
-    Defaults are E5's, tuned on siglip2_base_384_rc4 image embeddings; the three ``leaf_*``
-    are E6's and ``scene_agree`` E7's, tuned on the Scene Atlas medium encoder's.
-    """
-
-    agree: float = 0.70  # a3 / b3: embedding cosine of an agreeing pair (with the edge map)
-    parent: float = 0.82  # c1: unit cohesion that lets a meaningful parent join its units
-    whole_folder: float = 0.80  # c0: mean cohesion over every unit pair of the folder
-    shared_base: float = 0.68  # a4 / b4 gate: cohesion of a gated shared-base family
-    suggest: float = 0.66  # cohesion of a parent near-miss worth suggesting
-    # a7: two units of a leaf are different maps below ``leaf_different``; with one weak cue
-    # (names differ, or two variant sets) they are the same only with one production and
-    # ``leaf_same_production``, or with ``leaf_same``
-    leaf_different: float = 0.55
-    leaf_same_production: float = 0.80
-    leaf_same: float = 0.84
-    # scenes (r5): embedding cosine of an agreeing scene pair (E7, with ``scene_agree_edge``)
-    scene_agree: float = 0.85
-
-
-@dataclass(frozen=True)
-class GroupingParams:
-    """Thresholds of the walk. Defaults are E5's (tuned on the research benchmark, dev split).
-
-    ``embedding`` is None when no calibration matches the active encoder: every rule that needs
-    an embedding is then off (renditions, names and folders still work).
-    """
-
-    rendition_bits: int = 12  # pHash Hamming bits of 256 (dev precision 0.999)
-    rendition_aspect: float = 0.02  # |log aspect| difference of renditions
-    agree_edge: float = 0.70  # edge-map correlation of an agreeing pair
-    scene_agree_edge: float = 0.50  # ... of an agreeing scene pair (scenes share less layout)
-    agree_aspect: float = 0.05
-    agree_fraction: float = 0.25  # share of cross pairs that must agree to join two units
-    big_family: int = 8  # a shared base over more units than this looks like a collection
-    layout_overlap: float = 0.25  # mean cross edge correlation that raises unit cohesion
-    aspect_tolerance: float = 0.03  # fingerprint: |log aspect| difference of compatible units
-    canvas_tolerance: float = 0.02  # fingerprint: relative pixel-size difference of one canvas
-    whole_folder_compatible: float = 0.9  # c0: share of unit pairs with compatible fingerprints
-    whole_folder_max_units: int = 200  # c0 is not tried on folders with more units
-    # Safety cap: a folder with more units is a container, and the leaf default is not tried.
-    # Above any single map (dev: the largest has 33 units after stage a, the 99th percentile 12).
-    max_units: int = 40
-    small_folder: int = 80  # all pairs are compared inside folders this small
-    small_subtree: int = 150  # ... and inside subtrees this small
-    big_join: int = 20  # x1 between two groups both this large becomes a suggestion
-    candidate_phash_bits: int = 20  # pHash candidate pairs (renditions need rendition_bits)
-    knn_embedding: int = 25  # candidate neighbours per file by embedding
-    knn_edge: int = 15  # candidate neighbours per file by edge map
-    embedding: EmbeddingThresholds | None = None
-
-    def pair_thresholds(self) -> PairThresholds:
-        return PairThresholds(
-            rendition_bits=self.rendition_bits,
-            rendition_aspect=self.rendition_aspect,
-            agree_edge=self.agree_edge,
-            agree_embedding=self.embedding.agree if self.embedding else None,
-            agree_aspect=self.agree_aspect,
-        )
-
-
-@dataclass
-class FolderDecision:
-    """What the walk decided at one effective folder (for DEBUG logging)."""
-
-    folder: str
-    own_files: int
-    subtree_files: int
-    units_before: int = 0
-    units_after: int = 0
-    container: bool = False
-    folder_named: bool = False  # named after its files, or its files' common name is the map's
-    named_after_files: bool = False  # the folder's own name is its files' common name
-    variant_only: bool = False  # a6: a named folder of files without identity, so one map
-    why: str = ""
-    names: str = ""
-    joins: Counter[str] = field(default_factory=Counter)
-    notes: list[str] = field(default_factory=list)
-
-    def summary(self) -> str:
-        kind = "container" if self.container else "meaningful"
-        joins = ", ".join(f"{k} ×{v}" for k, v in sorted(self.joins.items())) or "none"
-        notes = "; ".join(self.notes)
-        return (
-            f"{self.folder or '(root)'}: {kind} ({self.why}); units "
-            f"{self.units_before} -> {self.units_after}; {self.names}; joins: {joins}"
-            + (f"; {notes}" if notes else "")
-        )
-
-
-@dataclass(frozen=True)
-class SubLabel:
-    """A file's sub-group within its group: a joined child folder, or a level from its name."""
-
-    kind: str  # "folder" (effective child folder) or "level" (floor#2, roof, ...)
-    value: Folder | str
-
-
-@dataclass
-class WalkFiles:
-    """Per-file inputs of the walk, in walk order."""
-
-    folders: list[Folder]  # raw folder components
-    stems: list[str]
-    tokens: list[list[str]]
-    nxm: list[tuple[int, int] | None]
-
-    @classmethod
-    def from_paths(cls, paths: Sequence[str]) -> WalkFiles:
-        folders, stems, tokens, nxm = [], [], [], []
-        for path in paths:
-            folder, file_name = N.split_path(path)
-            stem = N.file_stem(file_name)
-            folders.append(folder)
-            stems.append(stem)
-            tokens.append(N.tokenize(stem, split_glued=True))
-            nxm.append(N.nxm_of(stem))
-        return cls(folders, stems, tokens, nxm)
-
-
-@dataclass
-class WalkResult:
-    """The walk's output, by file index (walk order)."""
-
-    root: list[int]  # group representative per file
-    sublabel: list[SubLabel | None]
-    suggestions: list[tuple[int, int, str]]  # (file, file, reason) across different groups
-    reasons: dict[int, Counter[str]]  # group representative -> join reasons
-    decisions: dict[Folder, FolderDecision]
-    effective: list[Folder]  # effective folder per file
-    tree: EffectiveTree
-    names: NameEvidence
-
-
-class _UnionFind:
-    """Union-find with union by size (ties: the first argument's root survives)."""
+class UnionFind:
+    """Union-find over file indices, by size (ties: the first argument's root survives)."""
 
     def __init__(self, n: int):
         self.parent = list(range(n))
@@ -236,58 +97,80 @@ class _UnionFind:
         return True
 
 
-def _folder_text(folder: Folder) -> str:
-    return "/".join(folder)
+def join_agreeing(
+    uf: UnionFind,
+    pairs: Iterable[tuple[int, int]],
+    fraction: float,
+    join: Callable[[int, int], object],
+) -> None:
+    """Layout agreement at unit level: ``join`` two units when >= ``fraction`` of the smaller
+    unit's files have an agreeing pair with the other. Pairs are counted on the units as they
+    are at the start, so single pairs cannot chain; the most-agreeing unit pairs join first."""
+    count: Counter[tuple[int, int]] = Counter()
+    example: dict[tuple[int, int], tuple[int, int]] = {}
+    for x, y in pairs:
+        rx, ry = uf.find(x), uf.find(y)
+        if rx == ry:
+            continue
+        key = (min(rx, ry), max(rx, ry))
+        count[key] += 1
+        example[key] = (x, y)
+    for key, m in count.most_common():
+        x, y = example[key]
+        if m >= max(1.0, fraction * min(uf.size[uf.find(x)], uf.size[uf.find(y)])):
+            join(x, y)
 
 
 @dataclass
 class _Pairs:
-    """Content pairs that can join, bucketed by the effective folder of their LCA."""
+    """Content pairs that can join, bucketed by the effective folder their files meet at."""
 
     signals: PairSignals
     by_lca: dict[Folder, list[int]]
 
 
 class _Walk:
-    """One run of the walk. State: the union-find, sealed files and sub-group parents."""
+    """One run of the walk."""
 
     def __init__(
         self,
         files: WalkFiles,
         fm: FeatureMatrix | None,
         params: GroupingParams,
-        known_authors: frozenset[str],
+        known_authors: Collection[str],
     ):
+        # The input and what it is: none of this changes during the walk
         self.files = files
-        self.known_authors = known_authors  # ``author_key``s of creators in the library
         self.p = params
         self.n = n = len(files.stems)
         self.fm = fm if fm is not None and fm.any_content else None
         self.emb = params.embedding if self.fm is not None else None
-        self.cohesion = (
-            CohesionParams(self.emb.parent, params.layout_overlap, params.aspect_tolerance)
-            if self.emb is not None
-            else None
-        )
         self.tree = build_tree(files.folders)
         self.eff = [self.tree.effective_of[f] for f in files.folders]
         self.names = N.analyse_names(files.tokens, files.stems, self.eff)
-        self.recurring = self.tree.recurring_names()
-        self.uf = _UnionFind(n)
-        self.sealed = np.zeros(n, dtype=bool)
-        self.reasons: list[tuple[int, str]] = []  # (file, join reason), resolved to groups at end
-        self.decisions: dict[Folder, FolderDecision] = {}
-        self.near: list[tuple[int, int, str]] = []
-        # group representative -> folder whose child folders are its sub-groups (shallowest wins)
-        self.subgroup_parent: dict[int, Folder] = {}
-
         self.own: dict[Folder, list[int]] = defaultdict(list)
         self.subtree: dict[Folder, list[int]] = defaultdict(list)
         for i, e in enumerate(self.eff):
             self.own[e].append(i)
             for d in range(len(e) + 1):
                 self.subtree[e[:d]].append(i)
+        self.facts = folder_facts(
+            self.tree, self.names, self.eff, self.own, self.subtree, known_authors
+        )
         self.pairs = self._content_pairs()
+
+        # The walk's state: the units, and the files a container has sealed
+        self.uf = UnionFind(n)
+        self.sealed = np.zeros(n, dtype=bool)
+
+        # What it records: every join (file, reason, folder decision), each folder's verdict and
+        # decision, suggestions met on the way, and the folder whose child folders are a group's
+        # sub-groups (by group representative; the shallowest wins)
+        self.joined: list[tuple[int, str, FolderDecision | None]] = []
+        self.verdicts: dict[Folder, FolderVerdict] = {}
+        self.decisions: dict[Folder, FolderDecision] = {}
+        self.suggestions: list[tuple[int, int, str]] = []
+        self.subgroup_parent: dict[int, Folder] = {}
 
     # ------------------------------------------------------------------ setup
 
@@ -308,13 +191,13 @@ class _Walk:
         pairs = candidate_pairs(
             self.fm, exhaustive, p.candidate_phash_bits, p.knn_embedding, p.knn_edge, buckets
         )
-        sig = pair_signals(self.fm, pairs, p.pair_thresholds())
+        sig = pair_signals(self.fm, pairs, p)
         if sig.agree.any():
             contra = self._contradictions(sig.a, sig.b)
             sig = PairSignals(sig.a, sig.b, sig.rendition, sig.agree & ~contra)
         by_lca: dict[Folder, list[int]] = defaultdict(list)
         for k, (x, y) in enumerate(zip(sig.a.tolist(), sig.b.tolist(), strict=True)):
-            by_lca[_lca(self.eff[x], self.eff[y])].append(k)
+            by_lca[N.common_prefix((self.eff[x], self.eff[y]))].append(k)
         return _Pairs(sig, by_lca)
 
     def _contradictions(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -332,9 +215,7 @@ class _Walk:
         """Join the units of ``x`` and ``y``, recording why. False if already one unit."""
         if not self.uf.union(x, y):
             return False
-        self.reasons.append((x, reason))
-        if decision is not None:
-            decision.joins[reason] += 1
+        self.joined.append((x, reason, decision))
         return True
 
     def _units(self, files: Sequence[int]) -> dict[int, list[int]]:
@@ -344,17 +225,46 @@ class _Walk:
             by_root[self.uf.find(i)].append(i)
         return by_root
 
-    def _rendition_joins(
-        self, sig: PairSignals, ks: Sequence[int], reason: str, d: FolderDecision
-    ) -> None:
-        """a1 / b1: renditions (certain evidence) join outright."""
-        for k in ks:
-            if sig.rendition[k]:
-                self._join(int(sig.a[k]), int(sig.b[k]), reason, d)
+    def _pairs_at(self, P: Folder) -> tuple[list[int], list[int]]:
+        """The content pairs whose files meet at P: (pairs of P's own files, the other pairs
+        with neither file sealed)."""
+        if self.pairs is None:
+            return [], []
+        sig = self.pairs.signals
+        own: list[int] = []
+        cross: list[int] = []
+        for k in self.pairs.by_lca.get(P, []):
+            x, y = int(sig.a[k]), int(sig.b[k])
+            if self.eff[x] == P and self.eff[y] == P:
+                own.append(k)
+            elif not self.sealed[x] and not self.sealed[y]:
+                cross.append(k)
+        return own, cross
 
-    def _name_joins(
-        self, files: Sequence[int], stage: str, d: FolderDecision, cross_only: bool = False
-    ) -> None:
+    def _evidence_joins(
+        self, P: Folder, files: Sequence[int], pairs: Sequence[int], stage: str, d: FolderDecision
+    ) -> list[int]:
+        """a1–a4 among a folder's own files, b1–b4 across a meaningful folder's units:
+        renditions and equal names (certain), then layout agreement and shared bases. ``pairs``
+        index the content pairs among ``files``. Returns one file of each shared-base join."""
+        if self.pairs is not None:
+            sig = self.pairs.signals
+            for k in pairs:
+                if sig.rendition[k]:
+                    self._join(int(sig.a[k]), int(sig.b[k]), f"{stage}1 rendition", d)
+        self._name_joins(files, stage, d)
+        if self.pairs is not None:
+            sig = self.pairs.signals
+            join_agreeing(
+                self.uf,
+                ((int(sig.a[k]), int(sig.b[k])) for k in pairs if sig.agree[k]),
+                self.p.agree_fraction,
+                lambda x, y: self._join(x, y, f"{stage}3 same-layout", d),
+            )
+        # The same gate in both stages: a leaf must not re-join, ungated, the families a4 split
+        return self._shared_base_joins(files, stage, d, self.facts[P].house_gate)
+
+    def _name_joins(self, files: Sequence[int], stage: str, d: FolderDecision) -> None:
         """a2 / b2: equal identity names join; names differing only by level numbers are
         different floors of one map (``(levels)``)."""
         nm = self.names
@@ -365,8 +275,6 @@ class _Walk:
                 family[full].append(i)
         for members in family.values():
             if len(members) < 2:
-                continue
-            if cross_only and len({self.uf.find(i) for i in members}) < 2:
                 continue
             by_level: dict[tuple[str, ...], list[int]] = defaultdict(list)
             for i in members:
@@ -379,52 +287,18 @@ class _Walk:
             for i in reps[1:]:
                 self._join(reps[0], i, f"{stage}2 same-name(levels)", d)
 
-    def _agree_joins(
-        self, sig: PairSignals, ks: Sequence[int], stage: str, d: FolderDecision
-    ) -> None:
-        """a3 / b3: join two units when >= ``agree_fraction`` of the smaller unit's files have
-        an agreeing pair with the other (counted on the units at the start), so single pairs
-        cannot chain."""
-        count: Counter[tuple[int, int]] = Counter()
-        rep: dict[tuple[int, int], tuple[int, int]] = {}
-        for k in ks:
-            if not sig.agree[k]:
-                continue
-            x, y = int(sig.a[k]), int(sig.b[k])
-            rx, ry = self.uf.find(x), self.uf.find(y)
-            if rx == ry:
-                continue
-            key = (min(rx, ry), max(rx, ry))
-            count[key] += 1
-            rep[key] = (x, y)
-        for key, m in count.most_common():
-            ra, rb = key
-            smaller = min(self.uf.size[self.uf.find(ra)], self.uf.size[self.uf.find(rb)])
-            if m >= max(1.0, self.p.agree_fraction * smaller):
-                self._join(*rep[key], f"{stage}3 same-layout", d)
-
     def _cohesive_parts(self, roots: set[int], scope: Sequence[int]) -> list[list[int]]:
         """Partition units (by representative) into cohesive groups, the units' members drawn
         from ``scope``. Without embeddings every unit stands alone: the join is withheld."""
         by_root = {r: m for r, m in self._units(scope).items() if r in roots}
         reps = sorted(by_root)
-        if self.cohesion is None or self.fm is None or self.emb is None or len(reps) < 2:
+        if self.fm is None or self.emb is None or len(reps) < 2:
             return [[r] for r in reps]
-        parts = cohesive_partition(
-            [by_root[r] for r in reps],
-            self.fm,
-            self.files.nxm,
-            self.cohesion,
-            self.emb.shared_base,
-        )
+        parts = cohesive_partition([by_root[r] for r in reps], self.fm, self.files.nxm, self.p)
         return [[reps[k] for k in part] for part in parts]
 
     def _shared_base_joins(
-        self,
-        files: Sequence[int],
-        stage: str,
-        d: FolderDecision,
-        always_gate: bool,
+        self, files: Sequence[int], stage: str, d: FolderDecision, always_gate: bool
     ) -> list[int]:
         """a4 / b4: files sharing a 2-token key join (floors and parts of one map), within a
         series. Gated by cohesion in house-prefix folders (``always_gate``) and for families
@@ -461,100 +335,33 @@ class _Walk:
     def _folder_named_joins(self, P: Folder, own: Sequence[int], d: FolderDecision) -> None:
         """a5: the folder's common tokens are the map's name, so its named files that carry
         that name are one map (a minority map in the folder keeps its own)."""
-        info = self.names.folder_info.get(P)
-        common = set(info.common) if info is not None else set()
-        named = [i for i in own if self.names.named[i] and common <= self._identity_before_strip(i)]
+        nm = self.names
+        common = set(nm.folder_info[P].common)
+        named = [i for i in own if nm.named[i] and common <= nm.unstripped(i)]
         for i in named[1:]:
             self._join(named[0], i, "a5 folder-named", d)
 
-    # ------------------------------------------------------------------ folder tests
+    # ------------------------------------------------------------------ container or meaningful
 
-    def _named_after_files(self, P: Folder) -> bool:
-        """The folder is named after its files' common name (>= 2 identity tokens shared)."""
-        if not P:
-            return False
-        folder_tokens = set(N.name_identity(P[-1])) - GENERIC
-        common = self.names.common_raw.get(P, set()) - GENERIC
-        return len(folder_tokens & common) >= 2 and (
-            folder_tokens <= common or common <= folder_tokens
-        )
-
-    def _folder_named(self, P: Folder) -> bool:
-        """Structural evidence that a folder is one map: named after its files, or its files'
-        common tokens are the map's name."""
-        return self._named_after_files(P) or self._named_map(P)
-
-    def _named_map(self, P: Folder) -> bool:
-        """The folder's files' common tokens are its map's name (folder IDF), and every file
-        with a name key carries them: a straggler with a name of its own is another map, so the
-        common name would only be the majority map's."""
-        info = self.names.folder_info.get(P)
-        if not (info and info.named_map):
-            return False
-        nm = self.names
-        common = set(info.common)
-        return all(
-            common <= self._identity_before_strip(i)
-            for i in self.own.get(P, [])
-            if nm.veto_key[i] is not None
-        )
-
-    def _identity_before_strip(self, i: int) -> set[str]:
-        """A file's identity tokens with those the prefix strip removed put back: the folder's
-        common name may be exactly what was stripped (a lone ``monster-hunter-restaurant/`` map,
-        whose files all start with ``monster hunter``)."""
-        return set(self.names.full[i] or ()) | self.names.stripped[i]
-
-    def _container(self, P: Folder, n_units: int) -> tuple[bool, str, bool]:
-        """(container?, why, over the unit cap?) for a folder holding ``n_units`` units, from
-        what the folder is; the pack test needs its files (``_pack``)."""
-        if not P:
-            return True, "root", False
-        if self.tree.name_class.get(P) is FolderClass.GENERIC:
-            return True, "generic name", False
-        if P[-1] in self.recurring:
-            return True, "recurring name (author/topic folder)", False
-        if self.known_authors and any(
-            author_key(raw) in self.known_authors for raw in self.tree.raw_names.get(P, {P[-1]})
-        ):
-            return True, "known author", False
-        folder_tokens = set(N.name_identity(P[-1]))
-        if (
-            folder_tokens
-            and folder_tokens <= self.names.global_house
-            and self._house_spread(P, folder_tokens)
-        ):
-            return True, "house-prefix name (author/collection folder)", False
+    def _container(
+        self, P: Folder, facts: FolderFacts, active: list[int], n_units: int
+    ) -> tuple[FolderReason, str]:
+        """(reason, why in words) for a folder holding ``n_units`` units: a container by its
+        name, over the unit cap, a pack, or else a candidate location."""
+        if facts.sealed_by is not None:
+            return facts.sealed_by, facts.sealed_by.value
         if n_units > self.p.max_units:
-            return True, f"{n_units} units > {self.p.max_units} (safety cap)", True
-        named_after = " (folder named after its files)" if self._named_after_files(P) else ""
-        return False, f"candidate location{named_after}", False
-
-    def _house_spread(self, P: Folder, folder_tokens: set[str]) -> bool:
-        """A house prefix is a convention across maps: the folder it names is a container only
-        when the files carrying it lie in >= 2 effective folders of its subtree. A token confined
-        to one folder is that folder's own name (a lone map ``airships/`` imported alone, whose
-        name the global strip reads as a prefix)."""
-        nm = self.names
-        homes = {self.eff[i] for i in self.subtree.get(P, []) if nm.stripped[i] & folder_tokens}
-        return len(homes) >= 2
-
-    def _globally_housed(self, own: Sequence[int]) -> bool:
-        """The folder's files share a house prefix that the global strip removed, so folder IDF
-        never saw it: the same gating verdict alone as inside a large import, where folder IDF
-        finds the prefix."""
-        nm = self.names
-        named = [i for i in own if nm.named[i] or nm.stripped[i]]
-        if len(named) < 3:
-            return False
-        housed = sum(bool(nm.stripped[i] & nm.global_house) for i in named)
-        return housed >= N.COMMON_SHARE * len(named)
-
-    def _house_gate(self, P: Folder, own: Sequence[int]) -> bool:
-        """a4 / b4: whether the folder's shared-base families are cohesion-gated (a house
-        prefix, by folder IDF or the global strip)."""
-        info = self.names.folder_info.get(P)
-        return bool(info and info.house) or self._globally_housed(own)
+            return FolderReason.OVER_CAP, f"{n_units} units > {self.p.max_units} (safety cap)"
+        why = "candidate location" + (
+            " (folder named after its files)" if facts.named_after_files else ""
+        )
+        if n_units > 1:
+            pack, note = self._pack(P, active)
+            if pack:
+                return FolderReason.PACK, note
+            if note:
+                why += "; " + note
+        return FolderReason.LOCATION, why
 
     def _pack(self, P: Folder, active: list[int]) -> tuple[bool, str]:
         """(pack?, note): P holds only child folders, each a self-contained map (folder-named,
@@ -570,179 +377,40 @@ class _Walk:
         if len(kids) < 2:
             return False, ""
         children = sorted(kids)
-        if not all(self._folder_named(c) or len(kids[c]) >= 2 for c in children):
+        if not all(self.facts[c].folder_named or len(kids[c]) >= 2 for c in children):
             return False, ""
         if self.fm is not None:
-            one_production = production_compatible(
-                [kids[c] for c in children],
-                self.fm,
-                self.files.nxm,
-                self.p.aspect_tolerance,
-                self.p.canvas_tolerance,
-            )
-            if one_production.all():
+            units = [kids[c] for c in children]
+            if production_compatible(units, self.fm, self.files.nxm, self.p).all():
                 return False, f"children share production ({len(children)} folders)"
         return True, f"pack: {len(children)} self-contained maps of different productions"
 
-    # ------------------------------------------------------------------ per-folder steps
-
-    def _own_files(self, P: Folder, d: FolderDecision) -> list[int]:
-        """Step 1 (stage a): link a folder's own files. Returns the folder's own pairs."""
-        own = self.own.get(P, [])
-        own_pairs: list[int] = []
-        if self.pairs is not None:
-            own_set = set(own)
-            sig = self.pairs.signals
-            own_pairs = [
-                k
-                for k in self.pairs.by_lca.get(P, [])
-                if int(sig.a[k]) in own_set and int(sig.b[k]) in own_set
-            ]
-            self._rendition_joins(sig, own_pairs, "a1 rendition", d)
-        self._name_joins(own, "a", d)
-        if self.pairs is not None:
-            self._agree_joins(self.pairs.signals, own_pairs, "a", d)
-        self._shared_base_joins(own, "a", d, always_gate=self._house_gate(P, own))
-        info = self.names.folder_info.get(P)
-        if info is not None:
-            d.names = info.describe()
-            if self._named_map(P):
-                self._folder_named_joins(P, own, d)
-        if self._variant_only_folder(P, own):
-            d.variant_only = True
-            for i in own[1:]:
-                self._join(own[0], i, "a6 variant-only folder", d)
-        return own_pairs
-
-    def _leaf_default(self, P: Folder, active: list[int], d: FolderDecision) -> None:
-        """a7: a specific, non-container leaf folder is one map unless shown otherwise. With no
-        strong evidence either way its units join by complete linkage: a unit joins a cluster
-        only if it is not positively different (``_different``) from any member. Needs
-        embeddings, so the paths-only walk withholds it and content only adds joins."""
-        if self.fm is None or self.emb is None or self.cohesion is None:
-            return
-        if not P or self.tree.children.get(P):
-            return
-        if self.tree.name_class.get(P) is not FolderClass.SPECIFIC:
-            return
-        by_root = self._units(active)
-        reps = sorted(by_root)
-        m = len(reps)
-        if m < 2 or m > self.p.max_units:
-            return
-        units = [by_root[r] for r in reps]
-        different, cohesion = self._different(P, units, self.fm, self.emb, self.cohesion)
-        distance = np.where(different, _DIFFERENT, np.clip(1.0 - cohesion, 0.0, 1.0))
-        np.fill_diagonal(distance, 0.0)
-        iu = np.triu_indices(m, 1)
-        labels = fcluster(linkage(distance[iu], method="complete"), _LEAF_CUT, "distance")
-        d.notes.append(
-            f"leaf default: {m} units, {int(different[iu].sum())}/{len(iu[0])} different"
-        )
-        for lab in np.unique(labels):
-            members = [reps[k] for k in np.flatnonzero(labels == lab)]
-            for r in members[1:]:
-                self._join(members[0], r, "a7 leaf default", d)
-
-    def _different(
-        self,
-        P: Folder,
-        units: list[list[int]],
-        fm: FeatureMatrix,
-        emb: EmbeddingThresholds,
-        cohesion_params: CohesionParams,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """(different, cohesion) between the units of a leaf folder: (m, m) positive evidence
-        that two units are different maps, and their (layout-raised) cohesion.
-
-        Different when cohesion is below ``leaf_different``; else never if the folder is named
-        after its files (its names and variant sets are parts of the map it names); else when the
-        **names differ** (no shared head word, or different series: ``Volcanic Path`` /
-        ``Volcanic Path Vol2``) and either both units are variant sets or the folder has catalog
-        names (nearly every keyed file a key of its own); else, with one weak cue (names differ,
-        or both units are variant sets), unless they share one production at
-        ``leaf_same_production`` or reach ``leaf_same``. The head word, not shared words: one
-        maker's maps share topic words (``forest path`` / ``rocky forest``), one map's variant
-        sets share its head (``airships deck`` / ``airships hull``)."""
-        nm = self.names
-        cohesion = unit_similarity(units, fm, self.files.nxm, cohesion_params).cohesion
-        one_production = production_compatible(
-            units, fm, self.files.nxm, self.p.aspect_tolerance, self.p.canvas_tolerance
-        )
-        keyed = [nm.veto_key[i] for u in units for i in u if nm.veto_key[i] is not None]
-        catalog = len(keyed) >= 3 and len(set(keyed)) >= N.COMMON_SHARE * len(keyed)
-        named_after = self._named_after_files(P)
-        series = [frozenset().union(*(nm.series[i] for i in u)) for u in units]
-        heads = [frozenset(full[0] for i in u if (full := nm.full[i])) for u in units]
-        m = len(units)
-        different = np.zeros((m, m), dtype=bool)
-        for x in range(m):
-            for y in range(x + 1, m):
-                c = cohesion[x, y]
-                if c < emb.leaf_different:
-                    different[x, y] = True
-                    continue
-                if named_after:
-                    continue
-                names_differ = bool(heads[x] and heads[y]) and (
-                    not heads[x] & heads[y] or series[x] != series[y]
-                )
-                variant_sets = len(units[x]) >= 2 and len(units[y]) >= 2
-                if names_differ and (variant_sets or catalog):
-                    different[x, y] = True
-                elif names_differ or variant_sets:
-                    same = (one_production[x, y] and c >= emb.leaf_same_production) or (
-                        c >= emb.leaf_same
-                    )
-                    different[x, y] = not same
-        different |= different.T
-        return different, cohesion
-
-    def _variant_only_folder(self, P: Folder, own: Sequence[int]) -> bool:
-        """a6 (deviation from E5, follow-up 2): a specific-named leaf folder whose files carry
-        no identity (``Golden Forest/Night.webp``, ``Day.webp``) is one map, named by the
-        folder. Structural evidence, so it joins at seal, as ``ImageParser.group_files`` does.
-        Generic, recurring and house-prefix folder names never qualify."""
-        if not P or len(own) < 2 or self.tree.children.get(P):
-            return False
-        if self.tree.name_class.get(P) is not FolderClass.SPECIFIC or P[-1] in self.recurring:
-            return False
-        folder_tokens = set(N.name_identity(P[-1]))
-        if folder_tokens <= self.names.global_house:
-            return False
-        unnamed = sum(self.names.variant_only[i] for i in own)
-        return unnamed >= VARIANT_ONLY_SHARE * len(own)
-
     def _whole_folder(
-        self, P: Folder, roots: list[int], active: list[int], d: FolderDecision
+        self, P: Folder, active: list[int], facts: FolderFacts, d: FolderDecision
     ) -> bool:
-        """c0 (E5 fix 0b): an over-cap or folder-named folder joins whole when every unit shares
+        """c0: an over-cap or folder-named folder joins whole when every unit shares
         production and theme. Needs structural evidence (child folders or folder-named);
         without it the join becomes a suggestion. Returns whether the folder joined."""
-        if self.cohesion is None or self.fm is None or self.emb is None:
+        if self.fm is None or self.emb is None:
             return False
         by_root = self._units(active)
-        reps = sorted(r for r in by_root if r in set(roots))
+        reps = sorted(by_root)
         whole, stats = whole_folder_cohesive(
-            [by_root[r] for r in reps],
-            self.fm,
-            self.files.nxm,
-            self.cohesion,
-            self.emb.whole_folder,
-            self.p.whole_folder_compatible,
+            [by_root[r] for r in reps], self.fm, self.files.nxm, self.p
         )
         d.notes.append("whole folder: " + stats.describe())
         if not whole:
             return False
-        structural = bool(self.tree.children.get(P)) or self._folder_named(P)
-        if not structural:
+        if facts.leaf and not facts.folder_named:
             reason = "whole folder cohesive, no folder/name evidence (merge as sub-groups?)"
-            self.near.extend((reps[0], r, reason) for r in reps[1:])
+            self.suggestions.extend((reps[0], r, reason) for r in reps[1:])
             return False
         for r in reps[1:]:
             self._join(reps[0], r, "c0 whole-folder", d)
         self.subgroup_parent[self.uf.find(reps[0])] = P
         return True
+
+    # ------------------------------------------------------------------ meaningful parent
 
     def _part_joins(self, P: Folder, own: list[int], active: list[int], d: FolderDecision) -> None:
         """b5: in a meaningful folder whose own files are one named map, child units whose files
@@ -775,7 +443,7 @@ class _Walk:
         them (average linkage at ``parent``). The fingerprint includes the canvas: one place's
         rooms are drawn to one production. Similarity alone never joins: units of P's own
         files without name evidence become suggestions."""
-        if self.cohesion is None or self.fm is None or self.emb is None:
+        if self.fm is None or self.emb is None:
             return
         by_root = self._units(active)
         reps = sorted(by_root)
@@ -783,9 +451,7 @@ class _Walk:
         if m < 2:
             return
         units = [by_root[r] for r in reps]
-        sim = unit_similarity(
-            units, self.fm, self.files.nxm, self.cohesion, self.p.canvas_tolerance
-        )
+        sim = unit_similarity(units, self.fm, self.files.nxm, self.p, canvas=True)
         homes = [self._home(P, u) for u in units]
         structural = np.array(
             [[own_ok if hx is None and hy is None else hx != hy for hy in homes] for hx in homes]
@@ -813,64 +479,132 @@ class _Walk:
                     if structural[x, y]
                     else "cohesive, no folder/name evidence"
                 )
-                self.near.append((units[x][0], units[y][0], why))
+                self.suggestions.append((units[x][0], units[y][0], why))
 
-    def _meaningful_parent(
-        self, P: Folder, own: list[int], own_pairs: list[int], active: list[int], d: FolderDecision
-    ) -> None:
-        """Step 3 (stage b): join a meaningful folder's units."""
-        if self.pairs is not None:
-            bucket = self.pairs.by_lca.get(P, [])
-            sig = self.pairs.signals
-            in_own = set(own_pairs)
-            cross = [
-                k
-                for k in bucket
-                if k not in in_own
-                and not self.sealed[int(sig.a[k])]
-                and not self.sealed[int(sig.b[k])]
-            ]
-            self._rendition_joins(sig, cross, "b1 rendition", d)
-        else:
-            cross = []
-        self._name_joins(active, "b", d, cross_only=True)
-        if self.pairs is not None:
-            self._agree_joins(self.pairs.signals, cross, "b", d)
-        # The same gate as a4: a leaf must not re-join, ungated, the families a4 split
-        for i in self._shared_base_joins(active, "b", d, always_gate=self._house_gate(P, own)):
-            self.subgroup_parent[self.uf.find(i)] = P
-        if self._named_map(P):
-            self._part_joins(P, own, active, d)
-        self._parent_joins(P, active, self._folder_named(P), d)
+    def _leaf_default(self, active: list[int], facts: FolderFacts, d: FolderDecision) -> None:
+        """a7: a specific, non-container leaf folder is one map unless shown otherwise. With no
+        strong evidence either way its units join by complete linkage: a unit joins a cluster
+        only if it is not positively different (``_different``) from any member. Needs
+        embeddings, so the paths-only walk withholds it and content only adds joins."""
+        if self.fm is None or self.emb is None or not facts.leaf or not facts.specific:
+            return
+        by_root = self._units(active)
+        reps = sorted(by_root)
+        m = len(reps)
+        if m < 2 or m > self.p.max_units:
+            return
+        units = [by_root[r] for r in reps]
+        different, cohesion = self._different(units, self.fm, self.emb, facts.named_after_files)
+        distance = np.where(different, _DIFFERENT, np.clip(1.0 - cohesion, 0.0, 1.0))
+        np.fill_diagonal(distance, 0.0)
+        iu = np.triu_indices(m, 1)
+        labels = fcluster(linkage(distance[iu], method="complete"), _LEAF_CUT, "distance")
+        d.notes.append(
+            f"leaf default: {m} units, {int(different[iu].sum())}/{len(iu[0])} different"
+        )
+        for lab in np.unique(labels):
+            members = [reps[k] for k in np.flatnonzero(labels == lab)]
+            for r in members[1:]:
+                self._join(members[0], r, "a7 leaf default", d)
+
+    def _different(
+        self,
+        units: list[list[int]],
+        fm: FeatureMatrix,
+        emb: EmbeddingThresholds,
+        named_after_files: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(different, cohesion) between the units of a leaf folder: (m, m) positive evidence
+        that two units are different maps, and their (layout-raised) cohesion.
+
+        Different when cohesion is below ``leaf_different``; else never if the folder is named
+        after its files (its names and variant sets are parts of the map it names); else when the
+        **names differ** (no shared head word, or different series: ``Volcanic Path`` /
+        ``Volcanic Path Vol2``) and either both units are variant sets or the folder has catalog
+        names (nearly every keyed file a key of its own); else, with one weak cue (names differ,
+        or both units are variant sets), unless they share one production at
+        ``leaf_same_production`` or reach ``leaf_same``. The head word, not shared words: one
+        maker's maps share topic words (``forest path`` / ``rocky forest``), one map's variant
+        sets share its head (``airships deck`` / ``airships hull``)."""
+        nm = self.names
+        cohesion = unit_similarity(units, fm, self.files.nxm, self.p).cohesion
+        one_production = production_compatible(units, fm, self.files.nxm, self.p)
+        keyed = [nm.veto_key[i] for u in units for i in u if nm.veto_key[i] is not None]
+        catalog = len(keyed) >= 3 and len(set(keyed)) >= N.COMMON_SHARE * len(keyed)
+        series = [frozenset().union(*(nm.series[i] for i in u)) for u in units]
+        heads = [frozenset(full[0] for i in u if (full := nm.full[i])) for u in units]
+        m = len(units)
+        different = np.zeros((m, m), dtype=bool)
+        for x in range(m):
+            for y in range(x + 1, m):
+                c = cohesion[x, y]
+                if c < emb.leaf_different:
+                    different[x, y] = True
+                    continue
+                if named_after_files:
+                    continue
+                names_differ = bool(heads[x] and heads[y]) and (
+                    not heads[x] & heads[y] or series[x] != series[y]
+                )
+                variant_sets = len(units[x]) >= 2 and len(units[y]) >= 2
+                if names_differ and (variant_sets or catalog):
+                    different[x, y] = True
+                elif names_differ or variant_sets:
+                    same = (one_production[x, y] and c >= emb.leaf_same_production) or (
+                        c >= emb.leaf_same
+                    )
+                    different[x, y] = not same
+        different |= different.T
+        return different, cohesion
+
+    # ------------------------------------------------------------------ one folder
 
     def _visit(self, P: Folder) -> None:
+        facts = self.facts[P]
         own = self.own.get(P, [])
-        d = FolderDecision(_folder_text(P), len(own), len(self.subtree.get(P, ())))
-        self.decisions[P] = d
-        own_pairs = self._own_files(P, d)
+        d = self.decisions[P] = FolderDecision("/".join(P))
+        own_pairs, cross_pairs = self._pairs_at(P)
 
+        # 1. Its own files (stage a)
+        self._evidence_joins(P, own, own_pairs, "a", d)
+        info = self.names.folder_info.get(P)
+        if info is not None:
+            d.names = info.describe()
+        if facts.named_map:
+            self._folder_named_joins(P, own, d)
+        if facts.variant_only:
+            for i in own[1:]:
+                self._join(own[0], i, "a6 variant-only folder", d)
+
+        # 2. Container or meaningful
         active = [i for i in self.subtree.get(P, []) if not self.sealed[i]]
-        roots = sorted({self.uf.find(i) for i in active})
-        d.units_before = len(roots)
-        container, why, over_cap = self._container(P, len(roots))
-        if not container and len(roots) > 1:
-            pack, note = self._pack(P, active)
-            if pack:
-                container, why = True, note
-            elif note:
-                why += "; " + note
-        folder_named = d.folder_named = self._folder_named(P)
-        d.named_after_files = self._named_after_files(P)
+        n_units = len({self.uf.find(i) for i in active})
+        d.units_before = n_units
+        reason, why = self._container(P, facts, active, n_units)
+        container = reason is not FolderReason.LOCATION
         if (
-            (over_cap or (not container and folder_named and len(roots) > 1))
-            and len(roots) <= self.p.whole_folder_max_units
-            and self._whole_folder(P, roots, active, d)
+            (reason is FolderReason.OVER_CAP or (not container and facts.folder_named))
+            and 1 < n_units <= self.p.whole_folder_max_units
+            and self._whole_folder(P, active, facts, d)
         ):
-            container, why = False, why + "; whole folder cohesive"
+            reason, container, why = FolderReason.LOCATION, False, why + "; whole folder cohesive"
         d.container, d.why = container, why
-        if not container and len(roots) > 1:
-            self._meaningful_parent(P, own, own_pairs, active, d)
-            self._leaf_default(P, active, d)
+        self.verdicts[P] = FolderVerdict(
+            container=container,
+            reason=reason,
+            named_after_files=facts.named_after_files,
+            variant_only=facts.variant_only,
+            files=len(self.subtree.get(P, ())),
+        )
+
+        # 3. A meaningful folder joins its units (stage b)
+        if not container and n_units > 1:
+            for i in self._evidence_joins(P, active, cross_pairs, "b", d):
+                self.subgroup_parent[self.uf.find(i)] = P
+            if facts.named_map:
+                self._part_joins(P, own, active, d)
+            self._parent_joins(P, active, facts.folder_named, d)
+            self._leaf_default(active, facts, d)
         d.units_after = len({self.uf.find(i) for i in active})
         if container:
             self.sealed[self.subtree.get(P, [])] = True
@@ -878,7 +612,7 @@ class _Walk:
     # ------------------------------------------------------------------ cross-tree
 
     def _cross_tree(self) -> list[tuple[int, int, str]]:
-        """Step 4 (narrow): renditions anywhere, unless both groups are large."""
+        """Step 4: renditions anywhere, unless both groups are large."""
         suggestions: list[tuple[int, int, str]] = []
         if self.pairs is None:
             return suggestions
@@ -894,32 +628,24 @@ class _Walk:
                 self._join(x, y, "x1 rendition", None)
         return suggestions
 
+    def _keyed_units(self, keys: Sequence[N.Seq | None]) -> dict[N.Seq, dict[int, int]]:
+        """Per key, the units holding it: representative -> its first file with the key."""
+        out: dict[N.Seq, dict[int, int]] = defaultdict(dict)
+        for i, key in enumerate(keys):
+            if key is not None:
+                out[key].setdefault(self.uf.find(i), i)
+        return out
+
     def _tree_suggestions(self) -> list[tuple[int, int, str]]:
-        """Cross-tree joins narrow mode does not make, with reasons (E5 ``_global_candidates``)."""
+        """Cross-tree joins the walk does not make, with reasons."""
         nm = self.names
         find = self.uf.find
         out: list[tuple[int, int, str]] = []
-
-        def by_key(keys: Sequence[N.Seq | None], reason: str, max_groups: int) -> None:
-            groups: dict[N.Seq, list[int]] = defaultdict(list)
-            first: dict[tuple[N.Seq, int], int] = {}
-            for i, key in enumerate(keys):
-                if key is None:
-                    continue
-                r = find(i)
-                if (key, r) not in first:
-                    first[(key, r)] = i
-                    groups[key].append(r)
-            for key, roots in groups.items():
-                if 1 < len(roots) <= max_groups:
-                    roots = sorted(roots)
-                    out.extend((first[(key, roots[0])], first[(key, r)], reason) for r in roots[1:])
-
-        by_key(
-            [g if f is not None else None for g, f in zip(nm.cross_tree, nm.full, strict=True)],
-            "same-name across tree",
-            max_groups=3,
-        )
+        names = [g if f is not None else None for g, f in zip(nm.cross_tree, nm.full, strict=True)]
+        for units in self._keyed_units(names).values():
+            roots = sorted(units)
+            if 1 < len(roots) <= 3:
+                out.extend((units[roots[0]], units[r], "same-name across tree") for r in roots[1:])
         agreeing: set[tuple[int, int]] = set()
         if self.pairs is not None:
             sig = self.pairs.signals
@@ -930,28 +656,14 @@ class _Walk:
                     agreeing.add((min(rx, ry), max(rx, ry)))
                     if nm.key2[x] is None or nm.key2[y] is None:
                         out.append((x, y, "same-layout across tree"))
-        groups: dict[N.Seq, list[int]] = defaultdict(list)
-        first: dict[tuple[N.Seq, int], int] = {}
-        for i, key in enumerate(nm.key2):
-            if key is None:
-                continue
-            r = find(i)
-            if (key, r) not in first:
-                first[(key, r)] = i
-                groups[key].append(r)
-        for key, roots in groups.items():
-            roots = sorted(roots)
+        for units in self._keyed_units(nm.key2).values():
+            roots = sorted(units)
             if 1 < len(roots) <= 6:
-                for x in range(len(roots)):
-                    for y in range(x + 1, len(roots)):
-                        if (roots[x], roots[y]) in agreeing:
-                            out.append(
-                                (
-                                    first[(key, roots[x])],
-                                    first[(key, roots[y])],
-                                    "same-base+layout across tree",
-                                )
-                            )
+                out.extend(
+                    (units[a], units[b], "same-base+layout across tree")
+                    for a, b in combinations(roots, 2)
+                    if (a, b) in agreeing
+                )
         same_name: dict[str, set[Folder]] = defaultdict(set)
         first_in: dict[Folder, int] = {}
         for i, e in enumerate(self.eff):
@@ -968,7 +680,7 @@ class _Walk:
 
     def _sublabels(self, root: list[int]) -> list[SubLabel | None]:
         """Sub-group labels: the child folders of the shallowest parent join, else level names
-        when a group has >= 2 of them, else none (design §2, last paragraph)."""
+        when a group has >= 2 of them, else none."""
         parent: dict[int, Folder] = {}
         for r, P in self.subgroup_parent.items():
             g = self.uf.find(r)
@@ -992,21 +704,21 @@ class _Walk:
         return out
 
     def run(self) -> WalkResult:
-        every: set[Folder] = set(self.subtree) | set(self.tree.children)
-        for P in sorted(every, key=lambda f: (-len(f), f)):
+        for P in sorted(self.facts, key=lambda f: (-len(f), f)):
             self._visit(P)
-        suggestions = self._cross_tree()
-        suggestions += self._tree_suggestions()
-        suggestions += self.near
+        suggestions = self._cross_tree() + self._tree_suggestions() + self.suggestions
         root = [self.uf.find(i) for i in range(self.n)]
         reasons: dict[int, Counter[str]] = defaultdict(Counter)
-        for i, reason in self.reasons:
+        for i, reason, decision in self.joined:
             reasons[root[i]][reason] += 1
+            if decision is not None:
+                decision.joins[reason] += 1
         return WalkResult(
             root=root,
             sublabel=self._sublabels(root),
             suggestions=[(x, y, r) for x, y, r in suggestions if root[x] != root[y]],
             reasons=dict(reasons),
+            folders=self.verdicts,
             decisions=self.decisions,
             effective=self.eff,
             tree=self.tree,
@@ -1019,25 +731,13 @@ def _is_unnamed_part(identity: N.Seq | None) -> bool:
     return identity is None or set(identity) <= PART_WORDS
 
 
-def _lca(a: Folder, b: Folder) -> Folder:
-    k = 0
-    while k < min(len(a), len(b)) and a[k] == b[k]:
-        k += 1
-    return a[:k]
-
-
-def author_key(text: str) -> str:
-    """A creator's name key: letters and digits only, case-folded (``ImageParser._name_key``)."""
-    return "".join(ch for ch in text.casefold() if ch.isalnum())
-
-
 def run_walk(
     files: WalkFiles,
     features: FeatureMatrix | None,
     params: GroupingParams,
-    known_authors: frozenset[str] = frozenset(),
+    known_authors: Collection[str] = (),
 ) -> WalkResult:
     """Run the walk over ``files`` (with content ``features``, or None for paths only).
-    ``known_authors`` are the ``author_key``s of creators already in the library: a folder
+    ``known_authors`` are the ``names.name_key``s of creators already in the library: a folder
     named after one is a container."""
     return _Walk(files, features, params, known_authors).run()

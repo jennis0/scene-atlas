@@ -1,4 +1,4 @@
-"""Content evidence: per-file features, candidate pairs and pair signals (design §2 and §4).
+"""Content evidence: per-file features, candidate pairs and pair signals (design/variant-grouping-algorithm.md §6).
 
 Signals are kept separate, never fused into one score: a pHash rendition is *certain* evidence,
 layout agreement needs the edge map **and** the embedding to agree. Candidate pairs are found
@@ -11,7 +11,7 @@ without holding a dense n × n matrix (CPU, numpy only):
 - every pair inside small folders and small subtrees (the walk compares those exhaustively).
 
 A file without a feature never takes part in a signal that needs it: the join is withheld, not
-guessed (design §3, "merge-only"). Ported from scene-atlas-learning ``grouping/e5/content.py``.
+guessed, so content only ever adds joins.
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .phash_index import radius_pairs, sorted_unique
+from .params import GroupingParams
+from .phash_index import hamming, radius_pairs, sorted_unique
 
 PHASH_BYTES = 32  # 256-bit pHash (imagehash.phash(hash_size=16), MSB-first)
-PHASH_BITS = PHASH_BYTES * 8
 EDGE_DIM = 1024  # 32 × 32 edge-map layout descriptor
 
 # Rows per block for the dense candidate searches: a block × n float32 matrix (40 MB at n = 10k).
@@ -35,8 +35,6 @@ _KNN_BLOCK_ROWS = 512
 _KNN_TIES = 16
 # Pairs per chunk when computing pair signals (bounds the gathered feature rows).
 _PAIR_CHUNK = 65536
-# Bits set per byte value, for Hamming distances on packed hashes.
-_POPCOUNT = np.array([bin(b).count("1") for b in range(256)], dtype=np.uint16)
 
 
 @dataclass(frozen=True)
@@ -217,17 +215,6 @@ def candidate_pairs(
 
 
 @dataclass(frozen=True)
-class PairThresholds:
-    """Thresholds of the two pair-level content rules (see ``walk.GroupingParams``)."""
-
-    rendition_bits: int
-    rendition_aspect: float
-    agree_edge: float
-    agree_embedding: float | None  # None: embedding rules are off, so no agreement
-    agree_aspect: float
-
-
-@dataclass(frozen=True)
 class PairSignals:
     """Candidate pairs that are renditions or agree in layout (all other pairs are dropped)."""
 
@@ -246,13 +233,9 @@ def _rowwise_dot(x: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
-def _hamming(fm: FeatureMatrix, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """pHash Hamming distances of pairs."""
-    return _POPCOUNT[np.bitwise_xor(fm.phash[a], fm.phash[b])].sum(axis=1)
-
-
-def pair_signals(fm: FeatureMatrix, pairs: np.ndarray, t: PairThresholds) -> PairSignals:
-    """Rendition and agreement flags for candidate pairs.
+def pair_signals(fm: FeatureMatrix, pairs: np.ndarray, params: GroupingParams) -> PairSignals:
+    """Rendition and agreement flags for candidate pairs (agreement needs
+    ``params.embedding``).
 
     Evaluated as a cascade (aspect, then pHash / embedding, then edge) so the expensive dot
     products only run on pairs that can still pass; the flags equal a full evaluation.
@@ -261,12 +244,13 @@ def pair_signals(fm: FeatureMatrix, pairs: np.ndarray, t: PairThresholds) -> Pai
     both_aspect = fm.has_aspect[a] & fm.has_aspect[b]
     aspect_d = np.abs(fm.log_aspect[a] - fm.log_aspect[b])
 
+    t = params
     rendition = both_aspect & (aspect_d < t.rendition_aspect) & fm.has_phash[a] & fm.has_phash[b]
     k = np.flatnonzero(rendition)
-    rendition[k] = _hamming(fm, a[k], b[k]) <= t.rendition_bits
+    rendition[k] = hamming(fm.phash, a[k], b[k]) <= t.rendition_bits
 
     agree = np.zeros(len(a), dtype=bool)
-    if t.agree_embedding is not None:
+    if t.embedding is not None:
         agree = (
             both_aspect
             & (aspect_d < t.agree_aspect)
@@ -276,7 +260,7 @@ def pair_signals(fm: FeatureMatrix, pairs: np.ndarray, t: PairThresholds) -> Pai
             & fm.has_edge[b]
         )
         k = np.flatnonzero(agree)
-        agree[k] = _rowwise_dot(fm.embedding, a[k], b[k]) >= t.agree_embedding
+        agree[k] = _rowwise_dot(fm.embedding, a[k], b[k]) >= t.embedding.agree
         k = np.flatnonzero(agree)
         agree[k] = _rowwise_dot(fm.edge, a[k], b[k]) >= t.agree_edge
 

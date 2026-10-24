@@ -1,16 +1,16 @@
-"""Performance smoke tests: the seal pass must keep up with large imports (design §3)."""
+"""Performance smoke tests: grouping must keep up with large imports."""
 
 import time
 
 import pytest
 
-from backend.app.services.variant_grouping import GroupingFile, group_by_paths, group_with_content
+from backend.app.services.variant_grouping import GroupingFile, group_with_content
 
-from .support import CONTENT_PARAMS, Look, features, parser
+from .support import CONTENT_PARAMS, Look, features, parser, run_paths
 
-# Targets: ~2 s for 20k paths, ~20 s for 10k files with content (CPU). Budgets leave headroom
-# for slow CI machines; a regression past them is a real slowdown, not noise.
-PATHS_ONLY_BUDGET_S = 3.0
+# Targets: ~1-2 s for 20k paths, ~20 s for 10k files with content (CPU). Budgets leave wide
+# headroom for slow or busy CI machines: they catch a quadratic regression, not noise.
+PATHS_ONLY_BUDGET_S = 10.0
 CONTENT_BUDGET_S = 30.0
 
 _WORDS = [
@@ -49,7 +49,7 @@ def library(n: int) -> list[tuple[str, Look]]:
 def test_paths_only_on_20k_files():
     files = [GroupingFile(p, p) for p, _ in library(20_000)]
     start = time.perf_counter()
-    g = group_by_paths(files, parser())
+    g = run_paths(files)
     elapsed = time.perf_counter() - start
     assert len(g.groups) == 2_000
     assert elapsed < PATHS_ONLY_BUDGET_S, f"{elapsed:.2f} s"

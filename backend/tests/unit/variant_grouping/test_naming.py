@@ -44,7 +44,7 @@ class TestFolderNames:
         assert (group.name, group.author) == ("Coral Reef", "limithron")
 
     def test_meaningful_folder_holding_exactly_the_group(self):
-        """Heather House (audit, scatter): files of mixed names, one folder."""
+        """Heather House: files of mixed names, one folder."""
         group = only(
             [
                 "Old Downloads/Heather House/MA/Grid/Moonlight_Maps_Heather_House_Basement_Lit_24x32_grid.jpg",
@@ -100,7 +100,7 @@ class TestFallbackNames:
         assert not any(grp.name_is_identity for grp in g.groups)
 
     def test_camera_counters_have_no_identity(self):
-        """Round 3: ``IMG_001`` ... never join by name, whatever the family size."""
+        """``IMG_001`` ... never join by name, whatever the family size."""
         g = grouped([f"Downloads/IMG_00{k}.png" for k in (1, 2, 3)])
         assert sorted(grp.name for grp in g.groups) == ["IMG 001", "IMG 002", "IMG 003"]
         assert not any(grp.name_is_identity for grp in g.groups)
@@ -157,7 +157,7 @@ class TestAuthors:
         assert {grp.author for grp in grouped(paths).groups} == {"Moonlight Maps"}
 
     def test_folder_naming_the_group_is_never_its_author(self):
-        """Round 3: ``A/Keep/Keep Day.png`` -> author "A" (one-letter folders count), and
+        """``A/Keep/Keep Day.png`` -> author "A" (one-letter folders count), and
         ``Keep/Keep Day.png`` -> no author; never "Keep"."""
         group = only(["A/Keep/Keep Day.png", "A/Keep/Keep Night.png"])
         assert (group.name, group.author) == ("Keep", "A")

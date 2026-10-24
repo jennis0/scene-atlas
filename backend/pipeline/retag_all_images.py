@@ -10,15 +10,21 @@ Usage:
 
 import logging
 
-from backend.app.models.database import Image, Tag
+from backend.app.models.database import Image, Tag, TagCategory
 from backend.app.services import ImageParser
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
-from backend.pipeline.ingest_queue import build_parser
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 200
+
+
+def _build_parser(db):
+    """Create an ImageParser with tag vocabulary loaded from DB."""
+    categories = db.query(TagCategory).all()
+    cat_dicts = [{"name": c.name, "common_values": c.common_values} for c in categories]
+    return ImageParser(tag_categories=cat_dicts)
 
 
 def retag_batch(image_ids: list[int], parser: ImageParser) -> dict:
@@ -79,7 +85,7 @@ def retag_all_images(progress_fn=None):
     batch loses its auto tags — all other batches remain intact.
     """
     with pipeline_db() as db:
-        parser = build_parser(db)
+        parser = _build_parser(db)
 
         # Collect all image IDs
         all_ids = [row[0] for row in db.query(Image.id).order_by(Image.id).all()]

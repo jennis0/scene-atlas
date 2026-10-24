@@ -3,7 +3,8 @@
 A technical walkthrough of `backend/app/services/variant_grouping/`: what it decides, from which
 evidence, in which order, and why. The design and pipeline integration are in
 [variant-grouping.md](variant-grouping.md) and ADR-028. The research that produced the algorithm
-is scene-atlas-learning's experiment E5, "Joe's tree walk" (`docs/variant-grouping-results.md`).
+(Joe's tree walk, experiments E5–E7), its benchmark numbers, the port's deliberate deviations and
+the per-model thresholds are in scene-atlas-learning's `docs/variant-grouping-results.md`.
 
 ## 1. The problem it solves
 
@@ -29,9 +30,8 @@ The algorithm combines two families of evidence:
 | **Paths:** folder tree and file names | from the start | floors, rooms and tiles of one map share names and folders, not pixels | coincidental shared words; packs of unrelated maps in one folder; no names at all |
 | **Content:** pHash, edge map, embedding | after each image is processed | renditions and variants of one picture are found whatever they're called | different floors look different; one maker reuses a template across different maps |
 
-On the research benchmark (28k maps, realistic layouts), content alone scores BCubed F1 ≈ 0.95,
-paths alone ≈ 0.84 (0.97 for makers whose names are informative), and the combined walk 0.976.
-The old `group_files` scored 0.67. On makers it was never tuned on, the walk scores 0.94.
+Neither is enough alone: on the research benchmark (28k maps, realistic layouts) the combined walk
+scores BCubed F1 0.98, against 0.67 for the old `group_files`.
 
 ## 2. Principles
 
@@ -58,7 +58,8 @@ These come from the research failures, and every rule below follows from them.
 
 ## 3. Inputs
 
-`group_with_content(files, features, params, parser, known_authors)`:
+`group_with_content(files, features, params, parser, known_authors)` (with `features = {}` it
+groups by paths alone, every content join withheld; content only ever adds joins):
 
 - **`files`:** `GroupingFile(key, path)`, with the path relative to the import root.
 - **`features`:** a `ContentFeatures` per file, any part of which may be missing:
@@ -74,9 +75,13 @@ These come from the research failures, and every rule below follows from them.
 - **`known_authors`:** creators already in the library. A folder named after one is an author,
   never a map.
 
-The output is a `Grouping`: groups (`ProposedGroup(keys, name, author, subgroups, reasons,
-name_is_identity)`), `suggestions` (joins deliberately not made, each with a reason), and
-`decisions` (folder → `FolderDecision`, for debugging).
+The output is a `Grouping`:
+- groups (`ProposedGroup(keys, name, author, subgroups, reasons, name_is_identity)`);
+- `suggestions` (joins deliberately not made, each with a reason);
+- `folders`: effective folder (a tuple of canonical names) → `FolderVerdict`, what the walk
+  decided the folder is (container or not and why, named after its files, variant-only, file
+  count). Naming and scenes read these;
+- `decisions`: the same folders in words (`FolderDecision`, keyed `"a/b"`), for DEBUG logs only.
 
 The output is deterministic and independent of input order: files are sorted by `(path, key)`
 first.
@@ -244,8 +249,17 @@ map, `unit_similarity` uses:
 
 ## 7. Stage 4: the walk (`walk.py`)
 
+What a folder *is* by its names (a container by name, named after its files, named after its map,
+house-prefix gated, variant-only) never changes during the walk, so `folders.py` computes it once,
+before the walk. The walk then keeps only its own state: the units (a union-find), the files a
+container has sealed, and what it records (joins with reasons, verdicts, suggestions, sub-group
+parents).
+
 Effective folders are processed **deepest first**. Each step works on the current units of the
-folder's subtree that are not sealed. Every join records a reason code.
+folder's subtree that are not sealed. Every join records a reason code. Stage a (a folder's own
+files) and stage b (across a meaningful folder's units) run the same evidence routine:
+renditions, equal names, layout agreement, shared bases; they differ only in which content pairs
+and files they see.
 
 ### 7.1 A folder's own files (stage a)
 
@@ -265,7 +279,7 @@ finds positive evidence.
 
 A folder is a **container** if any of these holds. Every test asks what the folder *is*, never
 how much it holds, so a subtree is grouped the same imported alone as inside a large import
-(scale invariance, E6):
+(scale invariance). The verdict's `reason` (`FolderReason`) says which:
 - it is the root;
 - its name is generic;
 - its name recurs elsewhere in the tree (author or topic);
@@ -279,10 +293,6 @@ how much it holds, so a subtree is grouped the same imported alone as inside a l
   not shared, so content can only turn a pack into a candidate location;
 - it holds more than 40 units, a safety cap above any single map (the largest on the benchmark
   has 33 units after stage a; the 99th percentile is 12).
-
-E5 used a cap of 8 units instead (60 if named after its files). That made `Maker/` with 10 maps
-a container but `Maker/` with 3 maps a candidate location whose maps the parent rules then
-joined: a small import grouped worse than the same folder inside a large one.
 
 A container **seals** its subtree: nothing below it joins across it by folder or name evidence.
 
@@ -330,7 +340,7 @@ A meaningful folder joins its units on:
 
 The joined child folders become the group's **sub-groups**.
 
-### 7.4 Cross-tree (narrow mode)
+### 7.4 Cross-tree
 
 **x1:** a rendition pair anywhere in the import joins, except between two groups that are both
 ≥ 20 images (that becomes a suggestion).
@@ -367,14 +377,17 @@ nothing names them together, so they stay five groups.
 ## 7b. Scenes (`scenes.py`, `group_scenes`)
 
 The walk sees maps only. Scenes come after it, so adding a scene to a folder never changes that
-folder's map groups. Three facts from research E7 shape the rules:
+folder's map groups. Three facts shape the rules:
 - scenes are mostly singletons, so a scene starts **alone** and joins only on positive evidence
   (the opposite of the map leaf default);
 - pHash finds only scene *renditions*: scene variants (Day / Night repaints) sit about 54–78 bits
   of 256 apart, so they need layout *and* embedding agreement, like maps but stricter (edge ≥ 0.50,
   embedding ≥ ≈ 0.85);
 - a scene and the map of the same place are unrelated in content (pHash ≈ random, 126 of 256), so
-  only folders and names can link them.
+  **scenes are never compared with maps by content**: only folders and names link them. (A rule
+  that joined a scene to the maps it was a pHash copy of was dropped: map / scene mistyping is
+  rare, about 0.1%, and the folder and name rules recover most of it.) The maps' features are
+  not used.
 
 **Attach folders.** Role folders (named only by words such as *Scenes*, *Art*, *Illustrations*,
 *Concept Art*, *Handouts*, *Assets & Tokens*) and `Maps` folders are dropped from every file's path,
@@ -382,12 +395,12 @@ so `Loc/Scenes/x.jpg` is one of `Loc`'s files and `Pack/Maps/X/` mirrors `Pack/S
 re-files files already typed: Czepeku's `Airships/…/Scenes/` holds top-down maps.
 
 **Attach**, in order:
-- **r7, rendition of a map:** a pHash twin of maps of exactly one group joins it, anywhere.
 - **r2, same folder:** the nearest folder holding maps holds one group, and is either the scene's
-  own folder with maps directly in it, or not a container and the group's own top folder (the
-  longest common folder of its maps). `Root/Map.jpg` + `Root/x.jpg` is one group;
-  `Loc/Floor 1/…` + `Loc/Bonus Content/x.jpg` attaches; `Root/Map.jpg` + `Root/Random Scenes/x.jpg`
-  and `Session 12/Forest Cabin/…` + `Session 12/x.jpg` don't (Joe: same folder or not).
+  own folder with maps directly in it, or not a container (the walk's `FolderVerdict`) and the
+  group's own top folder (the longest common folder of its maps). `Root/Map.jpg` + `Root/x.jpg`
+  is one group; `Loc/Floor 1/…` + `Loc/Bonus Content/x.jpg` attaches; `Root/Map.jpg` +
+  `Root/Random Scenes/x.jpg` and `Session 12/Forest Cabin/…` + `Session 12/x.jpg` don't (Joe: same
+  folder or not).
 - **r3, by name, neighbours only:** in its own folder of several map groups, a scene whose key
   (identity minus role words, and minus the folder's common house tokens) starts with exactly one
   group's key (the longest common prefix of its maps' identities) joins it. A tie joins nothing.
@@ -400,12 +413,17 @@ re-files files already typed: Czepeku's `Airships/…/Scenes/` holds top-down ma
 - **a variant-only place folder:** a specific folder whose scenes are ≥ 80% named only by variant
   words (`Golden Forest/Day.jpg`, `Night.jpg`) is one scene;
 - **renditions**, and **agreement**: edge ≥ 0.50 and embedding ≥ `scene_agree`, the same aspect,
-  not against different 2-token keys, at unit level (a quarter of the smaller unit's files).
+  not against different 2-token keys, at unit level (a quarter of the smaller unit's files; the
+  same unit-level rule as the walk's a3).
 
 **Across folders (r6)** only certain renditions join (`Art/With Text/` and `Art/No Text/`), never
-between two groups both ≥ 20 files. A unit holding one map group never joins one holding another,
-so a scene can't bridge two maps. Tokens and other art keep `attach_to_map_groups` and
-`group_files`.
+between two groups both ≥ 20 files. Renditions are found once over all scenes with the exact pHash
+radius search (`phash_index`), then split into same-folder (r5) and cross-folder (r6) pairs. A
+unit holding one map group never joins one holding another, so a scene can't bridge two maps.
+`SceneGrouping.debug_lines()` lists every join with its reason. Every file that is not a map is
+grouped as a scene: tokens and assets are skipped by Auto and imported via Include as maps or
+scenes. Tokens are more often mistyped maps than scenes (Joe), worth revisiting if a token import
+type is added.
 
 ## 8. Naming (`naming.py`)
 
@@ -452,30 +470,21 @@ Encoder-independent thresholds are research-tuned on the benchmark's dev split; 
 | `big_join` | 20 | x1 between two groups this large is a suggestion |
 | `candidate_phash_bits`, `knn_embedding`, `knn_edge` | 20, 25, 15 | candidate search |
 
-The embedding thresholds depend on the encoder and ship per model as
+The embedding thresholds (`EmbeddingThresholds`: agree, parent, whole folder, shared base,
+suggest, the three leaf thresholds, scene agree) depend on the encoder and ship per model as
 `backend/app/data/heads/grouping/<vision encoder sha256>.json`, produced by scene-atlas-learning
-(`grouping/e5/calibrate.py`) from embeddings computed the way Scene Atlas computes them:
-
-| Model | agree | parent (c1) | whole folder (c0) | shared base | suggest | leaf different / same + production / same | scene agree |
-|---|---|---|---|---|---|---|---|
-| small (B/32 rc3) | 0.673 | 0.787 | 0.771 | 0.652 | 0.630 | 0.498 / 0.774 / 0.810 | 0.812 |
-| medium (base-384 rc4) | 0.701 | 0.813 | 0.796 | 0.682 | 0.662 | 0.55 / 0.80 / 0.84 | 0.85 |
-| large (L-384 rc4) | 0.696 | 0.818 | 0.797 | 0.677 | 0.657 | 0.545 / 0.803 / 0.843 | 0.854 |
-
-The first five were quantile-mapped from E5's medium values and keep E5's quality (test 0.976,
-new makers 0.943–0.944). The leaf thresholds were tuned in E6 on the medium encoder and
-quantile-mapped onto the others the same way (`grouping/e6/calibrate_leaf.py`).
-
-A dev-grid retune was rejected: +0.001 F1 for more wrong joins in same-maker packs (17% → 23%).
-With no matching calibration, the embedding rules are off. Test F1 is then 0.85: renditions,
-names and folders still work.
+from embeddings computed the way Scene Atlas computes them. The defaults are the medium encoder's
+(agree 0.70, parent 0.82, leaf 0.55 / 0.80 / 0.84, scene agree 0.85); the research log has every
+model's values and how they were mapped. With no matching calibration, the embedding rules are
+off: renditions, names and folders still work.
 
 ## 10. Properties
 
 - **Deterministic and order-independent.** Inputs are sorted, and every set or ordering tie is
   broken explicitly.
-- **Faithful to the research.** On the benchmark the port matches E5 to within ±0.002 (0.9765 vs
-  E5's 0.9759 after the deliberate fixes). The parity bench lives in scene-atlas-learning.
+- **Faithful to the research.** scene-atlas-learning's parity bench runs this package against
+  the research reference on seeded small imports and real folders: groups, names and scene
+  attachments must be identical.
 - **Cost.**
   - Feature extraction: ~2–3 ms per image, during processing.
   - The walk:
@@ -502,7 +511,8 @@ These are from the research audit; see `results/grouping/e5-audit.md` in scene-a
 
 ## 12. Debugging a grouping
 
-`Grouping.debug_lines()` prints each effective folder's decision:
+`Grouping.debug_lines()` (and `SceneGrouping.debug_lines()` for scenes) prints each effective
+folder's decision:
 - container or meaningful, and why;
 - units before → after;
 - the name analysis (house prefix or map name);
@@ -510,6 +520,6 @@ These are from the research audit; see `results/grouping/e5-audit.md` in scene-a
 
 Each `ProposedGroup.reasons` counts the reason codes that built it. To see why two files ended up
 together, or didn't:
-1. Find their effective folder in `decisions`.
+1. Find their effective folder in `folders` (the verdict) and `decisions` (the words).
 2. Check whether a container sealed them apart.
 3. Check which rule joined them, or which suggestion withheld the join.

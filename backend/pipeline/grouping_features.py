@@ -33,7 +33,6 @@ from sqlalchemy.orm import Session
 
 from backend.app.models.database import ImageGroupingFeatures
 from backend.app.services.linked_files import chunks
-from backend.app.timeutil import utcnow
 
 from .image_hashes import _oriented
 
@@ -174,14 +173,12 @@ def store_grouping_features(db: Session, features: Mapping[int, GroupingFeatures
     (SQLite reuses the highest rowid after a delete).
     """
     image_ids = sorted(features)
-    now = utcnow()
     rows = [
         {
             "image_id": image_id,
             "version": GROUPING_FEATURES_VERSION,
             "phash256": f.phash256,
             "edge": f.edge.astype(EDGE_DTYPE).tobytes() if f.edge is not None else None,
-            "computed_at": now,
         }
         for image_id in image_ids
         if (f := features[image_id]) is not None

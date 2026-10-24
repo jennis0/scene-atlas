@@ -32,9 +32,9 @@ from ..models.schemas import (
     MoveImagesRequest,
     MoveImagesResponse,
 )
-from ..services import group_service
 from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
+from ..services.fts_service import search_text_for
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 
@@ -340,7 +340,12 @@ def edit_group(
 
         rebuild_search_text(image, db)
 
-    # 4. Create split-off groups
+    # 4. Fix primary_image_id if deleted
+    if group.primary_image_id and group.primary_image_id not in kept_ids:
+        remaining = [img for img in all_images if img.id in kept_ids]
+        group.primary_image_id = remaining[0].id if remaining else None
+
+    # 5. Create split-off groups
     moving_image_map = {img.id: img for img in all_images if img.id in moving_ids}
     new_group_ids: list[int] = []
     for new_group_payload in payload.new_groups:
@@ -359,9 +364,6 @@ def edit_group(
             new_group_payload.image_ids[0] if new_group_payload.image_ids else None
         )
         new_group_ids.append(new_group.id)
-
-    # 5. A new cover if the cover was deleted or split off
-    group_service.repair_cover(db, group)
 
     db.commit()
     pending.apply()
@@ -391,6 +393,14 @@ def delete_group(
     db.commit()
     pending.apply()
     return {"message": f"Group {group_id} and all its images deleted"}
+
+
+def _reassign_images(images: list[Image], target: ImageGroup) -> None:
+    """Put images in ``target``. They take its author, which is part of their search text."""
+    for image in images:
+        image.group_id = target.id
+        image.author = target.author
+        image.search_text = search_text_for(image)
 
 
 @router.post("/{group_id}/move-images", response_model=MoveImagesResponse)
@@ -441,10 +451,25 @@ def move_images(
         db.flush()  # get target.id
         target.primary_image_id = payload.image_ids[0]
 
-    group_service.reassign_images(images, target)
+    _reassign_images(images, target)
     images_moved = len(images)
-    group_service.repair_cover(db, source)
-    source_deleted = group_service.delete_if_empty(db, source)
+
+    # Fix primary_image_id on source if it was moved
+    if source.primary_image_id and source.primary_image_id in {img.id for img in images}:
+        remaining = (
+            db.query(Image)
+            .filter(Image.group_id == group_id, Image.id.notin_(payload.image_ids))
+            .first()
+        )
+        source.primary_image_id = remaining.id if remaining else None
+
+    db.flush()
+
+    # Auto-delete source if now empty
+    remaining_count = db.query(func.count(Image.id)).filter(Image.group_id == group_id).scalar()
+    source_deleted = remaining_count == 0
+    if source_deleted:
+        db.delete(source)
 
     db.commit()
 
@@ -481,7 +506,20 @@ def merge_group(
     if not target:
         raise HTTPException(status_code=404, detail="Target group not found")
 
-    images_moved = group_service.merge_groups(db, target, [source])
+    # Move all images from source to target
+    images = (
+        db.query(Image).options(selectinload(Image.tags)).filter(Image.group_id == group_id).all()
+    )
+    _reassign_images(images, target)
+    images_moved = len(images)
+
+    # Flush so SQLAlchemy's identity map knows the images belong to target,
+    # otherwise db.delete(source) will null out their group_id
+    # via the back_populates relationship bookkeeping.
+    db.flush()
+
+    # Delete the now-empty source group
+    db.delete(source)
     db.commit()
 
     return GroupMergeResponse(

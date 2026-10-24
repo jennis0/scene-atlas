@@ -137,7 +137,7 @@ def incoming_files() -> list[Path]:
 
 
 def test_auto_sorts_each_image(auto):
-    # Variants of one map (the seal groups them by name): a map, a vista, a token, an asset,
+    # Variants of one map (one folder, one name): a map, a vista, a token, an asset,
     # something else and an image the head can't place
     job_id = import_files(
         auto,
@@ -226,7 +226,7 @@ def test_a_head_for_other_embeddings_is_not_used(auto, monkeypatch, caplog):
 
 
 def test_scene_takes_the_scene_parse(auto):
-    """Auto items are grouped as battlemaps at seal; a scene drops the file name's grid."""
+    """Auto items are parsed as battlemaps at seal; a scene drops the file name's grid."""
     job_id = import_files(
         auto,
         {

@@ -49,7 +49,6 @@ def upgrade():
         sa.Column("version", sa.SmallInteger(), nullable=False),
         sa.Column("phash256", sa.LargeBinary(32), nullable=True),
         sa.Column("edge", sa.LargeBinary(2048), nullable=True),
-        sa.Column("computed_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["image_id"], ["images.id"]),
         sa.PrimaryKeyConstraint("image_id"),
     )

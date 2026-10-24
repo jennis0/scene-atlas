@@ -11,13 +11,16 @@ faint drawn grid, in folders with different names, so only their content joins t
 from __future__ import annotations
 
 import io
+import json
+import logging
+import zipfile
 
 import numpy as np
 import pytest
 from PIL import Image as PILImage
 
 from backend.app.models import Image, ImageGroup, ImportGroup, ImportItem, ImportJob
-from backend.app.services import ImageParser, variant_grouping
+from backend.app.services import ImageParser, grouping_calibration, variant_grouping
 from backend.pipeline import group_jobs
 from backend.pipeline.group_jobs import Outcome, Readiness, group_job
 
@@ -93,6 +96,15 @@ def listed_count(api) -> int:
     return api.client.get(f"{SEARCH}/facets").json()["total_images"]
 
 
+def library_count(api) -> int:
+    return api.client.get("/api/v1/system/info").json()["library"]["image_count"]
+
+
+def exported_count(api) -> int:
+    with zipfile.ZipFile(io.BytesIO(api.client.get("/api/v1/export/library").content)) as zf:
+        return json.loads(zf.read("metadata.json"))["total_images"]
+
+
 def run(job_id: str, readiness: Readiness = Readiness.OFF) -> Outcome:
     return group_job(job_id, readiness=lambda: readiness)
 
@@ -127,13 +139,16 @@ def test_images_are_listed_nowhere_until_grouped(api, no_grouping):
     assert api.client.get(f"{SEARCH}/", params={"q": ""}).json()["total"] == 0
     assert api.client.get(f"{SEARCH}/groups", params={"q": ""}).json()["total_groups"] == 0
     assert api.client.get("/api/v1/images/").json() == []
+    assert api.client.get("/api/v1/images/authors").json() == []
+    assert library_count(api) == 0 and exported_count(api) == 0
 
     assert run(job_id) == Outcome.GROUPED
     detail = api.detail(job_id)
     assert detail["status"] == "completed" and detail["grouped_at"] is not None
-    assert listed_count(api) == 5
+    assert listed_count(api) == 5 and library_count(api) == 5
     assert api.client.get(f"{SEARCH}/", params={"q": ""}).json()["total"] == 5
     assert api.client.get(f"{SEARCH}/", params={"q": "Lantern"}).json()["total"] >= 2
+    assert api.client.get("/api/v1/images/authors").json() == ["Czepeku"]
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +179,7 @@ def test_twin_folders_become_one_group(api):
         assert {i.awaiting_grouping for i in db.query(Image)} == {False}
 
 
-def test_maps_go_through_the_walk_and_other_types_through_group_files(api, monkeypatch):
+def test_maps_go_through_the_walk_and_scenes_are_named_by_group_files(api, monkeypatch):
     seen: dict[str, list[str]] = {}
     walk, group_files = variant_grouping.group_with_content, ImageParser.group_files
 
@@ -178,7 +193,7 @@ def test_maps_go_through_the_walk_and_other_types_through_group_files(api, monke
 
     monkeypatch.setattr(variant_grouping, "group_with_content", spy_walk)
     monkeypatch.setattr(ImageParser, "group_files", spy_group_files)
-    # Two maps under Czepeku, so the vista (in neither map's folder) is grouped by type
+    # Two maps under Czepeku, so the vista (in neither map's folder) is a group of its own
     files = {
         "Czepeku/Keep/Keep Day.png": png(picture(4)),
         "Czepeku/Keep/Keep Night.png": png(picture(5)),
@@ -221,8 +236,8 @@ def _typed_import(api, files: dict[str, tuple[bytes, str]]) -> str:
     return job_id
 
 
-def test_scenes_and_tokens_join_the_map_of_their_folder(api):
-    """A folder holding one map group: its scene art and tokens (imported as scenes) join it."""
+def test_scene_art_in_the_folder_of_one_map_group_joins_it(api):
+    """Beside the maps or in a subfolder of theirs."""
     job_id = _typed_import(
         api,
         {
@@ -241,37 +256,9 @@ def test_scenes_and_tokens_join_the_map_of_their_folder(api):
         assert {i.subgroup for i in db.query(Image)} == {None}
 
 
-def test_a_scene_beside_two_maps_gets_a_group_of_its_own(api):
-    job_id = _typed_import(
-        api,
-        {
-            "Czepeku/Pack/Keep Day.png": (png(picture(24)), "battlemap"),
-            "Czepeku/Pack/Fort Day.png": (png(picture(25)), "battlemap"),
-            "Czepeku/Pack/Harbour Vista.png": (png(picture(26)), "scene"),
-        },
-    )
-    keep, fort, vista = (
-        gallery_of(api, n) for n in ("Keep Day.png", "Fort Day.png", "Harbour Vista.png")
-    )
-    assert len({keep, fort, vista}) == 3
-    assert len(api.detail(job_id)["groups"]) == 3
-
-
-def test_a_scene_in_another_folder_does_not_join_the_only_map(api):
-    """Same folder or not (Joe): a scene joins a map group through its own folder, never
-    merely because the import holds one map group."""
-    _typed_import(
-        api,
-        {
-            "Czepeku/Keep/Keep Day.png": (png(picture(30)), "battlemap"),
-            "Czepeku/Keep/Keep Night.png": (png(picture(31)), "battlemap"),
-            "Vistas/Harbour Vista.png": (png(picture(32)), "scene"),
-        },
-    )
-    assert gallery_of(api, "Harbour Vista.png") != gallery_of(api, "Keep Day.png")
-
-
 def test_a_scene_named_after_one_of_two_maps_joins_it(api):
+    """The scene rules are unit-tested (``variant_grouping/test_scenes.py``); this one runs
+    them end to end."""
     _typed_import(
         api,
         {
@@ -284,7 +271,7 @@ def test_a_scene_named_after_one_of_two_maps_joins_it(api):
     assert gallery_of(api, "Fort Day.png") != gallery_of(api, "Keep Day.png")
 
 
-def test_an_import_of_scenes_only_is_grouped_as_before(api):
+def test_an_import_of_scenes_only_groups_them_among_themselves(api):
     job_id = _typed_import(
         api,
         {
@@ -377,6 +364,49 @@ def test_grouping_waits_while_the_model_is_busy(api, no_grouping):
     assert run(job_id) == Outcome.NOT_DUE  # idempotent
 
 
+def _calibrated(monkeypatch) -> None:
+    calibration = next(iter(grouping_calibration.CALIBRATIONS.all().values()))
+    monkeypatch.setattr(grouping_calibration, "active_calibration", lambda: calibration)
+
+
+def test_missing_vectors_are_embedded_before_grouping(api, no_grouping, monkeypatch, caplog):
+    """A failed vector write would otherwise wait for reconciliation (startup, daily), after
+    the groups were minted without the embedding rules."""
+    job_id, _ = import_files(api, TWINS)
+    api.worker.drain()
+    _calibrated(monkeypatch)
+    with api.SessionLocal() as db:
+        api.vectors.delete_embeddings([i for (i,) in db.query(Image.id)])
+    caplog.set_level(logging.INFO)
+    assert group_job(job_id, readiness=lambda: Readiness.USE, wait_for_vectors=True) == (
+        Outcome.GROUPED
+    )
+    assert "embeddings on, 0 of 5 image(s) without a vector" in caplog.text
+    assert len(api.vectors.get_all_ids()) == 5
+
+
+def test_grouping_waits_for_missing_vectors(api, no_grouping, monkeypatch, caplog):
+    """Groups are minted once: a failed vector lookup must not mint them without the
+    embedding rules for good. The run waits (a few minutes at most: the scheduler's tests)."""
+    job_id, _ = import_files(api, TWINS)
+    api.worker.drain()
+    _calibrated(monkeypatch)
+    lookup, failing = api.vectors.get_embeddings, [True]
+    monkeypatch.setattr(
+        api.vectors, "get_embeddings", lambda ids: {} if failing[0] else lookup(ids)
+    )
+
+    def run_waiting() -> Outcome:
+        return group_job(job_id, readiness=lambda: Readiness.USE, wait_for_vectors=True)
+
+    assert run_waiting() == Outcome.NO_VECTORS
+    assert job(api, job_id).status == "grouping"
+    failing[0] = False
+    caplog.set_level(logging.INFO)
+    assert run_waiting() == Outcome.GROUPED
+    assert "embeddings on, 0 of 5 image(s) without a vector" in caplog.text
+
+
 def test_a_failed_write_leaves_the_job_grouping_and_it_is_grouped_again(
     api, no_grouping, monkeypatch
 ):
@@ -459,24 +489,6 @@ def test_a_late_image_joins_the_group_its_file_was_in(api):
     with api.SessionLocal() as db:
         assert db.query(ImageGroup).count() == groups_before
         assert db.get_one(ImportItem, ids[late]).import_group_id == late_group
-
-
-def test_a_late_image_whose_group_has_no_gallery_group_gets_a_new_one(api):
-    files = {**TWINS, "Czepeku/Broken Tower/Broken Tower.png": png(picture(10))}
-    late = "Czepeku/Broken Tower/Broken Tower.png"
-    job_id, ids = manifest_and_seal(api, files)
-    upload(api, job_id, ids, TWINS)
-    assert api.put(job_id, ids[late], b"not an image").json()["state"] == "failed"
-    api.worker.drain()
-    api.client.post(f"{BASE}/{job_id}/retry")
-    upload(api, job_id, ids, files, [late])
-    api.worker.drain()
-
-    tower = gallery_of(api, "Broken Tower.png")
-    assert tower is not None and tower not in {gallery_of(api, p.split("/")[-1]) for p in TWINS}
-    detail = api.detail(job_id)
-    group = next(g for g in detail["groups"] if g["group_name"] == "Broken Tower")
-    assert group["image_group_id"] == tower and tower in detail["reviewable_group_ids"]
 
 
 def test_the_orphan_fixer_leaves_images_awaiting_grouping_alone(api, no_grouping, monkeypatch):

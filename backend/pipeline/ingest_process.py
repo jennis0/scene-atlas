@@ -2,7 +2,7 @@
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
     transaction) → vectors (LanceDB, after commit) → staging cleanup → the grouping
-    phase of the jobs it finished (``group_jobs``)
+    phase of the jobs due (``group_jobs``)
 
 A committed image has no group yet: it is ``awaiting_grouping`` and listed nowhere until its
 import has finished and its grouping phase has grouped it (ADR-028).
@@ -43,7 +43,7 @@ from sqlalchemy import delete
 
 from backend.app.config import settings
 from backend.app.file_hash import file_sha256
-from backend.app.models import Color, Image, ImageGroup, ImportItem, Tag
+from backend.app.models import Color, Image, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
 from backend.app.services import (
     get_image_store,
@@ -867,8 +867,6 @@ def _sort(decoded: list[DecodedItem]) -> tuple[list[DecodedItem], int, list[Item
 class CommittedImage:
     prepared: PreparedItem
     image_id: int
-    group_name: str | None
-    author: str | None
 
 
 @dataclass
@@ -1021,7 +1019,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 row.staging_key = None
 
                 _index(p, image.id, (by_bytes, by_pixels))
-                result.done.append(CommittedImage(p, image.id, None, None))
+                result.done.append(CommittedImage(p, image.id))
 
             # New and refreshed images alike: a refresh replaces the image's features
             store_grouping_features(
@@ -1109,10 +1107,7 @@ def _commit_refresh(
 
     finish_committed(row, image.id, d.source_hash)
     _index(p, image.id, matches)
-    group = db.get(ImageGroup, image.group_id) if image.group_id is not None else None
-    result.done.append(
-        CommittedImage(p, image.id, group.base_name if group else None, image.author)
-    )
+    result.done.append(CommittedImage(p, image.id))
     result.refreshed.append(image.id)
 
 
@@ -1153,11 +1148,7 @@ def write_vectors(done: list[CommittedImage], refreshed: Iterable[int] = ()) -> 
         {
             "image_id": c.image_id,
             "embedding": c.prepared.decoded.embedding,
-            "metadata": {
-                "filename": c.prepared.item.filename,
-                "author": c.author or "",
-                "base_name": c.group_name or "",
-            },
+            "metadata": {"filename": c.prepared.item.filename},
         }
         for c in done
         if c.prepared.decoded.embedding is not None
@@ -1283,8 +1274,8 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
     outcome.duplicates += len(split.early)
 
     # A job this batch finished (nothing left open) enters its grouping phase now that its
-    # vectors are written (ADR-028); the worker's idle sweep catches any missed here
-    schedule_grouping({item.job_id for item in items})
+    # vectors are written (ADR-028), as does any other due job: one cheap query
+    schedule_grouping()
 
     logger.info(
         "Ingest batch: %d done, %d duplicate, %d sorted out, %d failed",

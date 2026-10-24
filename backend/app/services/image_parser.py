@@ -13,6 +13,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
+from functools import lru_cache
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,13 @@ _FOLDER_GROUP_SHARE = 0.7
 def _name_key(text: str) -> str:
     """Letters and digits only, case-folded: "Golden Forest" and "GoldenForest" match."""
     return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
+@lru_cache(maxsize=4)
+def _author_keys(authors: tuple[str, ...]) -> frozenset[str]:
+    """The name keys of the library's creators. Cached: the grouping phase names each scene
+    group with its own ``group_files`` call, against the same (possibly thousands of) authors."""
+    return frozenset(_name_key(a) for a in authors if a)
 
 
 def parse_tag_vocab_entries(values: list) -> dict[str, str]:
@@ -884,7 +892,9 @@ class ImageParser:
         rights = [right] + ([right[:2]] if len(right) == 3 else [])
         return [[int(w), int(h)] for w in lefts for h in rights if (w, h) != (left, right)]
 
-    def _folder_names_group(self, folder: str, stems: list[str], known_authors: set[str]) -> bool:
+    def _folder_names_group(
+        self, folder: str, stems: list[str], known_authors: frozenset[str]
+    ) -> bool:
         """Whether a folder holding files directly names their map rather than their creator.
 
         It does when most of its files carry the folder's name
@@ -1080,7 +1090,7 @@ class ImageParser:
             parts = Path(pf["relative_path"]).parts
             if len(parts) == 2:
                 by_top_folder.setdefault(parts[0], []).append(pf)
-        known = {_name_key(a) for a in known_authors if a}
+        known = _author_keys(tuple(known_authors))
         for folder, files in by_top_folder.items():
             stems = [Path(pf["relative_path"]).stem for pf in files]
             if self._folder_names_group(folder, stems, known):

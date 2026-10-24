@@ -1,6 +1,6 @@
 """Display names, authors and sub-group labels for walk groups, via ``ImageParser``.
 
-A group is named, in order of preference (design §8):
+A group is named, in order of preference (design/variant-grouping-algorithm.md §8):
 
 1. after the **effective folder it occupies** (its members' deepest common folder) when that
    folder is named after its files, or is a meaningful folder holding exactly this group (below
@@ -13,21 +13,21 @@ A group is named, in order of preference (design §8):
 The author is the majority of the members' authors: a folder named after a known author, else a
 folder named by a stripped house prefix, else a ``by<Author>`` marker, else the top folder (see
 ``GroupNamer._file_author``). Every choice breaks ties by sorted order, so names are
-deterministic. ``_ParserView`` is the only place that calls ``ImageParser``.
+deterministic. Names are cleaned, and ``by<Author>`` markers read, by ``ImageParser``.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from . import names as N
 from . import vocab as V
 from .names import Folder, Token
+from .schema import SubLabel, WalkFiles, WalkResult
 from .vocab import PART_WORDS
-from .walk import SubLabel, WalkFiles, WalkResult
 
 if TYPE_CHECKING:
     from backend.app.services.image_parser import ImageParser
@@ -39,21 +39,6 @@ def _most_common(values: Iterable[str]) -> str | None:
     if not counts:
         return None
     return min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
-
-
-class _ParserView:
-    """The ``ImageParser`` calls naming needs: name cleaning and ``by<Author>`` markers."""
-
-    def __init__(self, parser: ImageParser):
-        self._parser = parser
-
-    def clean_name(self, raw: str, author: str | None = None) -> str:
-        """A folder or name fragment cleaned exactly as today's group names are."""
-        return self._parser.clean_group_name(raw, author)
-
-    def by_author(self, file_name: str) -> str | None:
-        """The creator a ``by<Author>`` marker in the file name names, if any."""
-        return self._parser.author_from_stem(N.file_stem(file_name))
 
 
 def _is_rendition_folder_name(name: str) -> bool:
@@ -93,16 +78,6 @@ def _identity_span(tokens: Sequence[Token], identity: N.Seq) -> tuple[int, int] 
     return best
 
 
-def _common_prefix(seqs: Sequence[N.Seq]) -> N.Seq:
-    prefix = seqs[0]
-    for seq in seqs[1:]:
-        k = 0
-        while k < min(len(prefix), len(seq)) and prefix[k] == seq[k]:
-            k += 1
-        prefix = prefix[:k]
-    return prefix
-
-
 def _without_by_author(identity: N.Seq, author: str | None) -> N.Seq:
     """Drop a ``by <Author>`` marker: "Arena_byUpsetti" names the map "Arena"."""
     if not author:
@@ -128,11 +103,6 @@ def _level_label(tag: str) -> str:
     return f"{word.capitalize()} {number}" if number else word.capitalize()
 
 
-def _name_key(text: str) -> str:
-    """Letters and digits only, case-folded: "Moonlight Maps" matches "moonlightmaps"."""
-    return "".join(ch for ch in text.casefold() if ch.isalnum())
-
-
 @dataclass(frozen=True)
 class GroupName:
     """A group's display name and author.
@@ -156,51 +126,48 @@ class GroupNamer:
         result: WalkResult,
         files: WalkFiles,
         paths: Sequence[str],
-        known_authors: Collection[str] = (),
+        known_authors: Mapping[str, str],
     ):
-        self._parser = _ParserView(parser)
+        """``known_authors``: creators already in the library, by ``names.name_key``."""
+        self._parser = parser
         self._result = result
         self._files = files
         self._paths = paths
-        self._known: dict[str, str] = {}
-        for author in sorted(known_authors):
-            for key in (_name_key(author), _name_key(parser.clean_group_name(author))):
-                if key:
-                    self._known.setdefault(key, author)
+        self._known = known_authors
+
+    def _clean(self, raw: str, author: str | None = None) -> str:
+        """A folder or name fragment cleaned exactly as the parser cleans group names."""
+        return self._parser.clean_group_name(raw, author)
 
     def _known_author(self, folder_name: str) -> str | None:
         """The known author a folder is named after, if any."""
-        return self._known.get(_name_key(folder_name)) or self._known.get(
-            _name_key(self._parser.clean_name(folder_name))
+        return self._known.get(N.name_key(folder_name)) or self._known.get(
+            N.name_key(self._clean(folder_name))
         )
 
     def _naming_folder(self, members: Sequence[int]) -> Folder | None:
         """Rule 1: the effective folder that names the group, if any.
 
         The folder the members share names the group when it is named after its files, when
-        it is a variant-only folder (a6) holding exactly this group, or when it is a meaningful folder holding exactly this group *and* is either below the top
-        level or the parent whose child folders the group joined. A top-level folder holding a
-        single map is usually its creator's (``2mtt/Grand Inn - Floor 1.png``), so there the
-        file names (rule 2) name the group.
+        it is a variant-only folder (a6) holding exactly this group, or when it is a meaningful
+        folder holding exactly this group *and* is either below the top level or the parent whose
+        child folders the group joined. A top-level folder holding a single map is usually its
+        creator's (``2mtt/Grand Inn - Floor 1.png``), so there the file names (rule 2) name the
+        group.
         """
         eff = self._result.effective
-        folder = eff[members[0]]
-        for i in members[1:]:
-            k = 0
-            while k < min(len(folder), len(eff[i])) and folder[k] == eff[i][k]:
-                k += 1
-            folder = folder[:k]
-        decision = self._result.decisions.get(folder)
-        if not folder or decision is None:
+        folder = N.common_prefix(eff[i] for i in members)
+        verdict = self._result.folders.get(folder)
+        if not folder or verdict is None:
             return None
         raw = self._result.tree.raw_names.get(folder, set())
         if any(self._known_author(name) for name in raw):
             return None  # a creator's folder, never a map's name
-        if decision.named_after_files:
+        if verdict.named_after_files:
             return folder
-        if decision.variant_only and decision.subtree_files == len(members):
+        if verdict.variant_only and verdict.files == len(members):
             return folder  # a6: the folder is the map and its files have no names
-        holds_only_this = not decision.container and decision.subtree_files == len(members)
+        holds_only_this = not verdict.container and verdict.files == len(members)
         if holds_only_this and (len(folder) >= 2 or self._joined_children(members, folder)):
             return folder
         return None
@@ -215,7 +182,7 @@ class GroupNamer:
 
     def _folder_display(self, folder: Folder, author: str | None) -> str:
         raw = sorted(self._result.tree.raw_names.get(folder, ())) or [folder[-1]]
-        return _most_common(self._parser.clean_name(r, author) for r in raw) or folder[-1]
+        return _most_common(self._clean(r, author) for r in raw) or folder[-1]
 
     def _author(self, members: Sequence[int], folder: Folder | None, name: str) -> str | None:
         """Majority of the members' authors (ties: a named author, then the smallest)."""
@@ -253,7 +220,7 @@ class GroupNamer:
             if tokens and tokens <= stripped:
                 return folder_name
         _, file_name = N.split_path(self._paths[i])
-        by_author = self._parser.by_author(file_name)
+        by_author = self._parser.author_from_stem(N.file_stem(file_name))
         if by_author is not None:
             return by_author
         top = 0
@@ -262,7 +229,7 @@ class GroupNamer:
         if top == len(raw):
             return None
         names_group = (folder is not None and tree.effective_of[raw[: top + 1]] == folder) or (
-            _name_key(self._parser.clean_name(raw[top])) == _name_key(name)
+            N.name_key(self._clean(raw[top])) == N.name_key(name)
         )
         return None if names_group else raw[top]
 
@@ -272,7 +239,7 @@ class GroupNamer:
         named = [i for i in members if full[i] is not None]
         if not named:
             return None
-        prefix = _common_prefix([full[i] or () for i in named])
+        prefix = N.common_prefix(full[i] or () for i in named)
         prefix = _without_trailing_parts(_without_by_author(prefix, author))
         if not prefix:
             return None
@@ -284,7 +251,7 @@ class GroupNamer:
                 fragments[stem[span[0] : span[1]]] += 1
         cleaned: Counter[str] = Counter()
         for fragment, count in fragments.items():  # members mostly share one spelling
-            name = self._parser.clean_name(fragment, author)
+            name = self._clean(fragment, author)
             if name:
                 cleaned[name] += count
         return _most_common(cleaned.elements())
@@ -300,7 +267,7 @@ class GroupNamer:
             return name, True
         # No identity (a numbering): the first file's own cleaned stem keeps groups apart.
         stem = self._files.stems[members[0]]
-        return self._parser.clean_name(stem, author) or stem, False
+        return self._clean(stem, author) or stem, False
 
     def name(self, members: Sequence[int]) -> GroupName:
         """Display name and author of a group given its members (walk indices, path order).

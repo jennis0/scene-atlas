@@ -23,6 +23,7 @@ MAX_BUCKET = 256
 _BLOCK_ROWS = 1024
 # Candidate pairs verified per chunk of the popcount.
 _VERIFY_CHUNK = 1 << 18
+# Bits set per byte value.
 _POPCOUNT = np.array([bin(b).count("1") for b in range(256)], dtype=np.uint16)
 
 
@@ -35,8 +36,8 @@ def sorted_unique(values: np.ndarray) -> np.ndarray:
     return values[np.r_[True, values[1:] != values[:-1]]]
 
 
-def _hamming(hashes: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Hamming distances between packed hashes ``hashes[a]`` and ``hashes[b]``."""
+def hamming(hashes: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Hamming distances between packed hashes ``hashes[a]`` and ``hashes[b]``, chunked."""
     out = np.empty(len(a), dtype=np.uint16)
     for s in range(0, len(a), _VERIFY_CHUNK):
         x = np.bitwise_xor(hashes[a[s : s + _VERIFY_CHUNK]], hashes[b[s : s + _VERIFY_CHUNK]])
@@ -106,7 +107,7 @@ def radius_pairs(hashes: np.ndarray, max_bits: int) -> np.ndarray:
     found = []
     for chunk_keys in keys:  # verify before deduplicating: most candidates are chance hits
         lo, hi = chunk_keys // m, chunk_keys % m
-        found.append(chunk_keys[_hamming(hashes, lo, hi) <= max_bits])
+        found.append(chunk_keys[hamming(hashes, lo, hi) <= max_bits])
     members = np.flatnonzero(oversized)
     if len(members) >= 2:
         local = brute_force_pairs(hashes[members], max_bits)

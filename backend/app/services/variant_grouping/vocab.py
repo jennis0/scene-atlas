@@ -1,10 +1,8 @@
-"""Word lists for variant grouping (design/variant-grouping.md §2, "Names").
+"""Word lists for variant grouping (design/variant-grouping-algorithm.md §4–5).
 
-Every list is ported verbatim from the research method (scene-atlas-learning
-``grouping/e2/names.py`` and ``grouping/e5/names.py``); E5's benchmark numbers were measured with
-exactly these words. Tokens are lower-case, as produced by ``names.tokenize``. Changing a list
-changes which folders are transparent and which name tokens carry identity, so re-run the
-research parity bench after editing one.
+Tokens are lower-case, as produced by ``names.tokenize``. The lists are benchmark-sensitive:
+changing one changes which folders are transparent and which name tokens carry identity, so
+re-run scene-atlas-learning's parity bench after editing one.
 """
 
 from __future__ import annotations
@@ -19,13 +17,12 @@ def _words(text: str) -> frozenset[str]:
 # identity, but a token in their place keeps word positions intact.
 DIMS = "<nxm>"
 
-# Words that never carry identity on their own (articles and the like). E2's list.
+# Words that never carry identity on their own (articles and the like).
 STOPWORDS = _words("the a an of and in on at to s")
 
 # Variant-axis words (time of day, weather, season, lighting, state, grid and format): a name made
-# only of these describes a variant of a map, not a map. E2's seed list, written independently of
-# the benchmark generator's vocabulary.
-_SEED_AXIS = _words(
+# only of these describes a variant of a map, not a map.
+AXIS = _words(
     """
 grid grids gridded gridless griless nogrid ungridded unggrided gl gd hex hexgrid square squares
 dpi ppi px hd uhd hq lq hi res resolution fullres fr vtt roll20 r20 foundry fvtt fgu print printable
@@ -33,15 +30,10 @@ online digital preview thumb thumbnail version ver alt alts alternate alternativ
 day daytime daylight night nighttime dawn dusk sunset sunrise evening morning noon midday twilight
 winter summer autumn fall spring snow snowy snowing rain rainy raining fog foggy mist misty storm
 stormy blizzard cloudy overcast
-light lit unlit dark darker dim bright lights lighting
+light lit unlit dark darker dim bright lights lighting shadow shadows
 clean dirty ruined destroyed burning burnt fire blood bloody empty furnished props prop propless
 noprops isolated outline outlines line lines lineart bw original plain basic
 """
-)
-
-# E5 adds lighting and outline words that recur as folder names (``Outlines/``, ``Shadow/``).
-AXIS = _SEED_AXIS | _words(
-    "outline outlines lit unlit night day bright dim dark light lights shadow shadows"
 )
 
 # Rendition words: grid, format, resolution, platform and size. A folder named only with these
@@ -63,13 +55,12 @@ PHRASE_HEADS = frozenset({"no", "with", "without", "non"})
 GRID_WORDS = frozenset({"grid", "grids", "gridded", "lines"})
 
 # Library words that carry no identity: "ElectrifiedBattleMaps_" must not key three maps together
-# as "electrified battle" (E5 audit fix 7). "battle maps" as a pair is handled in names.py.
+# as "electrified battle". "battle maps" as a pair is handled in names.py.
 NOID = frozenset({"battlemaps", "battlemap"})
 
 # Folder names that never name a map: generic library, download and packaging words. A folder
 # whose identity is only these (``Maps``, ``Pack 03``, ``New folder (2)``) is a container.
-# Deviation from E5: "library" and "archive" (and plurals) were dropped from E5's list because
-# they name rooms ("Library", "Old Library", "Archives").
+# "library" and "archive" are not generic: they name rooms ("Library", "Old Library", "Archives").
 GENERIC = _words(
     """
 maps map battlemaps battlemap battle battles downloads download downloaded old new folder misc
@@ -80,8 +71,8 @@ reward month monthly content set sets part volume vol all my mine
 )
 
 # Camera, scan and screenshot counters (``IMG_0012``, ``DSC01234``, ``Screenshot 3``): a file
-# named only by one of these and numbers has no identity, so such files never join by name
-# (deviation from E5, which only caught families of >= 6). Real one-word names keep theirs.
+# named only by one of these and numbers has no identity, so such files never join by name,
+# however few (``generic_keys`` only catches families of >= 6). Real one-word names keep theirs.
 COUNTER_WORDS = _words("img dsc dscn dcim pxl photo screenshot scan untitled image")
 
 # Series words whose number is part of a map's identity: ``Vol4`` and ``Vol6`` are different maps,
@@ -104,12 +95,12 @@ LEVEL_WORDS = _words(
 # Words that name a part of a map rather than a map. A file whose identity is only these
 # (``1st_Floor.png``, ``Isolated Floors/…``) carries no name of its own (rule b5).
 PART_WORDS = LEVEL_WORDS | _words(
-    "floor floors level levels part parts room rooms isolated piece pieces section tile tiles"
+    "floor floors level levels part parts room rooms piece pieces section tile tiles"
 )
 
 # Level designators trailing a file's identity ("Inn_Basement", "Inn_Floor2", "Heather House
 # Upper Level"): they say which floor of a map a file is, not which map, so they are cut from the
-# identity (a deviation from E5, which kept them and needed 2-token keys to join floors).
+# identity and floors of one map join by name.
 # A trailing run is cut only if it holds a level noun, so "Hill Top" keeps "top". "interior" /
 # "exterior" are kept: Czepeku publishes interiors as separate maps.
 LEVEL_NOUNS = _words(
@@ -118,27 +109,22 @@ LEVEL_NOUNS = _words(
 )
 LEVEL_QUALIFIERS = _words("ground upper lower top bottom middle first second third fourth fifth")
 
-# Ordinal words before "floor" / "level" ("second floor" -> floor#2).
+# Ordinal words before "floor" / "level" ("second floor" -> floor#2). "1st" needs no entry: the
+# tokenizer reads it as "1", which ``level_tag`` handles as a number.
 ORDINALS: dict[str, int] = {
     "first": 1,
-    "1st": 1,
     "second": 2,
-    "2nd": 2,
     "third": 3,
-    "3rd": 3,
     "fourth": 4,
-    "4th": 4,
     "fifth": 5,
-    "5th": 5,
 }
 
-# Tokenizer details (E2): ordinal suffixes are dropped after a number ("1st" -> "1"), and a
+# Tokenizer details: ordinal suffixes are dropped after a number ("1st" -> "1"), and a
 # platform name split at its digits is glued back ("Roll20" -> "roll20", "R20" -> "r20").
-# (E2 also listed "4k" / "8k", but its rule only glues a number onto a word, so they never fired.)
 ORDINAL_SUFFIXES = frozenset({"st", "nd", "rd", "th"})
 GLUED_PAIRS = frozenset({("roll", "20"), ("r", "20")})
 
-# ---- Scenes (research E7, ``grouping/e7/PORT.md``)
+# ---- Scenes
 
 # Role words: what a picture is for, not which place it shows. Stripped from scene names like
 # variant words ("TC_Anglers Wharf Night_Exterior Scene", "BellhammerMineScene", "Banner").

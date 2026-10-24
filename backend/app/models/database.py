@@ -389,7 +389,6 @@ class ImageGroupingFeatures(Base):
     phash256: Mapped[bytes | None] = mapped_column(LargeBinary(32), nullable=True)
     # 32×32 z-scored edge map, 1024 little-endian float16
     edge: Mapped[bytes | None] = mapped_column(LargeBinary(2048), nullable=True)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     def __repr__(self):
         return f"<ImageGroupingFeatures(image_id={self.image_id}, version={self.version})>"

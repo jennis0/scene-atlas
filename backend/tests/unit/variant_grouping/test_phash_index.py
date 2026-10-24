@@ -1,9 +1,8 @@
-"""Multi-index pHash search equals brute force exactly; bucketed k-NN keeps in-bucket pairs."""
+"""Multi-index pHash search equals brute force exactly."""
 
 import numpy as np
 import pytest
 
-from backend.app.services.variant_grouping import evidence as E
 from backend.app.services.variant_grouping import phash_index as P
 
 
@@ -72,27 +71,3 @@ def test_small_inputs():
     assert P.radius_pairs(np.zeros((0, 32), np.uint8), 20).shape == (0, 2)
     assert P.radius_pairs(np.zeros((1, 32), np.uint8), 20).shape == (0, 2)
     assert P.radius_pairs(np.zeros((2, 32), np.uint8), 20).tolist() == [[0, 1]]
-
-
-class TestBucketedKnn:
-    def test_in_bucket_top_k_keeps_every_same_bucket_global_neighbour(self):
-        rng = np.random.default_rng(3)
-        n, k = 600, 15
-        rows = rng.normal(size=(n, 32)).astype(np.float32)
-        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
-        has = np.ones(n, dtype=bool)
-        has[::17] = False
-        buckets = rng.integers(0, 7, n)
-        global_pairs = E._knn_pairs(rows, has, k)
-        bucketed = as_set(E._knn_pairs(rows, has, k, buckets))
-        same_bucket = {(int(i), int(j)) for i, j in global_pairs if buckets[i] == buckets[j]}
-        assert same_bucket <= bucketed
-        assert all(buckets[i] == buckets[j] for i, j in bucketed)
-
-    def test_candidate_pairs_keep_global_phash_pairs(self):
-        """Renditions join across top-level folders, so pHash candidates are not bucketed."""
-        h = bytes(32)
-        feats = [E.ContentFeatures(phash256=h), E.ContentFeatures(phash256=h)]
-        fm = E.FeatureMatrix(feats, use_embeddings=False)
-        pairs = E.candidate_pairs(fm, [], 20, 5, 5, buckets=np.array([0, 1]))
-        assert pairs.tolist() == [[0, 1]]

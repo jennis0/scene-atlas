@@ -16,7 +16,6 @@ from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
 
-from .group_jobs import schedule_grouping
 from .ingest_queue import (
     KIND_SORTED_OUT,
     expire_sorted_out,
@@ -144,7 +143,11 @@ def expire_finished_jobs(now=None) -> int:
 
 
 def prune_dismissed_jobs(now=None) -> int:
-    """Delete job/group/item rows of long-dismissed jobs. Images are untouched."""
+    """Delete job/group/item rows of long-dismissed jobs. Images are untouched.
+
+    A sealed job not yet grouped (a cancelled one can be dismissed before its grouping phase
+    has run) is kept: the grouping phase needs its rows to group its images (ADR-028).
+    """
     now = now or utcnow()
     with write_session() as db:
         job_ids = [
@@ -153,6 +156,7 @@ def prune_dismissed_jobs(now=None) -> int:
                 ImportJob.dismissed_at.isnot(None),
                 ImportJob.dismissed_at < now - PRUNE_DISMISSED_AFTER,
                 ImportJob.status.in_(_TERMINAL_JOBS),
+                ImportJob.planned_at.is_(None) | ImportJob.grouped_at.isnot(None),
             )
         ]
         for job_id in job_ids:
@@ -218,8 +222,6 @@ def run_ingest_maintenance() -> dict[str, int]:
         "released": release_staged_bytes,
         "pruned": prune_dismissed_jobs,
         "stray": sweep_stray_staging_files,
-        # Grouping phases lost with a restart or waiting while the model was busy (ADR-028)
-        "grouping": lambda: len(schedule_grouping()),
     }
     result = {}
     for key, step in steps.items():

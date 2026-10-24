@@ -181,9 +181,9 @@ once the import has finished, from paths and content (`group_jobs`, [ingestion.m
   made no image) go through the variant-grouping tree walk, `variant_grouping.group_with_content`
   ([variant-grouping.md](variant-grouping.md)). It decides the groups, their names and authors,
   and each file's subgroup.
-- **Other types** (scenes, and tokens or art imported as scenes) join their folder's map group
-  when the nearest folder above them that holds maps holds one map group only
-  (`group_jobs.attach_to_map_groups`); otherwise they keep `group_files()`, below.
+- **Scenes** (everything else: Auto skips tokens and assets) are attached to a map group or
+  grouped among themselves by `variant_grouping.group_scenes`; each scene group is named by
+  `group_files()`, below.
 
 Both get the library's creators as `known_authors` (`ingest_queue.known_authors`). A group
 whose `(name, author)` already exists in the gallery adds to it ([ingestion.md](ingestion.md#3-data-model)),

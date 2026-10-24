@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Hashable
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,7 +28,6 @@ from backend.app.services.variant_grouping import (
     Grouping,
     GroupingFile,
     GroupingParams,
-    group_by_paths,
     group_with_content,
 )
 
@@ -110,10 +110,11 @@ def parser() -> ImageParser:
     return ImageParser()
 
 
-def run_paths(
-    files: list[GroupingFile[str]], known_authors: tuple[str, ...] | list[str] = ()
-) -> Grouping[str]:
-    return group_by_paths(files, parser(), known_authors=known_authors)
+def run_paths[K: Hashable](
+    files: list[GroupingFile[K]], known_authors: tuple[str, ...] | list[str] = ()
+) -> Grouping[K]:
+    """Group by paths alone: no features, so every content join is withheld."""
+    return group_with_content(files, {}, GroupingParams(), parser(), known_authors)
 
 
 def run_content(

@@ -1,11 +1,9 @@
-"""Scenes in an import's grouping (design/variant-grouping.md §2.2, research E7).
+"""Scenes in an import's grouping (design/variant-grouping-algorithm.md §7b).
 
 Maps are grouped by the walk alone, so adding scenes never changes the map groups. Scenes then:
 
-1. **Attach** to a map group:
-   - ``r7``: a scene that is a certain rendition of maps of one group (pHash within
-     ``rendition_bits``, same aspect) joins it, anywhere in the import: the rendition beats the type
-     label;
+1. **Attach** to a map group, by folder or name only (a scene and a map of one place share no
+   content: their pHashes are as far apart as unrelated pictures'):
    - ``r2``: the nearest folder holding maps holds one map group, and is either the scene's own
      folder with maps directly in it, or not a container and that group's own top folder. So a
      folder of one map and its scenes is one group, but a scene does not join a map elsewhere under
@@ -21,8 +19,7 @@ Maps are grouped by the walk alone, so adding scenes never changes the map group
    scene calibration. Across folders (``r6``) only certain renditions join.
 
 A unit holding one map group never joins a unit holding another. Pure and deterministic: files are
-processed in ``(path, str(key))`` order, as the walk. Ported from scene-atlas-learning
-``grouping/e7/scene_groups.py`` (rule set ``best``).
+processed in ``(path, str(key))`` order, as the walk.
 """
 
 from __future__ import annotations
@@ -36,16 +33,17 @@ import numpy as np
 
 from . import names as N
 from . import vocab as V
-from .evidence import _POPCOUNT, ContentFeatures, FeatureMatrix
+from .evidence import ContentFeatures, FeatureMatrix
+from .params import VARIANT_ONLY_SHARE, GroupingParams
+from .phash_index import radius_pairs
 from .schema import Grouping, GroupingFile
-from .tree import build_tree
-from .walk import VARIANT_ONLY_SHARE, GroupingParams
+from .tree import ancestors, build_tree
+from .walk import UnionFind, join_agreeing
 
 _INTERIOR_EXTERIOR = frozenset({"interior", "exterior"})
 _HEX_ID = re.compile(r"[0-9a-f]{6,}([-_][0-9a-f]{3,})+|[0-9a-f]{16,}")
 _MIXED_ID = re.compile(r"(?=[a-z]*\d)(?=\d*[a-z])[a-z0-9]{5,12}")
-# Row blocks for pairwise comparisons (bounded memory on very large folders)
-_RENDITION_BLOCK = 256
+# Row blocks for the dense agreement search (bounded memory on very large folders)
 _AGREE_BLOCK = 512
 
 
@@ -54,8 +52,8 @@ class SceneAttachment:
     """A scene that joins a map group: the group's index in the map ``Grouping`` and why."""
 
     group: int
-    reason: str  # "r7 rendition of a map", "r2 folder holds one map group", "r3 name key (prefix)",
-    # or the first r5 / r6 join that brought it to a scene group holding an attached scene
+    reason: str  # "r2 folder holds one map group", "r3 name key (prefix)", or the first r5 / r6
+    # join that brought it to a scene group holding an attached scene
 
 
 @dataclass
@@ -64,7 +62,11 @@ class SceneGrouping[K: Hashable]:
 
     attachments: dict[K, SceneAttachment] = field(default_factory=dict)
     groups: list[list[K]] = field(default_factory=list)  # in path order
-    joins: list[tuple[K, K, str]] = field(default_factory=list)  # for DEBUG logs
+    joins: list[tuple[K, K, str]] = field(default_factory=list)  # every join made, in order
+
+    def debug_lines(self) -> list[str]:
+        """One line per join (attachments to map groups included), for DEBUG logging."""
+        return [f"scene: {a!r} + {b!r} ({reason})" for a, b, reason in self.joins]
 
 
 # ---------------------------------------------------------------------------- names
@@ -186,11 +188,7 @@ def _common_strip(keys: list[N.Seq]) -> set[str]:
     named = [k for k in keys if k]
     if len(named) < 3:
         return set()
-    df: dict[str, int] = defaultdict(int)
-    for k in named:
-        for t in set(k):
-            df[t] += 1
-    common = {t for t, c in df.items() if c >= N.COMMON_SHARE * len(named)}
+    common = N.common_tokens(named)
     if not common:
         return set()
     residuals = {tuple(t for t in k if t not in common) for k in named}
@@ -206,78 +204,45 @@ def _attach_folder(raw: N.Folder) -> N.Folder:
     return tuple(c for c in raw if not is_role_folder(c) and not _is_maps_folder(c))
 
 
-def _effective(folders: Sequence[N.Folder]) -> dict[N.Folder, str]:
-    """Each folder's effective folder ("/"-joined, as ``Grouping.decisions`` keys it)."""
+def _effective(folders: Sequence[N.Folder]) -> dict[N.Folder, N.Folder]:
+    """Each folder's effective folder."""
     tree = build_tree(folders)
-    return {f: "/".join(tree.effective_of[f]) for f in folders}
-
-
-def _ancestors(folder: str) -> list[str]:
-    """A "/"-joined folder and its ancestors, nearest first, ending with the root ""."""
-    parts = folder.split("/") if folder else []
-    return ["/".join(parts[:k]) for k in range(len(parts), -1, -1)]
+    return {f: tree.effective_of[f] for f in folders}
 
 
 def _top(folders: list[str]) -> str:
-    """The longest common folder of ``folders``."""
-    parts = [f.split("/") if f else [] for f in folders]
-    k = 0
-    while all(len(q) > k for q in parts) and len({q[k] for q in parts}) == 1:
-        k += 1
-    return "/".join(parts[0][:k])
+    """The longest common folder of "/"-joined ``folders``."""
+    return "/".join(N.common_prefix(f.split("/") if f else () for f in folders))
 
 
 # ---------------------------------------------------------------------------- units
 
 
-class _Units:
+class _Units(UnionFind):
     """Union-find over files; a unit holding a map group never joins one holding another."""
 
     def __init__(self, n: int):
-        self.parent = list(range(n))
-        self.size = [1] * n
+        super().__init__(n)
         self.map_group: list[int | None] = [None] * n
 
-    def find(self, x: int) -> int:
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
     def union(self, a: int, b: int) -> bool:
-        ra, rb = self.find(a), self.find(b)
-        ga, gb = self.map_group[ra], self.map_group[rb]
-        if ra == rb or (ga is not None and gb is not None and ga != gb):
+        ga, gb = self.map_group[self.find(a)], self.map_group[self.find(b)]
+        if ga is not None and gb is not None and ga != gb:
             return False
-        if self.size[ra] < self.size[rb]:
-            ra, rb = rb, ra
-        self.parent[rb] = ra
-        self.size[ra] += self.size[rb]
-        if self.map_group[ra] is None:
-            self.map_group[ra] = self.map_group[rb]
+        if not super().union(a, b):
+            return False
+        self.map_group[self.find(a)] = ga if ga is not None else gb
         return True
 
 
-def _renditions(
-    fm: FeatureMatrix, xs: Sequence[int], ys: Sequence[int], params: GroupingParams
-) -> list[tuple[int, int]]:
-    """Pairs (x, y), x in ``xs`` and y in ``ys``, x != y, that are certain renditions."""
-    a = [i for i in xs if fm.has_phash[i] and fm.has_aspect[i]]
-    b = [i for i in ys if fm.has_phash[i] and fm.has_aspect[i]]
-    if not a or not b:
-        return []
-    hashes, aspects = fm.phash[b], fm.log_aspect[b]
-    out: list[tuple[int, int]] = []
-    for start in range(0, len(a), _RENDITION_BLOCK):
-        block = a[start : start + _RENDITION_BLOCK]
-        bits = _POPCOUNT[np.bitwise_xor(fm.phash[block][:, None, :], hashes[None, :, :])].sum(
-            axis=2
-        )
-        close = np.abs(fm.log_aspect[block][:, None] - aspects[None, :]) < params.rendition_aspect
-        for r, c in zip(*np.nonzero((bits <= params.rendition_bits) & close), strict=True):
-            if block[r] != b[c]:
-                out.append((block[r], b[c]))
-    return out
+def _renditions(fm: FeatureMatrix, params: GroupingParams) -> list[tuple[int, int]]:
+    """Pairs (a < b) of ``fm``'s rows that are certain renditions (pHash within
+    ``rendition_bits``, the same aspect), sorted."""
+    idx = np.flatnonzero(fm.has_phash & fm.has_aspect)
+    local = radius_pairs(fm.phash[idx], params.rendition_bits)
+    a, b = idx[local[:, 0]], idx[local[:, 1]]
+    close = np.abs(fm.log_aspect[a] - fm.log_aspect[b]) < params.rendition_aspect
+    return list(zip(a[close].tolist(), b[close].tolist(), strict=True))
 
 
 # ---------------------------------------------------------------------------- grouping
@@ -293,9 +258,9 @@ def group_scenes[K: Hashable](
     """Attach scenes to the map walk's groups and group the rest (see the module docstring).
 
     ``map_grouping`` is ``group_with_content`` on ``map_files`` (None when there are no maps).
-    ``features`` cover maps and scenes; maps need only pHash and aspect (``r7``). Embedding
-    agreement needs ``params.embedding`` (the encoder's calibration); without it, names, folders
-    and renditions still work.
+    ``features`` are the scenes' (any maps' are ignored). Embedding agreement needs
+    ``params.embedding`` (the encoder's calibration); without it, names, folders and renditions
+    still work.
     """
     out: SceneGrouping[K] = SceneGrouping()
     files = sorted(
@@ -308,18 +273,17 @@ def group_scenes[K: Hashable](
     maps = [i for i in range(n) if files[i][2]]
     scenes = [i for i in range(n) if not files[i][2]]
     groups = [[index[k] for k in g.keys] for g in map_grouping.groups] if map_grouping else []
-    decisions = map_grouping.decisions if map_grouping else {}
+    verdicts = map_grouping.folders if map_grouping else {}
     group_of = {i: g for g, members in enumerate(groups) for i in members}
     if not scenes:
         return out
 
     p = params
-    fm = FeatureMatrix([features.get(k) for k in keys], use_embeddings=p.embedding is not None)
     split = [N.split_path(f[1]) for f in files]
     raw = [folder for folder, _ in split]
     stem = [N.file_stem(name) for _, name in split]
     attach_of = _effective([_attach_folder(f) for f in raw])
-    folder = [attach_of[_attach_folder(f)] for f in raw]
+    folder = ["/".join(attach_of[_attach_folder(f)]) for f in raw]
 
     # The walk's container verdict per attach folder: that of the shallowest raw map folder
     # standing for it (``Pack`` for ``Pack``, not the generic ``Pack/Maps``)
@@ -328,34 +292,26 @@ def group_scenes[K: Hashable](
     )
     attach_eff = _effective([_attach_folder(f) for f in prefixes])
     walk_eff = _effective(prefixes)
-    walk_of: dict[str, str] = {}
+    walk_of: dict[str, N.Folder] = {}
     for f in prefixes:
-        walk_of.setdefault(attach_eff[_attach_folder(f)], walk_eff[f])
+        walk_of.setdefault("/".join(attach_eff[_attach_folder(f)]), walk_eff[f])
 
     def container(a: str) -> bool:
-        decision = decisions.get(walk_of[a]) if a in walk_of else None
-        return True if decision is None else decision.container
+        verdict = verdicts.get(walk_of[a]) if a in walk_of else None
+        return True if verdict is None else verdict.container
 
     attach: dict[int, tuple[int, str]] = {}
-    # r7: a certain rendition of maps of one group
-    rendition_groups: dict[int, set[int]] = defaultdict(set)
-    for s, m in _renditions(fm, scenes, maps, p):
-        rendition_groups[s].add(group_of[m])
-    for s, gs in rendition_groups.items():
-        if len(gs) == 1:
-            attach[s] = (next(iter(gs)), "r7 rendition of a map")
-
     # r2: the nearest folder holding maps holds one group (guarded: own folder, or the group's top)
     under: dict[str, set[int]] = defaultdict(set)
     for i in maps:
-        for a in _ancestors(folder[i]):
+        for a in ancestors(folder[i]):
             under[a].add(group_of[i])
     direct = {folder[i] for i in maps}
     top = {g: _top([folder[i] for i in members]) for g, members in enumerate(groups)}
-    nearest = {s: next((a for a in _ancestors(folder[s]) if a in under), None) for s in scenes}
+    nearest = {s: next((a for a in ancestors(folder[s]) if a in under), None) for s in scenes}
     for s in scenes:
         a = nearest[s]
-        if s in attach or a is None or len(under[a]) != 1:
+        if a is None or len(under[a]) != 1:
             continue
         (g,) = under[a]
         if (a == folder[s] and a in direct) or (not container(a) and a == top[g]):
@@ -371,7 +327,7 @@ def group_scenes[K: Hashable](
             scope[a].append(s)
     for a, scoped in scope.items():
         candidates = sorted(under[a])
-        members = {g: [i for i in groups[g] if a in _ancestors(folder[i])] for g in candidates}
+        members = {g: [i for i in groups[g] if a in ancestors(folder[i])] for g in candidates}
         strip = _common_strip(
             [map_ids[i] for g in candidates for i in members[g]] + [scene_ids[s] for s in scoped]
         )
@@ -382,12 +338,7 @@ def group_scenes[K: Hashable](
             ]
             if not ids:
                 continue
-            prefix = ids[0]
-            for x in ids[1:]:
-                k = 0
-                while k < min(len(prefix), len(x)) and prefix[k] == x[k]:
-                    k += 1
-                prefix = prefix[:k]
+            prefix = N.common_prefix(ids)
             group_keys[g] = {prefix} if prefix else {x[:2] for x in ids if len(x) >= 2}
         for s in scoped:
             key = tuple(t for t in scene_ids[s] if t not in strip)
@@ -420,18 +371,27 @@ def group_scenes[K: Hashable](
         if units.union(a, b):
             out.joins.append((keys[a], keys[b], reason))
 
+    # Content of scenes only, by position in ``scenes``; renditions within and across folders
+    fm = FeatureMatrix(
+        [features.get(keys[s]) for s in scenes], use_embeddings=p.embedding is not None
+    )
+    within: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    across: list[tuple[int, int]] = []
+    for x, y in _renditions(fm, p):
+        a, b = scenes[x], scenes[y]
+        (within[folder[a]] if folder[a] == folder[b] else across).append((a, b))
+
     # r5: within each scene folder, alone unless there is positive evidence
     leaves: dict[str, list[int]] = defaultdict(list)
     for s in scenes:
         leaves[folder[s]].append(s)
+    row = {s: r for r, s in enumerate(scenes)}
     for leaf, scoped in leaves.items():
         if len(scoped) >= 2:
-            _leaf_joins(leaf, scoped, stem, scene_ids, fm, p, units, join)
+            _leaf_joins(leaf, scoped, stem, scene_ids, within[leaf], fm, row, p, units, join)
 
     # r6: across folders, certain renditions only
-    for a, b in _renditions(fm, scenes, scenes, p):
-        if a >= b or folder[a] == folder[b]:
-            continue
+    for a, b in across:
         ra, rb = units.find(a), units.find(b)
         if ra == rb or min(units.size[ra], units.size[rb]) >= p.big_join:
             continue
@@ -458,12 +418,15 @@ def _leaf_joins(
     scoped: list[int],
     stem: list[str],
     scene_ids: Mapping[int, N.Seq],
+    renditions: list[tuple[int, int]],
     fm: FeatureMatrix,
+    row: Mapping[int, int],
     p: GroupingParams,
     units: _Units,
     join: Callable[[int, int, str], None],
 ) -> None:
-    """r5 in one folder's scenes: names, a variant-only place folder, renditions, agreement."""
+    """r5 in one folder's scenes: names, a variant-only place folder, renditions, agreement.
+    ``fm`` holds the scenes' features at rows ``row[s]``."""
     strip = _common_strip([scene_ids[s] for s in scoped])
     key = {s: tuple(t for t in scene_ids[s] if t not in strip) for s in scoped}
     key2 = {s: (key[s][:2] if len(key[s]) >= 2 else None) for s in scoped}
@@ -495,36 +458,38 @@ def _leaf_joins(
                 for s in scoped[1:]:
                     join(scoped[0], s, "r5 variant-only place folder")
 
-    for a, b in _renditions(fm, scoped, scoped, p):
-        if a < b:
-            join(a, b, "r5 rendition")
+    for a, b in renditions:
+        join(a, b, "r5 rendition")
 
     if p.embedding is None:
         return
-    ok = [s for s in scoped if fm.has_edge[s] and fm.has_embedding[s] and fm.has_aspect[s]]
+    ok = [
+        s
+        for s in scoped
+        if fm.has_edge[row[s]] and fm.has_embedding[row[s]] and fm.has_aspect[row[s]]
+    ]
     if len(ok) < 2:
         return
-    emb, edge, aspect = fm.embedding[ok], fm.edge[ok], fm.log_aspect[ok]
-    count: dict[tuple[int, int], int] = defaultdict(int)
-    example: dict[tuple[int, int], tuple[int, int]] = {}
-    for start in range(0, len(ok), _AGREE_BLOCK):
-        cosine = emb[start : start + _AGREE_BLOCK] @ emb.T
-        for r, c in np.argwhere(cosine >= p.embedding.scene_agree):
-            x, y = ok[start + r], ok[c]
-            if x >= y or abs(aspect[start + r] - aspect[c]) >= p.agree_aspect:
-                continue
-            if float(edge[start + r] @ edge[c]) < p.scene_agree_edge:
-                continue
-            if key2[x] and key2[y] and key2[x] != key2[y]:
-                continue
-            rx, ry = units.find(x), units.find(y)
-            if rx == ry:
-                continue
-            pair = (min(rx, ry), max(rx, ry))
-            count[pair] += 1
-            example[pair] = (x, y)
-    for pair, c in sorted(count.items(), key=lambda kv: -kv[1]):
-        x, y = example[pair]
-        smaller = min(units.size[units.find(x)], units.size[units.find(y)])
-        if c >= max(1.0, p.agree_fraction * smaller):
-            join(x, y, "r5 same layout (scene calibration)")
+    rows = [row[s] for s in ok]
+    emb, edge, aspect = fm.embedding[rows], fm.edge[rows], fm.log_aspect[rows]
+    threshold = p.embedding.scene_agree
+
+    def agreeing():
+        for start in range(0, len(ok), _AGREE_BLOCK):
+            cosine = emb[start : start + _AGREE_BLOCK] @ emb.T
+            for r, c in np.argwhere(cosine >= threshold):
+                x, y = ok[start + r], ok[c]
+                if x >= y or abs(aspect[start + r] - aspect[c]) >= p.agree_aspect:
+                    continue
+                if float(edge[start + r] @ edge[c]) < p.scene_agree_edge:
+                    continue
+                if key2[x] and key2[y] and key2[x] != key2[y]:
+                    continue
+                yield x, y
+
+    join_agreeing(
+        units,
+        agreeing(),
+        p.agree_fraction,
+        lambda x, y: join(x, y, "r5 same layout (scene calibration)"),
+    )

@@ -435,9 +435,9 @@ def _queue_files(
 
 
 def seal_scan(job_id: str) -> None:
-    """Seal a scan's job with ``plan_job``'s rules (new files in a known pack join its
-    group): parsing happens outside the write lock, the result is written in one short
-    transaction."""
+    """Seal a scan's job as ``plan_job`` does: parsing happens outside the write lock, the
+    result is written in one short transaction. Its new files are grouped once the job has
+    finished (``group_jobs``)."""
     with _session() as db:
         planned = compute_plan(db, job_id)
     with write_session() as db:

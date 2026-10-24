@@ -1,4 +1,4 @@
-"""Name evidence: tokens, identity names, house prefixes and level tags (design §2, "Names").
+"""Name evidence: tokens, identity names, house prefixes and level tags (design/variant-grouping-algorithm.md §4).
 
 A file's *identity* is the part of its name that says which map it is: its tokens minus variant,
 rendition and size words, numbers and stopwords. Before identities are compared, tokens that
@@ -12,8 +12,6 @@ carry no identity in this input are stripped:
   when only variant words remain (keep, as evidence that the folder is one map).
 
 Families of numbered files with no name (``IMG_0012``, ``NumberedGLMaps_52``) carry no identity.
-Ported from scene-atlas-learning ``grouping/e2/names.py``, ``grouping/e2/authors.py`` and
-``grouping/e5/names.py`` (experiment E5).
 """
 
 from __future__ import annotations
@@ -21,8 +19,8 @@ from __future__ import annotations
 import functools
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Collection, Iterable, Sequence
+from dataclasses import dataclass
 from enum import Enum
 from typing import NamedTuple
 
@@ -36,7 +34,7 @@ _COPY_SUFFIX_RE = re.compile(r"\s*\((\d+)\)$")  # OS copy suffix: "name (2)"
 _BRACKET_RE = re.compile(r"\[[^\]]*\]")  # "[forest,road]" tag lists carry no identity
 _DIMS_RE = re.compile(r"(?<![0-9])(\d{1,3})[ _\-]?[xX×][ _\-]?(\d{1,3})(?![0-9])")
 # One token: an upper-case run (not followed by lower case), a capitalised or lower-case word, or
-# digits. Equivalent to E2's split at case changes, letter/digit boundaries and punctuation.
+# digits: a split at case changes, letter/digit boundaries and punctuation.
 _WORD_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 _NXM_RE = re.compile(r"(?<![0-9])(\d{1,3})\s*[xX×]\s*(\d{1,3})(?![0-9])")
 _DIGITS_RE = re.compile(r"\d+")
@@ -154,7 +152,7 @@ def _split_glued(tokens: list[Token], text: str) -> list[Token]:
 
 
 def tokenize_spans(text: str, split_glued: bool = False) -> list[Token]:
-    """Tokens of a file stem or folder name, with spans (E2 ``tokenize``).
+    """Tokens of a file stem or folder name, with spans.
 
     Bracketed tag lists are ignored, an ``NxM`` size becomes the ``DIMS`` marker, words split at
     case changes and letter/digit boundaries, ordinal suffixes are dropped after a number
@@ -210,6 +208,24 @@ def split_path(path: str) -> tuple[Folder, str]:
     return tuple(parts[:-1]), parts[-1] if parts else ""
 
 
+def name_key(text: str) -> str:
+    """Letters and digits only, case-folded: "Moonlight Maps" matches "moonlightmaps" (as
+    ``ImageParser`` compares creators)."""
+    return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
+def common_prefix(seqs: Iterable[Sequence[str]]) -> tuple[str, ...]:
+    """The longest common prefix of one or more token sequences or folders."""
+    it = iter(seqs)
+    prefix = tuple(next(it))
+    for seq in it:
+        k = 0
+        while k < min(len(prefix), len(seq)) and prefix[k] == seq[k]:
+            k += 1
+        prefix = prefix[:k]
+    return prefix
+
+
 def nxm_of(stem: str) -> tuple[int, int] | None:
     """The ``NxM`` size named in a stem, sorted (12x18 == 18x12), for the production fingerprint."""
     m = _NXM_RE.search(stem)
@@ -232,7 +248,7 @@ def drop_grid_phrases(toks: Sequence[str]) -> list[str]:
 
 
 def _drop_library_words(toks: list[str]) -> list[str]:
-    """Drop "battlemaps" and the pair "battle maps": library words, not identity (audit fix 7)."""
+    """Drop "battlemaps" and the pair "battle maps": library words, not identity."""
     out = []
     for k, t in enumerate(toks):
         if t in V.NOID:
@@ -277,9 +293,9 @@ def strip_level_suffix(seq: Seq) -> Seq:
     """Cut a trailing level designator from a file's identity ("inn basement" -> "inn",
     "heather house upper level" -> "heather house"): it names a floor of the map, not the map.
 
-    Only a trailing run that holds a level noun is cut, so "hill top" stays. Deviation from E5
-    (follow-up 4): floors of a one-word map ("Inn_Basement", "Inn_Roof") now share an identity
-    and join by name, with level sub-groups; 1-token keys still never join as a shared base.
+    Only a trailing run that holds a level noun is cut, so "hill top" stays. Floors of a one-word
+    map ("Inn_Basement", "Inn_Roof") so share an identity and join by name, with level
+    sub-groups; 1-token keys still never join as a shared base.
     """
     end = len(seq)
     has_noun = False
@@ -318,7 +334,7 @@ def level_numbers(toks: Sequence[str]) -> tuple[str, ...]:
 def level_tag(toks: Sequence[str]) -> str | None:
     """The floor, level or part a file name names (``floor#2``, ``roof``), else None.
 
-    Sub-group labels come from these when no joined child folder gives one (design §2).
+    Sub-group labels come from these when no joined child folder gives one.
     """
     numbered = level_numbers(toks)
     if numbered:
@@ -335,7 +351,7 @@ def level_tag(toks: Sequence[str]) -> str | None:
 
 
 class FolderClass(Enum):
-    """How a folder's name relates to the maps below it (design §2, "Effective tree")."""
+    """How a folder's name relates to the maps below it."""
 
     RENDITION = "rendition"  # grid / format / size / platform words, or parent name + such words
     VARIANT = "variant"  # variant-axis words only ("Night", "Gridded Winter")
@@ -381,12 +397,12 @@ def strip_hub(seq: Seq, hubs: set[Seq]) -> Seq:
 
 
 def find_hubs(seqs: Sequence[Seq]) -> set[Seq]:
-    """Multi-token leading runs followed by many different *heavy* continuations (E2).
+    """Multi-token leading runs followed by many different *heavy* continuations.
 
     A house prefix (``moonlight maps …``) precedes dozens of different maps; a map's own name
     precedes a handful of variant words. A continuation is heavy when >= ``HUB_HEAVY_NAMES``
-    distinct names sit below it (a map with variants, not a single rendition). E2 also had a
-    one-token rule, but every E5 caller kept only multi-token hubs, so it is not ported.
+    distinct names sit below it (a map with variants, not a single rendition). One-token
+    prefixes are ``lead_hubs``'.
     """
     below: dict[Seq, dict[str, set[Seq]]] = defaultdict(lambda: defaultdict(set))
     for seq in seqs:
@@ -418,36 +434,38 @@ def lead_hubs(seqs: Sequence[Seq], cover: float, fanout: int) -> set[Seq]:
     return out
 
 
-def _common_tokens(named: Sequence[Seq]) -> set[str]:
+def common_tokens(named: Sequence[Seq]) -> set[str]:
     """Tokens in >= ``COMMON_SHARE`` of ``named`` (folder IDF)."""
     df = Counter(t for s in named for t in set(s))
     return {t for t, c in df.items() if c >= COMMON_SHARE * len(named)}
 
 
-def _multi_token_share(residuals: Sequence[Seq]) -> float:
-    """Share of residual names that are themselves multi-token names (identities, not variants)."""
-    return sum(len(r) >= 2 for r in residuals) / max(1, len(residuals))
+def _without(seqs: Sequence[Seq], tokens: Collection[str]) -> list[Seq]:
+    return [tuple(t for t in s if t not in tokens) for s in seqs]
+
+
+def _is_house_prefix(residuals: Sequence[Seq], min_keys: int, min_key_tokens: int = 1) -> bool:
+    """Whether the tokens just removed from some names are a house prefix: at least
+    ``min_keys`` distinct 2-token keys remain (counting residuals of >= ``min_key_tokens``
+    tokens), and most residuals are multi-token names (identities, not variant words)."""
+    keys = {r[:2] for r in residuals if len(r) >= min_key_tokens}
+    multi = sum(len(r) >= 2 for r in residuals) / max(1, len(residuals))
+    return len(keys) >= min_keys and multi >= MULTI_TOKEN_SHARE
 
 
 def global_strip(seqs: list[Seq], folders: list[Folder]) -> tuple[list[Seq], set[str], set[Seq]]:
     """Strip input-wide house tokens: (new identities, removed tokens, hubs).
 
     Tokens in >= 80% of all named files go only when many multi-token names remain without them:
-    a single imported map (``young adventurers hideout …`` in every file) must keep its name
-    (audit fix 1). House hubs must span >= ``HUB_MIN_FOLDERS`` folders.
+    a single imported map (``young adventurers hideout …`` in every file) must keep its name.
+    House hubs must span >= ``HUB_MIN_FOLDERS`` folders.
     """
     named = [s for s in seqs if s]
     removed: set[str] = set()
     if len(named) >= GLOBAL_MIN_NAMED:
-        cand = _common_tokens(named)
-        if cand:
-            resid = [tuple(t for t in s if t not in cand) for s in named]
-            keys = {r[:2] for r in resid if r}
-            if (
-                len(keys) >= GLOBAL_MIN_RESIDUAL_KEYS
-                and _multi_token_share(resid) >= MULTI_TOKEN_SHARE
-            ):
-                removed = cand
+        cand = common_tokens(named)
+        if cand and _is_house_prefix(_without(named, cand), GLOBAL_MIN_RESIDUAL_KEYS):
+            removed = cand
     seqs = [collapse_repeats(t for t in s if t not in removed) for s in seqs]
     hubs = find_hubs(seqs)
     span: dict[Seq, set[Folder]] = defaultdict(set)
@@ -461,12 +479,11 @@ def global_strip(seqs: list[Seq], folders: list[Folder]) -> tuple[list[Seq], set
 
 @dataclass
 class FolderNames:
-    """Folder-IDF verdict on one effective folder's own files (design §2, E5 fix 1)."""
+    """Folder-IDF verdict on one effective folder's own files."""
 
     common: Seq = ()  # tokens in >= 80% of the named files, in name order
     house: bool = False  # ``common`` is a house / collection prefix: stripped
     named_map: bool = False  # ``common`` (>= 2 tokens) is the map's name: folder-is-one-map
-    nested_hubs: set[Seq] = field(default_factory=set)  # hubs stripped inside a big folder
 
     def describe(self) -> str:
         """Short text for the decision log."""
@@ -482,13 +499,13 @@ def folder_names(seqs: list[Seq]) -> tuple[list[Seq], FolderNames]:
     With C the tokens common to >= 80% of the named files: if the residuals are several
     multi-token names, C is a house prefix and is stripped; if they are empty or one variant-like
     word, C (>= 2 tokens) is the map's name and is kept as positive evidence. Files with an empty
-    residual count against "house" (audit fix 3: a one-map folder with two floor names).
+    residual count against "house" (a one-map folder with two floor names).
     """
     named = [s for s in seqs if s]
     info = FolderNames()
     if len(named) < 3:
         return seqs, info
-    common = _common_tokens(named)
+    common = common_tokens(named)
     if not common:
         return seqs, info
     position: Counter[str] = Counter()
@@ -497,13 +514,10 @@ def folder_names(seqs: list[Seq]) -> tuple[list[Seq], FolderNames]:
             if t in common:
                 position[t] += k
     info.common = tuple(sorted(common, key=lambda t: (position[t], t)))
-    resid = [tuple(t for t in s if t not in common) for s in named]
-    keys = {r[:2] for r in resid if r}
-    multi = _multi_token_share(resid)
-    if len(keys) >= FOLDER_MIN_KEYS and multi >= MULTI_TOKEN_SHARE:
+    if _is_house_prefix(_without(named, common), FOLDER_MIN_KEYS):
         info.house = True
-        return [collapse_repeats(t for t in s if t not in common) for s in seqs], info
-    info.named_map = len(info.common) >= 2 and (multi < MULTI_TOKEN_SHARE or len(keys) <= 1)
+        return [collapse_repeats(s) for s in _without(seqs, common)], info
+    info.named_map = len(info.common) >= 2
     return seqs, info
 
 
@@ -518,7 +532,7 @@ def generic_keys(keys: Sequence[Seq | None], stems: Sequence[str]) -> set[Seq]:
     """Keys that carry no identity: a numbering, not a map name.
 
     Shared by >= ``GENERIC_FAMILY_MIN`` files whose names are the same apart from numbers
-    (``NumberedGLMaps_52``, ``IMG_00012``), and mostly distinct (audit fix 4).
+    (``NumberedGLMaps_52``, ``IMG_00012``), and mostly distinct.
     """
     family: dict[Seq, list[int]] = defaultdict(list)
     for k, key in enumerate(keys):
@@ -564,11 +578,17 @@ class NameEvidence:
     common_raw: dict[Folder, set[str]]  # per folder: tokens common before any stripping
     global_house: set[str]  # tokens of global house prefixes and hubs
 
+    def unstripped(self, i: int) -> set[str]:
+        """A file's identity tokens with those the prefix strip removed put back: a folder's
+        common name may be exactly what was stripped (a lone ``monster-hunter-restaurant/``
+        map, whose files all start with ``monster hunter``)."""
+        return set(self.full[i] or ()) | self.stripped[i]
+
     def contradict(self, x: int, y: int) -> bool:
         """Names say different maps: different series, or two different 2-token keys.
 
-        The keys keep the level designator cut from the identity (``veto_key``), so the veto is
-        as strong as E5's: "Warehouse - Roof" and "Spell Scroll Store - Roof" stay apart even
+        The keys keep the level designator cut from the identity (``veto_key``), so cutting
+        levels does not weaken the veto: "Warehouse - Roof" and "Spell Scroll Store - Roof" stay apart even
         though "warehouse" alone has no 2-token key.
         """
         sx, sy = self.series[x], self.series[y]
@@ -604,13 +624,12 @@ def _strip_folder(seqs: list[Seq]) -> tuple[list[Seq], FolderNames]:
         }
         if hubs:
             new = [strip_hub(s, hubs) for s in new]
-            info.nested_hubs = hubs
     return new, info
 
 
 def _strip_folder_name_keys(seqs: list[Seq], folders: list[Folder]) -> list[Seq]:
     """Strip a shared 2-token base that is only an enclosing folder's name, when it prefixes
-    several different maps (deviation from E5, follow-up 1).
+    several different maps.
 
     ``Moonlight Maps/{Forest Cottage,Forest Switch}/Moonlight_Maps_…``: the key ``moonlight
     maps`` is the maker's folder, and after it come >= 2 distinct multi-token names, so it is a
@@ -631,9 +650,8 @@ def _strip_folder_name_keys(seqs: list[Seq], folders: list[Folder]) -> list[Seq]
             if len(out[i]) >= 2 and set(out[i][:2]) <= name:
                 family[out[i][:2]].append(i)
         for key, idx in family.items():
-            resid = [tuple(t for t in out[i] if t not in key) for i in idx]
-            names = {r[:2] for r in resid if len(r) >= 2}
-            if len(names) >= FOLDER_MIN_KEYS and _multi_token_share(resid) >= MULTI_TOKEN_SHARE:
+            resid = _without([out[i] for i in idx], key)
+            if _is_house_prefix(resid, FOLDER_MIN_KEYS, min_key_tokens=2):
                 for i, r in zip(idx, resid, strict=True):
                     out[i] = collapse_repeats(r)
     return out
@@ -660,7 +678,7 @@ def analyse_names(
     for folder, idx in by_folder.items():
         named = [seq0[i] for i in idx if seq0[i]]
         if len(named) >= 2:
-            common_raw[folder] = _common_tokens(named)
+            common_raw[folder] = common_tokens(named)
 
     seq = list(seq1)
     folder_info: dict[Folder, FolderNames] = {}

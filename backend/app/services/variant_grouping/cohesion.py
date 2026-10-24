@@ -1,4 +1,4 @@
-"""Unit-level content gates: theme cohesion and the production fingerprint (design §2, step 3).
+"""Unit-level content gates: theme cohesion and the production fingerprint (design/variant-grouping-algorithm.md §6.3).
 
 A *unit* is a set of files already joined. At a meaningful parent folder, units join as
 sub-groups only where content does not object: their **cohesion** (mean cross embedding cosine,
@@ -7,9 +7,8 @@ raised when their layouts overlap: the same building drawn again) is high, and t
 asked and both pixel sizes are known) is compatible. Cohesion only ever gates a join that the
 folder structure or the names propose; it is never the reason for one.
 
-A unit with no embedding, or no known aspect, is never compatible: the join is withheld.
-Ported from scene-atlas-learning ``grouping/e5/walk.py`` (``_unit_sim``, ``_cohesive``,
-``_whole_folder``); the canvas and ``production_compatible`` from ``grouping/e6``.
+A unit with no embedding, or no known aspect, is never compatible: the join is withheld. The
+cohesion rules need ``params.embedding``; the walk only calls them when it is set.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 
 from .evidence import FeatureMatrix
+from .params import EmbeddingThresholds, GroupingParams
 
 # Distance standing in for "incompatible" in average linkage (cosine distances are <= 2).
 INCOMPATIBLE = 2.0
@@ -31,13 +31,10 @@ WHOLE_FOLDER_P10_MARGIN = 0.1
 WHOLE_FOLDER_PERCENTILE = 10
 
 
-@dataclass(frozen=True)
-class CohesionParams:
-    """The thresholds the unit gates need (see ``walk.GroupingParams``)."""
-
-    parent: float  # a layout-overlapping pair counts as just above this
-    layout_overlap: float  # mean cross edge correlation that marks the same building redrawn
-    aspect_tolerance: float  # |log aspect| difference of compatible fingerprints
+def _embedding(params: GroupingParams) -> EmbeddingThresholds:
+    if params.embedding is None:
+        raise ValueError("cohesion needs the encoder's embedding thresholds")
+    return params.embedding
 
 
 @dataclass(frozen=True)
@@ -98,20 +95,32 @@ def canvas_compatible(
     return out
 
 
+def _fingerprint(
+    units: Sequence[Sequence[int]],
+    fm: FeatureMatrix,
+    nxm: Sequence[tuple[int, int] | None],
+    params: GroupingParams,
+    canvas: bool,
+) -> np.ndarray:
+    """(m, m) bool: the same aspect (both known) and the same ``NxM`` where both name one; with
+    ``canvas``, also a shared canvas where both sizes are known."""
+    aspect = _median_aspects(units, fm)
+    with np.errstate(invalid="ignore"):  # NaN (unknown aspect) compares False
+        same = np.abs(aspect[:, None] - aspect[None, :]) < params.aspect_tolerance
+    same &= _nxm_compatible([{size for i in u if (size := nxm[i]) is not None} for u in units])
+    if canvas:
+        same &= canvas_compatible(units, fm, params.canvas_tolerance)
+    return same
+
+
 def production_compatible(
     units: Sequence[Sequence[int]],
     fm: FeatureMatrix,
     nxm: Sequence[tuple[int, int] | None],
-    aspect_tolerance: float,
-    canvas_tolerance: float,
+    params: GroupingParams,
 ) -> np.ndarray:
-    """(m, m) bool: one production. The same aspect (both known), the same ``NxM`` where both
-    name one, and a shared canvas where both sizes are known. Needs no embedding."""
-    aspect = _median_aspects(units, fm)
-    with np.errstate(invalid="ignore"):  # NaN (unknown aspect) compares False
-        same = np.abs(aspect[:, None] - aspect[None, :]) < aspect_tolerance
-    nxm_sets = [{size for i in u if (size := nxm[i]) is not None} for u in units]
-    same &= _nxm_compatible(nxm_sets) & canvas_compatible(units, fm, canvas_tolerance)
+    """(m, m) bool: one production (``_fingerprint`` with the canvas). Needs no embedding."""
+    same = _fingerprint(units, fm, nxm, params, canvas=True)
     np.fill_diagonal(same, True)
     return same
 
@@ -120,29 +129,24 @@ def unit_similarity(
     units: Sequence[Sequence[int]],
     fm: FeatureMatrix,
     nxm: Sequence[tuple[int, int] | None],
-    p: CohesionParams,
-    canvas_tolerance: float | None = None,
+    params: GroupingParams,
+    canvas: bool = False,
 ) -> UnitSimilarity:
     """Cohesion and fingerprint compatibility between ``units`` (lists of file indices).
 
     A unit's embedding is the mean of its members' (missing ones count as zero, so a unit with
     few embedded files is conservatively weak); the dot of two means is the mean cross cosine.
-    With ``canvas_tolerance``, compatibility also needs a shared canvas (``canvas_compatible``).
+    With ``canvas``, compatibility also needs a shared canvas (``canvas_compatible``).
     """
     means = np.stack([fm.embedding[list(u)].mean(axis=0) for u in units])
     cohesion = means @ means.T
     edges = np.stack([fm.edge[list(u)].mean(axis=0) for u in units])
-    overlap = (edges @ edges.T) >= p.layout_overlap
-    cohesion = np.where(overlap, np.maximum(cohesion, p.parent + _ABOVE), cohesion)
+    overlap = (edges @ edges.T) >= params.layout_overlap
+    parent = _embedding(params).parent
+    cohesion = np.where(overlap, np.maximum(cohesion, parent + _ABOVE), cohesion)
 
     has = np.array([fm.has_embedding[list(u)].any() for u in units])
-    aspect = _median_aspects(units, fm)
-    with np.errstate(invalid="ignore"):  # NaN (unknown aspect) compares False
-        aspect_ok = np.abs(aspect[:, None] - aspect[None, :]) < p.aspect_tolerance
-    nxm_sets = [{size for i in u if (size := nxm[i]) is not None} for u in units]
-    compatible = aspect_ok & _nxm_compatible(nxm_sets) & has[:, None] & has[None, :]
-    if canvas_tolerance is not None:
-        compatible &= canvas_compatible(units, fm, canvas_tolerance)
+    compatible = _fingerprint(units, fm, nxm, params, canvas) & has[:, None] & has[None, :]
     np.fill_diagonal(compatible, True)
     return UnitSimilarity(cohesion, compatible)
 
@@ -166,13 +170,14 @@ def cohesive_partition(
     units: Sequence[Sequence[int]],
     fm: FeatureMatrix,
     nxm: Sequence[tuple[int, int] | None],
-    p: CohesionParams,
-    threshold: float,
+    params: GroupingParams,
 ) -> list[list[int]]:
-    """Partition ``units`` (as positions) into cohesive, fingerprint-compatible clusters."""
+    """Partition ``units`` (as positions) into clusters cohesive at the shared-base threshold
+    and fingerprint-compatible."""
     if len(units) < 2:
         return [list(range(len(units)))]
-    labels = average_linkage(gated_distance(unit_similarity(units, fm, nxm, p)), 1.0 - threshold)
+    sim = unit_similarity(units, fm, nxm, params)
+    labels = average_linkage(gated_distance(sim), 1.0 - _embedding(params).shared_base)
     return [np.flatnonzero(labels == lab).tolist() for lab in np.unique(labels)]
 
 
@@ -196,16 +201,16 @@ def whole_folder_cohesive(
     units: Sequence[Sequence[int]],
     fm: FeatureMatrix,
     nxm: Sequence[tuple[int, int] | None],
-    p: CohesionParams,
-    threshold: float,
-    min_compatible: float,
+    params: GroupingParams,
 ) -> tuple[bool, WholeFolderStats]:
-    """Whether every unit of a folder shares production and theme (E5 fix 0b, all-or-nothing).
+    """Whether every unit of a folder shares production and theme (all or nothing): mean
+    cohesion at the whole-folder threshold, its 10th percentile not far below, and enough unit
+    pairs with compatible fingerprints.
 
     Every unit must have an embedding: a content-free unit cannot be shown to belong, so the
-    whole-folder join is withheld (stricter than E5, which only required 90% of pairs).
+    whole-folder join is withheld.
     """
-    sim = unit_similarity(units, fm, nxm, p)
+    sim = unit_similarity(units, fm, nxm, params)
     iu = np.triu_indices(len(units), 1)
     values = sim.cohesion[iu]
     stats = WholeFolderStats(
@@ -214,11 +219,12 @@ def whole_folder_cohesive(
         p10=float(np.percentile(values, WHOLE_FOLDER_PERCENTILE)),
         compatible=float(sim.compatible[iu].mean()),
     )
+    threshold = _embedding(params).whole_folder
     all_embedded = all(fm.has_embedding[list(u)].any() for u in units)
     whole = (
         all_embedded
         and stats.mean >= threshold
         and stats.p10 >= threshold - WHOLE_FOLDER_P10_MARGIN
-        and stats.compatible >= min_compatible
+        and stats.compatible >= params.whole_folder_compatible
     )
     return whole, stats

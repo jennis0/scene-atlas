@@ -1,7 +1,8 @@
 """Unit tests for variant_grouping.tree: the effective folder tree."""
 
+from backend.app.services.variant_grouping import effective_folders
 from backend.app.services.variant_grouping.names import FolderClass
-from backend.app.services.variant_grouping.tree import build_tree
+from backend.app.services.variant_grouping.tree import ancestors, build_tree
 
 
 def eff(*paths: str) -> list[tuple[str, ...]]:
@@ -24,7 +25,7 @@ class TestTransparentFolders:
         )
 
     def test_parent_name_plus_size_is_a_rendition(self):
-        """``Beast Prison 12x12`` under ``Beast Prison`` (audit: Never Ending Wizard Tower)."""
+        """``Beast Prison 12x12`` under ``Beast Prison`` (Never Ending Wizard Tower)."""
         assert eff("Tower/Beast Prison/Beast Prison 12x12/MA/Grid") == [("tower", "beast prison")]
 
     def test_misspelt_parent_name_is_a_rendition(self):
@@ -85,3 +86,21 @@ class TestTreeRecords:
             ]
         )
         assert tree.recurring_names() == {"moonlight maps"}
+
+
+class TestEffectiveFolders:
+    """``effective_folders``: the "/"-joined effective folder of each path."""
+
+    def test_files_at_the_root_are_in_the_root(self):
+        assert effective_folders(["a.png", "Gridded/b.png"]) == {"a.png": "", "Gridded/b.png": ""}
+
+    def test_a_folder_does_not_depend_on_the_other_paths(self):
+        paths = ["Czepeku/Keep/a.png", "Gridded/Forest/b.png", "c.png"]
+        alone = effective_folders(paths)
+        more = effective_folders([*reversed(paths), "Maps/Other/d.png", "Tom/e.png"])
+        assert {p: more[p] for p in paths} == alone
+        assert effective_folders([]) == {}
+
+    def test_ancestors(self):
+        assert ancestors("czepeku/keep") == ["czepeku/keep", "czepeku", ""]
+        assert ancestors("") == [""]

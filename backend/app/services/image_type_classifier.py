@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -165,35 +166,6 @@ class ImageTypeHead:
         )
 
 
-_lock = threading.Lock()
-_heads: dict[str, ImageTypeHead] | None = None
-
-
-def _load_head(path: Path) -> ImageTypeHead:
-    head = ImageTypeHead(json.loads(path.read_text(encoding="utf-8")), str(path))
-    if path.stem != head.encoder_sha256:
-        raise ImageTypeHeadError(f"{path}: file name doesn't match encoder_sha256")
-    return head
-
-
-def bundled_heads() -> dict[str, ImageTypeHead]:
-    """{encoder sha256: head} for every bundled head (loaded once). A malformed file is
-    logged and skipped, so it only costs its own model auto-classification."""
-    global _heads
-    with _lock:
-        if _heads is None:
-            heads = {}
-            for path in sorted(HEADS_DIR.glob("*.json")):
-                try:
-                    head = _load_head(path)
-                except (ImageTypeHeadError, OSError, ValueError, KeyError, TypeError):
-                    logger.exception("Skipping malformed image-type head %s", path.name)
-                    continue
-                heads[head.encoder_sha256] = head
-            _heads = heads
-        return _heads
-
-
 def vision_encoder_sha256(model_dir: Path) -> str | None:
     """sha256 of an installed model's vision encoder. Read from version.json, where the
     download records it; installs that predate that are hashed once and cached there."""
@@ -222,24 +194,59 @@ def vision_encoder_sha256(model_dir: Path) -> str | None:
     return sha
 
 
-_missing_logged: set[str] = set()
+class BundledHeads[T]:
+    """Files bundled as ``<directory>/<encoder sha256>.json``, one per vision encoder (these
+    image-type heads; the variant-grouping calibrations), loaded once. ``load`` validates a
+    file's JSON into an object with an ``encoder_sha256``. A malformed file is logged and
+    skipped, so it only costs its own model what it provides."""
+
+    def __init__(self, directory: Path, load: Callable[[dict, str], T], what: str) -> None:
+        self.directory = directory
+        self._load = load
+        self._what = what
+        self._lock = threading.Lock()
+        self._found: dict[str, T] | None = None
+        self._missing_logged: set[str] = set()
+
+    def all(self) -> dict[str, T]:
+        """{encoder sha256: item} for every bundled file."""
+        with self._lock:
+            if self._found is None:
+                found: dict[str, T] = {}
+                for path in sorted(self.directory.glob("*.json")):
+                    try:
+                        item = self._load(json.loads(path.read_text(encoding="utf-8")), str(path))
+                        if path.stem != getattr(item, "encoder_sha256", None):
+                            raise ValueError(f"{path}: file name doesn't match encoder_sha256")
+                    except Exception:
+                        logger.exception("Skipping malformed %s %s", self._what, path.name)
+                        continue
+                    found[path.stem] = item
+                self._found = found
+            return self._found
+
+    def for_model(self, name: str) -> T | None:
+        """The item for an installed model's vision encoder, or None (not installed, or none
+        bundled for this exact encoder)."""
+        sha = vision_encoder_sha256(get_model_dir(name))
+        if sha is None:
+            return None
+        item = self.all().get(sha)
+        if item is None and sha not in self._missing_logged:
+            self._missing_logged.add(sha)
+            logger.warning("No %s for model '%s' (encoder %s)", self._what, name, sha[:12])
+        return item
+
+    def active(self) -> T | None:
+        """The item for the model currently producing embeddings, or None."""
+        from backend.app.services.clip_service import get_effective_model_name
+
+        return self.for_model(get_effective_model_name())
 
 
-def head_for_model(name: str) -> ImageTypeHead | None:
-    """The bundled head for an installed model, or None (not installed, or no head trained
-    for this exact encoder)."""
-    sha = vision_encoder_sha256(get_model_dir(name))
-    if sha is None:
-        return None
-    head = bundled_heads().get(sha)
-    if head is None and sha not in _missing_logged:
-        _missing_logged.add(sha)
-        logger.warning("No image-type head for model '%s' (encoder %s)", name, sha[:12])
-    return head
+HEADS = BundledHeads(HEADS_DIR, ImageTypeHead, "image-type head")
 
 
 def active_head() -> ImageTypeHead | None:
     """The head for the model currently producing embeddings, or None."""
-    from backend.app.services.clip_service import get_effective_model_name
-
-    return head_for_model(get_effective_model_name())
+    return HEADS.active()

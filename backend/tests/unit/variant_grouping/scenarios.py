@@ -1,5 +1,4 @@
-"""Scenarios built from real folders of the E5 audit (scene-atlas-learning
-``results/grouping/e5-audit.md``), with synthetic content features (``support.Look``).
+"""Scenarios built from real library folders, with synthetic content features (``support.Look``).
 
 Each builder returns a ``Scenario``; the tests in ``test_scenarios.py`` state what the walk must
 do with it, with and without content.
@@ -36,7 +35,7 @@ def _moonlight_room(base: str, room: str, folder: str, theme: str) -> dict[str, 
 
 
 def wizard_tower() -> Scenario:
-    """Moonlight Maps' Never Ending Wizard Tower (audit, recipe ``nest`` / ``orig``): five room
+    """Moonlight Maps' Never Ending Wizard Tower: five room
     folders, each wrapping rendition folders (``Beast Prison 12x12``, ``MA/Grid``, ``VTT``). The
     room folder for the teleport chamber is called ``Teleport Room``. The maker folder also holds
     ten unrelated maps, so it is a container."""
@@ -58,7 +57,7 @@ def wizard_tower() -> Scenario:
 
 
 def leasealair() -> Scenario:
-    """leasealair (audit, new maker): one flat folder, every file carrying the collection prefix
+    """leasealair: one flat folder, every file carrying the collection prefix
     ``leasealairMaps_LeasealairMaps_`` and the original maker, three renditions per map, plus
     ``NumberedGLMaps_N`` twins that are renditions of a named file."""
     files: dict[str, Look] = {}
@@ -114,7 +113,7 @@ DNDAVID = [
 
 
 def dndavid() -> Scenario:
-    """dndavid (audit, new maker): 22 one-image maps in one flat folder. Every map is drawn in
+    """dndavid: 22 one-image maps in one flat folder. Every map is drawn in
     one style, so they are all cohesive: similarity alone must still never join them."""
     return Scenario({f"dndavid/{name}.jpg": Look(name, theme="dndavid style") for name in DNDAVID})
 
@@ -123,7 +122,7 @@ PACK = ["General Store", "Graveyard", "King of the Hill", "Deep Cave", "City Str
 
 
 def moonlight_pack() -> Scenario:
-    """Moonlight Maps ``Pack 02`` (audit, recipe ``pack``): different maps flat in a generic
+    """Moonlight Maps ``Pack 02``: different maps flat in a generic
     folder, two of them in one theme; and a ``Forest Adventures`` pack (a specific parent) of
     three different maps in their own folders."""
     files: dict[str, Look] = {}
@@ -158,9 +157,9 @@ OTHER_FOREST = {
 
 
 def topic_folder() -> Scenario:
-    """A topic folder holding several makers' maps flat (audit, recipe ``topic``), and
+    """A topic folder holding several makers' maps flat, and
     topic / author / group folders where the author folder recurs under several topics
-    (``topic_author_group``: ``Woods/Moonlight Maps`` must not merge its maps). Every map of
+    (``Woods/Moonlight Maps`` must not merge its maps). Every map of
     one maker in a topic shares a style, so cohesion alone would join them; the other makers'
     maps share another style (one maker draws ``Forest Road``, another ``Forest Ruins``)."""
     files: dict[str, Look] = {}
@@ -188,7 +187,7 @@ CASTLE_VARIANTS = ["dark-night", "empty-day", "no-background-day"]
 
 
 def czepeku() -> Scenario:
-    """Czepeku (audit): ``japanese-castle-interior`` (files ``JapaneseCastleInterior_<floor>-<
+    """Czepeku: ``japanese-castle-interior`` (files ``JapaneseCastleInterior_<floor>-<
     variant>``: five floors) and a flat maker folder of ``<Map>_<variant>`` files whose suffixes
     are variant words only."""
     files: dict[str, Look] = {}

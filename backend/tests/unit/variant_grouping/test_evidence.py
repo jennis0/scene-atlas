@@ -1,25 +1,21 @@
 """Unit tests for variant_grouping.evidence and cohesion: features, pairs, signals, gates."""
 
+import dataclasses
+
 import numpy as np
 import pytest
 
+from backend.app.services.variant_grouping import EmbeddingThresholds, GroupingParams
 from backend.app.services.variant_grouping import evidence as E
 from backend.app.services.variant_grouping.cohesion import (
-    CohesionParams,
     cohesive_partition,
     unit_similarity,
     whole_folder_cohesive,
 )
 from backend.app.services.variant_grouping.evidence import ContentFeatures, FeatureMatrix
 
-THRESHOLDS = E.PairThresholds(
-    rendition_bits=12,
-    rendition_aspect=0.02,
-    agree_edge=0.7,
-    agree_embedding=0.7,
-    agree_aspect=0.05,
-)
-COHESION = CohesionParams(parent=0.82, layout_overlap=0.25, aspect_tolerance=0.03)
+# rendition 12 bits / 0.02 aspect; agreement edge 0.7, embedding 0.7, aspect 0.05; parent 0.82
+PARAMS = GroupingParams(embedding=EmbeddingThresholds())
 
 
 def random_features(n: int, seed: int = 0, dim: int = 16) -> list[ContentFeatures]:
@@ -35,8 +31,8 @@ def random_features(n: int, seed: int = 0, dim: int = 16) -> list[ContentFeature
     ]
 
 
-def hamming(a: bytes, b: bytes) -> int:
-    return (int.from_bytes(a, "big") ^ int.from_bytes(b, "big")).bit_count()
+def as_set(pairs: np.ndarray) -> set[tuple[int, int]]:
+    return {(int(a), int(b)) for a, b in pairs}
 
 
 class TestFeatureMatrix:
@@ -68,28 +64,23 @@ class TestFeatureMatrix:
 
 
 class TestCandidatePairs:
-    def test_phash_pairs_match_brute_force(self):
-        """Blocked search finds exactly the pairs within the bit budget (blocks of 1024 rows)."""
+    def test_phash_pairs_are_candidates(self):
+        """Every pair within the pHash budget is a candidate (the search is ``phash_index``)."""
         rng = np.random.default_rng(1)
-        base = rng.integers(0, 256, 32, dtype=np.uint8)
-        feats = []
-        for _ in range(1100):  # > one block
-            h = base.copy()
-            flips = rng.choice(256, size=rng.integers(0, 40), replace=False)
-            bits = np.unpackbits(h)
-            bits[flips] ^= 1
-            feats.append(ContentFeatures(phash256=np.packbits(bits).tobytes()))
+        hashes = rng.integers(0, 256, (40, 32), dtype=np.uint8)
+        hashes[20:] = hashes[:20]  # twins
+        feats = [ContentFeatures(phash256=h.tobytes()) for h in hashes]
         fm = FeatureMatrix(feats, use_embeddings=False)
-        pairs = E.candidate_pairs(fm, [], phash_bits=20, knn_embedding=0, knn_edge=0)
-        found = {tuple(p) for p in pairs.tolist()}
-        hashes = [f.phash256 for f in feats]
-        expected = {
-            (i, j)
-            for i in range(len(hashes))
-            for j in range(i + 1, len(hashes))
-            if hamming(hashes[i], hashes[j]) <= 20  # type: ignore[arg-type]
-        }
-        assert found == expected
+        pairs = as_set(E.candidate_pairs(fm, [], phash_bits=20, knn_embedding=0, knn_edge=0))
+        assert {(k, k + 20) for k in range(20)} <= pairs
+
+    def test_candidate_pairs_keep_global_phash_pairs(self):
+        """Renditions join across top-level folders, so pHash candidates are not bucketed."""
+        h = bytes(32)
+        feats = [ContentFeatures(phash256=h), ContentFeatures(phash256=h)]
+        fm = FeatureMatrix(feats, use_embeddings=False)
+        pairs = E.candidate_pairs(fm, [], 20, 5, 5, buckets=np.array([0, 1]))
+        assert pairs.tolist() == [[0, 1]]
 
     def test_knn_pairs_include_each_files_nearest(self):
         feats = random_features(30, seed=2)
@@ -113,6 +104,20 @@ class TestCandidatePairs:
         pairs = E.candidate_pairs(fm, [[0, 1, 2], [2, 1]], 20, 5, 5)
         assert pairs.tolist() == [[0, 1], [0, 2], [1, 2]]
 
+    def test_in_bucket_top_k_keeps_every_same_bucket_global_neighbour(self):
+        rng = np.random.default_rng(3)
+        n, k = 600, 15
+        rows = rng.normal(size=(n, 32)).astype(np.float32)
+        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
+        has = np.ones(n, dtype=bool)
+        has[::17] = False
+        buckets = rng.integers(0, 7, n)
+        global_pairs = E._knn_pairs(rows, has, k)
+        bucketed = as_set(E._knn_pairs(rows, has, k, buckets))
+        same_bucket = {(int(i), int(j)) for i, j in global_pairs if buckets[i] == buckets[j]}
+        assert same_bucket <= bucketed
+        assert all(buckets[i] == buckets[j] for i, j in bucketed)
+
 
 class TestPairSignals:
     def test_rendition_needs_close_hash_and_same_aspect(self):
@@ -125,14 +130,14 @@ class TestPairSignals:
             ContentFeatures(phash256=h),  # aspect unknown
         ]
         fm = FeatureMatrix(feats, use_embeddings=True)
-        sig = E.pair_signals(fm, np.array([[0, 1], [0, 2], [0, 3]]), THRESHOLDS)
+        sig = E.pair_signals(fm, np.array([[0, 1], [0, 2], [0, 3]]), PARAMS)
         assert list(zip(sig.a.tolist(), sig.b.tolist(), strict=True)) == [(0, 1)]
         assert sig.rendition.tolist() == [True]
 
     def test_missing_hashes_are_never_renditions(self):
-        """Two files without a pHash must not look identical (E5's zero-bit artefact)."""
+        """Two files without a pHash must not look identical (as zero hashes would)."""
         fm = FeatureMatrix([ContentFeatures(log_aspect=0.0)] * 2, use_embeddings=True)
-        sig = E.pair_signals(fm, np.array([[0, 1]]), THRESHOLDS)
+        sig = E.pair_signals(fm, np.array([[0, 1]]), PARAMS)
         assert len(sig.a) == 0
 
     def test_agreement_needs_edge_and_embedding(self):
@@ -146,7 +151,7 @@ class TestPairSignals:
             ContentFeatures(edge=edge, log_aspect=0.0),  # no embedding
         ]
         fm = FeatureMatrix(feats, use_embeddings=True)
-        sig = E.pair_signals(fm, np.array([[0, 1], [0, 2], [0, 3]]), THRESHOLDS)
+        sig = E.pair_signals(fm, np.array([[0, 1], [0, 2], [0, 3]]), PARAMS)
         assert list(zip(sig.a.tolist(), sig.b.tolist(), strict=True)) == [(0, 1)]
         assert sig.agree.tolist() == [True] and sig.rendition.tolist() == [False]
 
@@ -154,8 +159,7 @@ class TestPairSignals:
         edge = np.ones(E.EDGE_DIM)
         feats = [ContentFeatures(edge=edge, embedding=np.ones(4), log_aspect=0.0)] * 2
         fm = FeatureMatrix(feats, use_embeddings=True)
-        t = E.PairThresholds(12, 0.02, 0.7, None, 0.05)
-        assert len(E.pair_signals(fm, np.array([[0, 1]]), t).a) == 0
+        assert len(E.pair_signals(fm, np.array([[0, 1]]), GroupingParams()).a) == 0
 
 
 class TestCohesion:
@@ -173,23 +177,23 @@ class TestCohesion:
         fm = FeatureMatrix(
             [self.themed(0, 0), self.themed(0, 1), self.themed(1, 2)], use_embeddings=True
         )
-        sim = unit_similarity([[0], [1], [2]], fm, [None] * 3, COHESION)
+        sim = unit_similarity([[0], [1], [2]], fm, [None] * 3, PARAMS)
         assert sim.cohesion[0, 1] > 0.82 > sim.cohesion[0, 2]
-        parts = cohesive_partition([[0], [1], [2]], fm, [None] * 3, COHESION, threshold=0.68)
+        parts = cohesive_partition([[0], [1], [2]], fm, [None] * 3, PARAMS)  # at shared_base
         assert sorted(map(sorted, parts)) == [[0, 1], [2]]
 
     def test_fingerprint_blocks_other_aspect_and_size(self):
         feats = [self.themed(0, 0), self.themed(0, 1, aspect=0.3), self.themed(0, 2)]
         fm = FeatureMatrix(feats, use_embeddings=True)
         nxm = [(20, 30), None, (12, 12)]
-        sim = unit_similarity([[0], [1], [2]], fm, nxm, COHESION)
+        sim = unit_similarity([[0], [1], [2]], fm, nxm, PARAMS)
         assert not sim.compatible[0, 1]  # aspect
         assert not sim.compatible[0, 2]  # NxM named by both, no overlap
 
     def test_unit_without_embedding_is_incompatible(self):
         feats = [self.themed(0, 0), ContentFeatures(log_aspect=0.0)]
         fm = FeatureMatrix(feats, use_embeddings=True)
-        sim = unit_similarity([[0], [1]], fm, [None] * 2, COHESION)
+        sim = unit_similarity([[0], [1]], fm, [None] * 2, PARAMS)
         assert not sim.compatible[0, 1]
 
     def test_layout_overlap_raises_cohesion(self):
@@ -201,15 +205,16 @@ class TestCohesion:
             for _ in range(2)
         ]
         fm = FeatureMatrix(feats, use_embeddings=True)
-        sim = unit_similarity([[0], [1]], fm, [None] * 2, COHESION)
+        sim = unit_similarity([[0], [1]], fm, [None] * 2, PARAMS)
         assert sim.cohesion[0, 1] > 0.82
 
     def test_whole_folder_needs_every_unit_embedded(self):
         feats = [self.themed(0, k) for k in range(4)]
         fm = FeatureMatrix(feats, use_embeddings=True)
         units = [[0], [1], [2], [3]]
-        whole, stats = whole_folder_cohesive(units, fm, [None] * 4, COHESION, 0.8, 0.9)
+        whole, stats = whole_folder_cohesive(units, fm, [None] * 4, PARAMS)
         assert whole and stats.mean > 0.8
         fm = FeatureMatrix([*feats[:3], ContentFeatures(log_aspect=0.0)], use_embeddings=True)
-        whole, _ = whole_folder_cohesive(units, fm, [None] * 4, COHESION, 0.8, 0.0)
+        anything = dataclasses.replace(PARAMS, whole_folder_compatible=0.0)
+        whole, _ = whole_folder_cohesive(units, fm, [None] * 4, anything)
         assert not whole

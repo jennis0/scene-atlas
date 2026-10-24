@@ -19,7 +19,7 @@ class TestTokenize:
             ("1st_Floor", ["1", "floor"]),
             ("Tavern Roll20 R20", ["tavern", "roll20", "r20"]),
             ("JapaneseCastleInterior_floor-01-dark-night", ["japanese", "castle", "interior", "floor", "01", "dark", "night"]),
-            ("Café", ["caf"]),  # non-ASCII letters separate tokens, as in the research tokenizer
+            ("Café", ["caf"]),  # non-ASCII letters separate tokens
         ],
     )  # fmt: skip
     def test_tokens(self, text, tokens):
@@ -86,7 +86,7 @@ class TestIdentity:
         assert self.ident("No_Time_Left") == ("no", "time", "left")
 
     def test_battle_maps_carry_no_identity(self):
-        """Audit fix 7: ``ElectrifiedBattleMaps_`` must not key maps as "electrified battle"."""
+        """``ElectrifiedBattleMaps_`` must not key maps as "electrified battle"."""
         assert self.ident("ElectrifiedBattleMaps_Arena") == ("electrified", "arena")
         assert self.ident("Desert_Battlemap") == ("desert",)
 
@@ -100,7 +100,7 @@ class TestIdentity:
 
 class TestGenericWords:
     def test_rooms_are_not_generic(self):
-        """Follow-up 3: "Library" and "Archives" name rooms."""
+        """ "Library" and "Archives" name rooms."""
         for name in ("Library", "Old Library", "Archives"):
             assert N.folder_class(name, set())[0] is FolderClass.SPECIFIC
         assert N.folder_class("Old Downloads", set())[0] is FolderClass.GENERIC
@@ -151,7 +151,7 @@ class TestFolderIdf:
         assert new == seqs
 
     def test_empty_residuals_count_against_house(self):
-        """Audit fix 3: two floor names in a one-map folder are not a bundle."""
+        """Two floor names in a one-map folder are not a bundle."""
         seqs = [
             ("dilapidated", "building"),
             ("dilapidated", "building"),
@@ -180,7 +180,7 @@ class TestGlobalStrip:
         assert removed == set()
 
     def test_single_map_keeps_its_name(self):
-        """Audit fix 1: a single imported map has its name in every file."""
+        """A single imported map has its name in every file."""
         seqs = [("young", "adventurers", "hideout", f"v{k}") for k in range(25)]
         new, removed, _ = N.global_strip(seqs, [("f",)] * 25)
         assert removed == set()
@@ -253,7 +253,7 @@ class TestLevelSuffix:
 
 
 class TestFolderNameKeys:
-    """Follow-up 1: a 2-token key that is only an enclosing folder's name."""
+    """A 2-token key that is only an enclosing folder's name."""
 
     def evidence(self, paths: list[str]) -> N.NameEvidence:
         folders = [tuple(p.split("/")[:-1]) for p in paths]
@@ -321,7 +321,7 @@ class TestAnalyseNames:
 
     def test_veto_keeps_the_level_designator(self):
         """ "Warehouse - Roof" has no 2-token key, but agreement must still be vetoed against
-        another map's roof, as in E5 (the level word stays in the veto key)."""
+        another map's roof (the level word stays in the veto key)."""
         stems = ["Warehouse - Roof", "Spell Scroll Store - Roof", "Inn_Basement", "Inn_Roof"]
         ev = N.analyse_names([N.tokenize(s) for s in stems], stems, [("f",)] * 4)
         assert ev.full[0] == ("warehouse",) and ev.key2[0] is None

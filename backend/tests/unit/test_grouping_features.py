@@ -229,7 +229,6 @@ class TestStorage:
         row = db_session.get(ImageGroupingFeatures, image_ids[0])
         assert row is not None and row.version == GROUPING_FEATURES_VERSION
         assert len(row.phash256 or b"") == PHASH256_BYTES and len(row.edge or b"") == EDGE_BYTES
-        assert row.computed_at is not None
 
         loaded = load_grouping_features(db_session, image_ids)
         assert set(loaded) == {image_ids[0]}

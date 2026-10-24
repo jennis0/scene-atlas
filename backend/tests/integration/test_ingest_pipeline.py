@@ -1002,6 +1002,25 @@ def test_prune_dismissed_jobs_keeps_images(env):
         assert db.query(Image).count() == 1
 
 
+def test_a_dismissed_job_is_not_pruned_before_it_is_grouped(env, no_grouping):
+    """Cancelled and dismissed before its grouping phase ran: its rows wait for it."""
+    from backend.pipeline.group_jobs import Readiness, group_job
+    from backend.pipeline.ingest_maintenance import prune_dismissed_jobs
+
+    job_id = make_job(env, {"A/Map/a.png": image_bytes(105)})
+    env.worker.drain()
+    with env.SessionLocal() as db:
+        ingest_queue.cancel_job(db, job_id)
+        ingest_queue.dismiss_job(db, job_id)
+        db.commit()
+    later = ingest_queue.utcnow() + timedelta(days=31)
+    assert prune_dismissed_jobs(now=later) == 0
+    group_job(job_id, readiness=lambda: Readiness.OFF)
+    assert prune_dismissed_jobs(now=later) == 1
+    with env.SessionLocal() as db:
+        assert db.query(Image).one().awaiting_grouping is False
+
+
 def test_sweep_stray_staging_files(env):
     import os
     import time
