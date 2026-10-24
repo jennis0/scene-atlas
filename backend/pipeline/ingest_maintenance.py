@@ -143,7 +143,11 @@ def expire_finished_jobs(now=None) -> int:
 
 
 def prune_dismissed_jobs(now=None) -> int:
-    """Delete job/group/item rows of long-dismissed jobs. Images are untouched."""
+    """Delete job/group/item rows of long-dismissed jobs. Images are untouched.
+
+    A sealed job not yet grouped (a cancelled one can be dismissed before its grouping phase
+    has run) is kept: the grouping phase needs its rows to group its images (ADR-028).
+    """
     now = now or utcnow()
     with write_session() as db:
         job_ids = [
@@ -152,6 +156,7 @@ def prune_dismissed_jobs(now=None) -> int:
                 ImportJob.dismissed_at.isnot(None),
                 ImportJob.dismissed_at < now - PRUNE_DISMISSED_AFTER,
                 ImportJob.status.in_(_TERMINAL_JOBS),
+                ImportJob.planned_at.is_(None) | ImportJob.grouped_at.isnot(None),
             )
         ]
         for job_id in job_ids:

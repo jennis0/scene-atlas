@@ -37,7 +37,6 @@ def _decoded(image_type: str, kind: str = "image") -> DecodedItem:
     item = ClaimedItem(
         id=1,
         job_id="j",
-        import_group_id=None,
         kind=kind,
         relative_path="a.png",
         filename="a.png",

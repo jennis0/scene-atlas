@@ -9,16 +9,21 @@ from pathlib import Path
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ColumnElement,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
     create_engine,
+    false,
     select,
+    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -106,6 +111,19 @@ class SourceFile(Base):
         return f"<SourceFile(id={self.id}, key='{self.rel_key}', state='{self.state}')>"
 
 
+# Images the library lists (``listed_images``): partial indexes over them keep the facet,
+# browse and count queries on covering indexes despite the predicate (migration 029)
+LISTED_IMAGES_SQL = "awaiting_grouping = 0"
+LISTED_IMAGE_INDEXES = {
+    "ix_images_listed_id": ("id",),
+    "ix_images_listed_author": ("author",),
+    "ix_images_listed_grid": ("gridded", "grid_type"),
+    "ix_images_listed_type": ("image_type",),
+    "ix_images_listed_media": ("media_type",),
+    "ix_images_listed_created": ("created_at",),
+}
+
+
 class Image(Base):
     """Main image table."""
 
@@ -113,6 +131,10 @@ class Image(Base):
     __table_args__ = (
         Index("ix_images_gridded_grid_type", "gridded", "grid_type"),
         Index("ix_images_source_file_id", "source_file_id", unique=True),
+        *(
+            Index(name, *columns, sqlite_where=text(LISTED_IMAGES_SQL))
+            for name, columns in LISTED_IMAGE_INDEXES.items()
+        ),
         CheckConstraint(
             "storage_key IS NOT NULL OR source_file_id IS NOT NULL", name="ck_images_original"
         ),
@@ -179,6 +201,9 @@ class Image(Base):
     import_job_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("import_jobs.id"), nullable=True, index=True
     )
+    # Committed by an import whose grouping phase hasn't run yet (ADR-028): the image has
+    # no group and is listed nowhere (``listed_images``) until its import groups it
+    awaiting_grouping: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     thumbnail_key: Mapped[str | None] = mapped_column(String)
 
     created_at: Mapped[datetime | None] = mapped_column(
@@ -232,6 +257,14 @@ class Image(Base):
 
     def __repr__(self):
         return f"<Image(id={self.id}, name='{self.name}', filename='{self.filename}')>"
+
+
+def listed_images() -> ColumnElement[bool]:
+    """The images the library shows anywhere (gallery, search, facets, counts, exports):
+    every image but those an import has committed and not yet grouped (ADR-028). Add it to
+    every query that lists or counts images; lookups by id don't need it. It renders as
+    ``LISTED_IMAGES_SQL``, the condition of the partial indexes SQLite matches it against."""
+    return Image.awaiting_grouping == false()
 
 
 class ImageGroup(Base):
@@ -338,6 +371,29 @@ class Color(Base):
         return f"<Color(hex='{self.color_hex}', percentage={self.percentage})>"
 
 
+class ImageGroupingFeatures(Base):
+    """Per-image content features for variant grouping (ADR-028, design/variant-grouping.md §4).
+
+    Written by the ingest worker from the large thumbnail; read and decoded by
+    ``backend.pipeline.grouping_features``. Videos have no row; an image whose features
+    couldn't be computed has a row with NULLs. Foreign keys aren't enforced, so every
+    path that deletes images deletes these rows too (``deletion_service``, purge).
+    """
+
+    __tablename__ = "image_grouping_features"
+
+    image_id: Mapped[int] = mapped_column(Integer, ForeignKey("images.id"), primary_key=True)
+    # The feature algorithm's version (GROUPING_FEATURES_VERSION when written)
+    version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # 256-bit DCT pHash, MSB-first row-major (imagehash.phash(hash_size=16) as bytes)
+    phash256: Mapped[bytes | None] = mapped_column(LargeBinary(32), nullable=True)
+    # 32×32 z-scored edge map, 1024 little-endian float16
+    edge: Mapped[bytes | None] = mapped_column(LargeBinary(2048), nullable=True)
+
+    def __repr__(self):
+        return f"<ImageGroupingFeatures(image_id={self.image_id}, version={self.version})>"
+
+
 class ImportJob(Base):
     """One import the user started (ADR-018). Aggregates its groups and items.
 
@@ -371,6 +427,9 @@ class ImportJob(Base):
     library_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("library_sources.id"), nullable=True
     )
+    # When the grouping phase last grouped the job's images (ADR-028). A sealed job with
+    # nothing open and this unset is in the grouping phase; cleared when items re-open
+    grouped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -399,10 +458,11 @@ class AppSetting(Base):
 
 
 class ImportGroup(Base):
-    """A group planned from the uploaded paths at seal time (ADR-018).
+    """A group the grouping phase found among an import's files (ADR-018, ADR-028).
 
-    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``)
-    or one created when the first image of the group commits.
+    Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``), one
+    minted for it, or none when none of its files became an image (all duplicates, failed or
+    sorted out).
     """
 
     __tablename__ = "import_groups"

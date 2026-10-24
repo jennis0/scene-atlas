@@ -55,6 +55,33 @@ def shutdown_signal_cleared():
     clear_shutdown()
 
 
+@pytest.fixture(autouse=True)
+def grouping_inline(monkeypatch):
+    """An import's grouping phase (ADR-028) runs synchronously where it is scheduled, never
+    on the JobRunner's threads, and without embeddings (no model in tests). Tests that need
+    another readiness install their own scheduler."""
+    from backend.pipeline import group_jobs
+
+    scheduler = group_jobs.GroupingScheduler(
+        runner=lambda job_id, run: run(job_id), readiness=lambda: group_jobs.Readiness.OFF
+    )
+    monkeypatch.setattr(group_jobs, "_scheduler", scheduler)
+    return scheduler
+
+
+@pytest.fixture
+def no_grouping(monkeypatch):
+    """No grouping phase at all: jobs stay ``grouping`` (tests of that state, and tests
+    counting a batch's queries)."""
+    from backend.pipeline import group_jobs
+
+    class _Off(group_jobs.GroupingScheduler):
+        def schedule(self):
+            return []
+
+    monkeypatch.setattr(group_jobs, "_scheduler", _Off())
+
+
 @pytest.fixture
 def tmp_db(tmp_path):
     """Fresh SQLite DB seeded with tag categories."""

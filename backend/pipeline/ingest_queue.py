@@ -23,9 +23,8 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import cast
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
@@ -40,10 +39,11 @@ from backend.app.models import (
     SourceFile,
     TagCategory,
 )
-from backend.app.services import ImageParser
+from backend.app.services import ImageParser, variant_grouping
 from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.linked_files import Version, sync_files
+from backend.app.timeutil import utcnow
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
 from .linked_refresh import (
@@ -80,10 +80,6 @@ _FILENAME_GRID_FIELDS = ("gridded", "grid_width", "grid_height", "grid_type")
 
 ARCHIVE_EXTENSIONS = frozenset({".zip"})
 _IN_CHUNK = 500  # Keep IN (...) lists far below SQLite's bound-variable limit
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 # Sessions
@@ -283,16 +279,16 @@ def _fail_validation(item: ImportItem, reason: str) -> None:
     item.error_reason = reason
 
 
-def _build_parser(db: Session) -> ImageParser:
+def build_parser(db: Session) -> ImageParser:
     categories = db.query(TagCategory).all()
     return ImageParser(
         tag_categories=[{"name": c.name, "common_values": c.common_values} for c in categories]
     )
 
 
-def _parsed_payload(parsed: dict, group_name: str) -> dict:
+def _parsed_payload(parsed: dict) -> dict:
     return {
-        "name": parsed.get("name") or group_name,
+        "name": parsed.get("name"),
         "subgroup": parsed.get("subgroup"),
         "tags": parsed.get("tags") or [],
         "gridded": parsed.get("gridded"),
@@ -317,7 +313,7 @@ def effective_parsed(image_type: str, parsed: dict) -> dict:
     }
 
 
-def _existing_groups(db: Session, names: set[str]) -> dict[tuple[str, str | None], int]:
+def existing_groups(db: Session, names: set[str]) -> dict[tuple[str, str | None], int]:
     """Map (base_name, author) → oldest matching ImageGroup id, querying in chunks."""
     found: dict[tuple[str, str | None], int] = {}
     ordered = sorted(names)
@@ -334,108 +330,126 @@ def _existing_groups(db: Session, names: set[str]) -> dict[tuple[str, str | None
     return found
 
 
-@dataclass(frozen=True)
-class PlannedGroup:
-    author: str | None
-    group_name: str
-    items: list[tuple[int, str]]  # (item id, parsed JSON)
+def in_map_bucket(image_type: str) -> bool:
+    """Whether an item's declared type makes it a map for grouping: battlemaps, and Auto
+    items not sorted to a type (they're parsed as maps; group names don't depend on it)."""
+    return image_type in (BATTLEMAP, AUTO)
 
 
-def compute_plan(db: Session, job_id: str) -> list[PlannedGroup]:
-    """Parse the job's paths and work out its groups. Read-only, and the slow part of a
-    seal (parsing), so a large import can do it before taking the write lock."""
-    items = (
+def known_authors(db: Session, created_before: datetime | None = None) -> list[str]:
+    """Creators in the library (optionally only those of groups created before a time): a
+    folder named after one is theirs, never one map's group."""
+    query = select(ImageGroup.author).distinct().where(ImageGroup.author.isnot(None))
+    if created_before is not None:
+        query = query.where(ImageGroup.created_at < created_before)
+    return sorted(a for a in db.scalars(query) if a)
+
+
+def item_payload(parser: ImageParser, path: str, item_type: str) -> dict:
+    """An item's ``parsed`` payload from its path. An Auto item is parsed as a battlemap and
+    also keeps its scene parse's tags (they differ by type: junk words) for
+    ``effective_parsed``."""
+    parse_as = BATTLEMAP if item_type == AUTO else item_type
+    payload = _parsed_payload(parser.parse(path, image_type=parse_as))
+    if item_type == AUTO:
+        payload["scene_tags"] = parser.parse(path, image_type=SCENE)["tags"]
+    return payload
+
+
+# Enough candidates for any real pack; bounds the per-image scoring work.
+_MAX_SIBLING_GRID_COUNTS = 24
+
+
+def _sibling_grid_counts(payloads: dict[int, dict], folders: dict[int, str]) -> None:
+    """Give each payload the distinct NxM grid sizes its siblings' file names give (both
+    orientations, glued-digit readings too): candidates for size-only grid detection, never
+    truth (design/grid-detection-v3.md). Siblings are the files of the same effective
+    folder (``variant_grouping.effective_folders``: ``Keep/Gridded`` and ``Keep/No Grid``
+    are ``Keep``'s), since groups don't exist until the import has finished."""
+    by_folder: dict[str, dict[tuple[int, int], None]] = {}
+    for item_id, payload in payloads.items():
+        w, h = payload.get("grid_width"), payload.get("grid_height")
+        if not (w and h):
+            continue
+        counts = by_folder.setdefault(folders[item_id], {})
+        for gw, gh in [(w, h), *payload.get("grid_size_alternatives", ())]:
+            if len(counts) < _MAX_SIBLING_GRID_COUNTS:
+                counts[(int(gw), int(gh))] = None
+                counts[(int(gh), int(gw))] = None
+    for item_id, payload in payloads.items():
+        payload["sibling_grid_counts"] = [list(c) for c in by_folder.get(folders[item_id], {})]
+
+
+def _plannable_items(db: Session, job_id: str) -> list[tuple[int, str, str]]:
+    """(id, relative path, image type) of the items a seal parses, by id: not archives, and
+    not files already settled by the manifest (failed or skipped: oversized, not an image)."""
+    rows = (
         db.query(ImportItem.id, ImportItem.relative_path, ImportItem.image_type)
         .filter(
             ImportItem.job_id == job_id,
             ImportItem.kind != "archive",
-            ImportItem.state != st.FAILED,
+            ImportItem.state.not_in((st.FAILED, st.SKIPPED)),
         )
+        .order_by(ImportItem.id)
         .all()
     )
-    by_path = {path: (item_id, image_type) for item_id, path, image_type in items}
-    by_type: dict[str, list[str]] = {}
-    for _, path, image_type in items:
-        # Auto items are grouped as battlemaps: group names don't depend on the type
-        parse_as = BATTLEMAP if image_type == AUTO else image_type
-        by_type.setdefault(parse_as, []).append(path)
-
-    parser = _build_parser(db)
-    # A folder named after a creator in the library is theirs, never one map's group
-    known_authors = db.scalars(select(ImageGroup.author).distinct()).all()
-    planned: list[PlannedGroup] = []
-    for image_type, paths in sorted(by_type.items()):
-        for group in parser.group_files(
-            paths, image_type=image_type, known_authors=[a for a in known_authors if a]
-        ):
-            group_name = group["group_name"]
-            parsed_items: list[tuple[int, str]] = []
-            for file_entry in group["files"]:
-                item_id, item_type = by_path[file_entry["relative_path"]]
-                payload = _parsed_payload(file_entry["parsed"], group_name)
-                if item_type == AUTO:
-                    # Tags differ by type (junk words); keep the scene parse for
-                    # effective_parsed
-                    payload["scene_tags"] = parser.parse(
-                        file_entry["relative_path"], image_type=SCENE
-                    )["tags"]
-                parsed_items.append((item_id, json.dumps(payload)))
-            planned.append(PlannedGroup(group.get("author") or "Unknown", group_name, parsed_items))
-    return planned
+    return [(item_id, path, image_type) for item_id, path, image_type in rows]
 
 
-def apply_plan(db: Session, job_id: str, planned: list[PlannedGroup]) -> list[ImportGroup]:
-    """Seal the job with a plan from ``compute_plan``: create its groups, resolved against
-    the gallery, and give each item its group and parse. Idempotent."""
+# A seal's plan: (item id, parsed JSON) for each file it parsed
+Plan = list[tuple[int, str]]
+
+
+def compute_plan(db: Session, job_id: str) -> Plan:
+    """Parse each of the job's paths (name, tags, grid hints; design/parser.md). Read-only
+    and the slow part of a seal, so a large import can do it before taking the write lock.
+
+    There is no grouping here: groups are identified once the job has finished, from the
+    files' content as well as their paths (``group_jobs``, ADR-028).
+    """
+    items = _plannable_items(db, job_id)
+    parser = build_parser(db)
+    payloads = {item_id: item_payload(parser, path, kind) for item_id, path, kind in items}
+    paths = {item_id: path for item_id, path, _ in items}
+    effective = variant_grouping.effective_folders(paths.values())
+    _sibling_grid_counts(payloads, {item_id: effective[path] for item_id, path in paths.items()})
+    return [(item_id, json.dumps(payloads[item_id])) for item_id, _, _ in items]
+
+
+def apply_plan(db: Session, job_id: str, planned: Plan, *, check_current: bool = True) -> None:
+    """Seal the job with a plan from ``compute_plan``: give each item its parse and make
+    the job claimable. Idempotent.
+
+    A plan computed before the write lock was taken (``seal_import``) is checked against
+    the job's files and made again if they changed meanwhile. ``check_current=False`` skips
+    that scan when nothing could have changed: planned in the same transaction
+    (``plan_job``), or for a job only its own caller adds files to (a linked scan)."""
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
     if job.planned_at is not None:
-        return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
-
-    existing = _existing_groups(db, {group.group_name for group in planned})
-    groups: list[ImportGroup] = []
-    for order, group in enumerate(planned):
-        existing_id = existing.get((group.group_name, group.author))
-        groups.append(
-            ImportGroup(
-                job_id=job_id,
-                author=group.author,
-                group_name=group.group_name,
-                image_group_id=existing_id,
-                merged_into_existing=existing_id is not None,
-                sort_order=order,
-            )
+        return
+    planned_ids = {item_id for item_id, _ in planned}
+    if check_current and planned_ids != {item_id for item_id, *_ in _plannable_items(db, job_id)}:
+        # The file list changed after the plan was computed outside the lock
+        logger.warning("Import %s changed while it was being sealed; planning it again", job_id)
+        planned = compute_plan(db, job_id)
+    if planned:
+        db.execute(  # bulk UPDATE by primary key
+            update(ImportItem), [{"id": item_id, "parsed": parsed} for item_id, parsed in planned]
         )
-    db.add_all(groups)
-    db.flush()  # one batched INSERT assigns every group id
-    updates = [
-        {"id": item_id, "import_group_id": import_group.id, "parsed": parsed}
-        for import_group, group in zip(groups, planned, strict=True)
-        for item_id, parsed in group.items
-    ]
-    if updates:
-        db.execute(update(ImportItem), updates)  # bulk UPDATE by primary key
-
     job.planned_at = utcnow()
     db.flush()
     recompute_job_status(db, job_id)
-    return groups
 
 
-def plan_job(db: Session, job_id: str) -> list[ImportGroup]:
-    """Seal the manifest: parse paths, work out groups, resolve them against the gallery.
-
-    Idempotent: a job that's already planned returns its existing groups. Groups
-    whose (name, author) already exists in the gallery are marked
-    ``merged_into_existing`` and will add to that gallery group.
-    """
+def plan_job(db: Session, job_id: str) -> None:
+    """Seal the manifest: parse every path and make the job claimable. Idempotent."""
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
-    if job.planned_at is not None:
-        return db.query(ImportGroup).filter(ImportGroup.job_id == job_id).all()
-    return apply_plan(db, job_id, compute_plan(db, job_id))
+    if job.planned_at is None:
+        apply_plan(db, job_id, compute_plan(db, job_id), check_current=False)
 
 
 # Job status
@@ -452,13 +466,21 @@ def job_counts(db: Session, job_id: str) -> dict[str, int]:
 
 
 def recompute_job_status(db: Session, job_id: str) -> str:
-    """The only writer of active ↔ completed. Call after any item change."""
+    """The only writer of a job's status. Call after any item change.
+
+    A job with nothing open is ``grouping`` until its grouping phase has run
+    (``group_jobs``), then ``completed``. One with open items again (retry, import as copy,
+    include) is no longer grouped: its new images are grouped once nothing is open.
+    """
     db.flush()  # sessions don't autoflush; the counts must see this transaction's changes
     job = db.get(ImportJob, job_id)
     if job is None:
         raise KeyError(job_id)
+    counts = job_counts(db, job_id)
+    if job.grouped_at is not None and has_open_items(counts):
+        job.grouped_at = None
     new_status = st.compute_job_status(
-        job.status, job.planned_at is not None, job_counts(db, job_id)
+        job.status, job.planned_at is not None, counts, grouped=job.grouped_at is not None
     )
     now = utcnow()
     if new_status != job.status:
@@ -466,6 +488,11 @@ def recompute_job_status(db: Session, job_id: str) -> str:
         job.completed_at = now if new_status == st.JOB_COMPLETED else None
     job.updated_at = now
     return new_status
+
+
+def has_open_items(counts: dict[str, int]) -> bool:
+    """Items awaiting bytes, ready or processing (from ``job_counts``)."""
+    return any(counts.get(state, 0) for state in st.OPEN_ITEM_STATES)
 
 
 # Byte receipt
@@ -658,7 +685,6 @@ class ClaimedItem:
 
     id: int
     job_id: str
-    import_group_id: int | None
     kind: str
     relative_path: str
     filename: str
@@ -680,40 +706,9 @@ class ClaimedItem:
     # A linked file that already is an image's: the item refreshes that image in place
     # (design/library-setup.md §4.5). The image as it was when the item was claimed.
     refresh: RefreshTarget | None = None
-    # Grid sizes (NxM) named by other files in the same import group, both orientations.
+    # Grid sizes (NxM) named by sibling files (set at seal), both orientations.
     # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
     sibling_grid_counts: tuple[tuple[int, int], ...] = ()
-
-
-# Enough candidates for any real pack; bounds the per-image scoring work.
-_MAX_SIBLING_GRID_COUNTS = 24
-
-
-def _sibling_grid_counts(
-    db: Session, group_ids: set[int]
-) -> dict[int, tuple[tuple[int, int], ...]]:
-    """Distinct NxM grid sizes parsed from file names, per import group."""
-    found: dict[int, dict[tuple[int, int], None]] = {gid: {} for gid in group_ids}
-    if not group_ids:
-        return {}
-    rows = cast(
-        Iterable[tuple[int, str]],
-        db.query(ImportItem.import_group_id, ImportItem.parsed).filter(
-            ImportItem.import_group_id.in_(group_ids), ImportItem.parsed.isnot(None)
-        ),
-    )
-    for group_id, parsed_json in rows:
-        parsed = json.loads(parsed_json)
-        w, h = parsed.get("grid_width"), parsed.get("grid_height")
-        if not (w and h):
-            continue
-        counts = found[group_id]
-        # Glued-digit readings too; candidates are scored against the image, never trusted
-        for gw, gh in [(w, h), *parsed.get("grid_size_alternatives", ())]:
-            if len(counts) < _MAX_SIBLING_GRID_COUNTS:
-                counts[(int(gw), int(gh))] = None
-                counts[(int(gh), int(gw))] = None
-    return {gid: tuple(counts) for gid, counts in found.items()}
 
 
 @dataclass(frozen=True)
@@ -727,7 +722,6 @@ class _LinkedSources:
 
 def _snapshot(
     item: ImportItem,
-    sibling_grid_counts: tuple[tuple[int, int], ...] = (),
     source_roots: tuple[str, ...] = (),
     linked: _LinkedSources | None = None,
 ) -> ClaimedItem:
@@ -735,20 +729,22 @@ def _snapshot(
     refresh = linked.targets.get(file_id) if linked and file_id is not None else None
     # A refresh keeps the image's type, whatever the scan queued it as
     image_type = (refresh.image_type or BATTLEMAP) if refresh is not None else item.image_type
+    parsed = json.loads(item.parsed) if item.parsed else {}
     return ClaimedItem(
         id=item.id,
         job_id=item.job_id,
-        import_group_id=item.import_group_id,
         kind=item.kind,
         relative_path=item.relative_path,
         filename=item.filename,
         image_type=image_type,
-        parsed=effective_parsed(image_type, json.loads(item.parsed) if item.parsed else {}),
+        parsed=effective_parsed(image_type, parsed),
         staging_key=item.staging_key,
         source_hash=item.source_hash,
         attempts=item.attempts,
         allow_duplicate=bool(item.allow_duplicate),
-        sibling_grid_counts=sibling_grid_counts,
+        sibling_grid_counts=tuple(
+            (int(w), int(h)) for w, h in parsed.get("sibling_grid_counts", ())
+        ),
         source_path=item.source_path,
         source_roots=source_roots if item.source_path else (),
         source_file_id=file_id,
@@ -794,7 +790,8 @@ def claim_next_batch(
 ) -> tuple[str | None, list[ClaimedItem]]:
     """Claim up to ``limit`` ready items from the next job in round-robin order.
 
-    Within a job, items are claimed in group order so groups complete together.
+    Within a job, items are claimed in manifest order (groups don't exist until the job
+    has finished: ADR-028).
     """
     now = now or utcnow()
     with write_session() as db:
@@ -804,9 +801,8 @@ def claim_next_batch(
         job_id = _pick_job(list(available), after_job_id)
         items = (
             db.query(ImportItem)
-            .outerjoin(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
             .filter(ImportItem.job_id == job_id, _claimable_filter(now))
-            .order_by(func.coalesce(ImportGroup.sort_order, 0), ImportItem.id)
+            .order_by(ImportItem.id)
             .limit(limit)
             .all()
         )
@@ -815,20 +811,9 @@ def claim_next_batch(
             item.attempts += 1
             item.retry_after = None
         db.flush()
-        siblings = _sibling_grid_counts(
-            db, {item.import_group_id for item in items if item.import_group_id is not None}
-        )
         roots = tuple(available[job_id])
         linked = _linked_sources(db, items)
-        return job_id, [
-            _snapshot(
-                item,
-                siblings.get(item.import_group_id, ()) if item.import_group_id else (),
-                roots,
-                linked,
-            )
-            for item in items
-        ]
+        return job_id, [_snapshot(item, roots, linked) for item in items]
 
 
 def _claimable_jobs(db: Session, now: datetime) -> dict[str, list[str]]:
@@ -1224,15 +1209,11 @@ def skip_items(
     reason: str,
     *,
     states: Iterable[str] | None = None,
-    import_group_id: int | None = None,
 ) -> int:
-    """Mark open items skipped (cancel, finish-without, skip group, abandonment)."""
+    """Mark open items skipped (cancel, finish-without, abandonment)."""
     allowed = st.sources_for(ItemEvent.SKIP)
     states = allowed if states is None else allowed & set(states)
-    query = _items_in(db, job_id, states, None)
-    if import_group_id is not None:
-        query = query.filter(ImportItem.import_group_id == import_group_id)
-    items = query.all()
+    items = _items_in(db, job_id, states, None).all()
     for item in items:
         item.state = st.next_item_state(item.state, ItemEvent.SKIP)
         item.error_reason = reason

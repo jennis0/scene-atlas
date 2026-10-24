@@ -659,6 +659,21 @@ class TestCleanGroupName:
         assert result == "Blacksmith"
 
 
+class TestPublicNameHelpers:
+    """Public wrappers used by variant grouping."""
+
+    def test_clean_group_name_matches_private(self):
+        p = make_parser()
+        for raw, author in [("Snowy Forest Tier 2", None), ("dreadmaps_dread-hills", "Dreadmaps")]:
+            assert p.clean_group_name(raw, author) == p._clean_group_name(raw, author=author)
+
+    def test_author_from_stem(self):
+        p = make_parser()
+        assert p.author_from_stem("Arena_byUpsetti_Night") == "Upsetti"
+        assert p.author_from_stem("RubyGhostLobby") is None
+        assert p.author_from_stem("Forest_Road") is None
+
+
 # ===========================================================================
 # _build_name() tests
 # ===========================================================================

@@ -23,7 +23,7 @@ import { EmptyLibraryWelcome } from '@/components/EmptyLibraryWelcome'
 import { LinkedFolderBanner } from '@/components/LinkedFolderBanner'
 import { GalleryHeader } from '@/components/GalleryHeader'
 import { useGallerySearch } from '@/hooks/useGallerySearch'
-import { useImportGalleryRefresh } from '@/hooks/useImportGalleryRefresh'
+import { latestGroupedAt, useImportGalleryRefresh } from '@/hooks/useImportGalleryRefresh'
 import { useGalleryDialogs } from '@/hooks/useGalleryDialogs'
 import { useEmbeddingStatus } from '@/hooks/useEmbeddingStatus'
 import { useLibraryStatus } from '@/hooks/useLibraryStatus'
@@ -93,9 +93,7 @@ export function Gallery() {
   const libraryEmpty = !search.hasActiveSearch && (search.facets?.total_images ?? 0) === 0
   const { markFinished } = useImportGalleryRefresh({
     containerRef: resultsRef,
-    importedTotal: importSnapshot.jobs.reduce((sum, j) => sum + j.counts.done, 0),
-    newestAtTop:
-      !search.submittedQuery && search.sortBy === 'created_at' && search.sortDir === 'desc',
+    groupedAt: importSnapshot.loaded ? latestGroupedAt(importSnapshot.jobs) : undefined,
     paused: dialogs.selectedImage !== null,
     libraryEmpty,
   })

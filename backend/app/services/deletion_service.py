@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from ..models.database import Color, Image, Tag
+from ..models.database import Color, Image, ImageGroupingFeatures, Tag
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 def safe_delete_image(db: Session, image: Image) -> None:
     """Delete an image row; remove its files only if no other row shares them.
 
-    Always deletes the image's embedding; tags and colors go via cascade. A linked
+    Always deletes the image's embedding and grouping features; tags and colors go via
+    cascade. A linked
     image's file in the linked folder is never touched: its row becomes ``removed``
     (``linked_files.forget_images``) and only its thumbnails go. The caller commits.
     """
@@ -28,6 +29,8 @@ def safe_delete_image(db: Session, image: Image) -> None:
     image_id = image.id
 
     forget_images(db, [image])
+    # No ORM relationship (and foreign keys aren't enforced): deleted explicitly
+    db.execute(delete(ImageGroupingFeatures).where(ImageGroupingFeatures.image_id == image_id))
     # Delete the DB record (cascades tags, colors)
     db.delete(image)
     db.flush()
@@ -106,7 +109,8 @@ _CHUNK = 500
 
 
 def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
-    """Delete image rows (tags/colours cascade) and return the files to remove after commit.
+    """Delete image rows (and their tags, colours and grouping features) and return the
+    files to remove after commit.
 
     Stored files still referenced by another image (legacy shared-storage
     records) are kept. Linked images have no stored file: their thumbnails go, and their
@@ -130,6 +134,7 @@ def delete_image_rows(db: Session, images: list[Image]) -> PendingFileDeletes:
         chunk = pending.image_ids[start : start + _CHUNK]
         db.execute(delete(Tag).where(Tag.image_id.in_(chunk)))
         db.execute(delete(Color).where(Color.image_id.in_(chunk)))
+        db.execute(delete(ImageGroupingFeatures).where(ImageGroupingFeatures.image_id.in_(chunk)))
         db.execute(delete(Image).where(Image.id.in_(chunk)))
     for image in images:
         db.expunge(image)

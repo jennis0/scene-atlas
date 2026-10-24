@@ -36,11 +36,13 @@ Skipped images can be included until you clear the import from Activity (the rep
 
 ## Groups and Names
 
-Scene Atlas sorts files into [groups](/guide/groups) as the import starts:
+Once an import's images have all been processed, Scene Atlas sorts them into [groups](/guide/groups), using their folders, their file names and the pictures themselves. [How Groups Are Made](/guide/groups#how-groups-are-made) explains what it looks for, and how the way you organise your files affects the result.
 
-- **Folders** are read as `Author/Group/Subgroup/file`. `Czepeku/Forest Clearing/summer.jpg` and `Czepeku/Forest Clearing/winter.jpg` become one group, *Forest Clearing* by Czepeku. Deeper folders become [subgroups](/guide/groups#subgroups), and generic folders such as `Gridded` or `VTT` are skipped.
-- **Shared filename prefixes** group loose files. `TavernBrawl_Grid.jpg` and `TavernBrawl_Night.jpg` end up together.
-- **Authors** can also come from a filename, such as `ArenabyUpsetti.jpg`.
+- `Czepeku/Forest Clearing/summer.jpg` and `Czepeku/Forest Clearing/winter.jpg` become one group, *Forest Clearing* by Czepeku. Folders inside a map's folder, such as its rooms or floors, become [subgroups](/guide/groups#subgroups).
+- `TavernBrawl_Grid.jpg` and `TavernBrawl_Night.jpg` end up together, even among other maps in the same folder.
+- A gridded and a gridless copy of the same map are joined even when they sit in different folders.
+- Scenes in a map's folder join its group; other scenes are kept on their own unless their names or pictures say they belong together. See [Scenes](/guide/groups#scenes).
+- **Authors** come from the folders, or from a filename such as `ArenabyUpsetti.jpg`.
 - **Grid sizes and tags** are read from folder and file names where possible.
 - A group whose name and author match an existing one is added to it.
 
@@ -48,9 +50,9 @@ There's no review step before the import starts. Check and correct the result in
 
 ## Following an Import
 
-The import dialog shows how many files are done, a list of groups with their progress, and roughly how long is left. Images appear in the gallery as they finish.
+The import dialog shows how many files are done and roughly how long is left. When every file has been processed, it shows **Identifying groups…** while Scene Atlas works out which images belong together, comparing the pictures as well as their names and folders. This takes a few seconds, longer for a very large import. The import's images then appear in the gallery all at once, already in their groups, and the groups are ready to review.
 
-![An import part-way through: files processed so far, and progress for each group](/screenshots/import-progress.webp)
+![An import part-way through: files processed so far and the time left](/screenshots/import-progress.webp)
 
 - **Pause** / **Resume** stop and restart processing.
 - **Cancel import** stops it. Everything already imported is kept.

@@ -18,7 +18,15 @@ import pytest
 from sqlalchemy import insert
 
 from backend.app.config import settings
-from backend.app.models import Image, ImportItem, ImportJob, LibrarySource, SourceFile, Tag
+from backend.app.models import (
+    Image,
+    ImageGroupingFeatures,
+    ImportItem,
+    ImportJob,
+    LibrarySource,
+    SourceFile,
+    Tag,
+)
 from backend.app.models.database import (
     FILE_DUPLICATE,
     FILE_IMAGE,
@@ -286,6 +294,12 @@ def thumbnails_of(image: Image) -> set[str]:
     return {f"{stem}_{w}x{h}.{ext}" for w, h in settings.thumbnail_sizes}
 
 
+def grouping_phashes(api) -> dict[int, bytes | None]:
+    """image id → its stored phash256, for every grouping features row."""
+    with api.SessionLocal() as db:
+        return {r.image_id: r.phash256 for r in db.query(ImageGroupingFeatures)}
+
+
 def tag_values(api, image_id: int) -> set[str]:
     with api.SessionLocal() as db:
         return {t.value for t in db.query(Tag).filter(Tag.image_id == image_id)}
@@ -324,6 +338,7 @@ def test_an_edited_file_refreshes_its_image_in_place(forest, monkeypatch):
         db.add(Tag(image_id=old.id, category="biome", value="glade", source="manual"))
         db.commit()
     tags = tag_values(forest.api, old.id)
+    old_phashes = grouping_phashes(forest.api)
     old_thumbnails = thumbnails_of(old)
     assert old_thumbnails <= thumbnail_files()
     jobs = len(forest.jobs())
@@ -359,6 +374,12 @@ def test_an_edited_file_refreshes_its_image_in_place(forest, monkeypatch):
     assert image.thumbnail_key != old.thumbnail_key
     assert thumbnails_of(image) <= thumbnail_files()
     assert not old_thumbnails & thumbnail_files()  # the old thumbnails are gone
+    # Grouping features are recomputed from the new pixels; the other image's are kept
+    phashes = grouping_phashes(forest.api)
+    assert set(phashes) == set(old_phashes)
+    assert phashes[image.id] is not None and phashes[image.id] != old_phashes[image.id]
+    night = images[NIGHT].id
+    assert phashes[night] == old_phashes[night]
     vector = forest.api.vectors.get_embedding(image.id)
     assert vector is not None and vector[0] == pytest.approx(0.9)
     assert forest.client.get(f"/api/v1/images/{image.id}/file").content == edited
@@ -672,6 +693,7 @@ def test_a_removed_image_stays_removed(forest):
     assert r.status_code == 200, r.text
     assert not thumbnails.exists(str(night.thumbnail_key))
     assert forest.rows()["Czepeku/Forest/Forest_Night.png"].state == FILE_REMOVED
+    assert grouping_phashes(forest.api) == {}
 
     assert forest.sync().job_id is None
     assert forest.images() == {}
@@ -685,6 +707,7 @@ def test_remove_missing_maps(forest):
     assert list(forest.images()) == ["Czepeku/Forest/Forest_Day.png"]
     assert forest.status()["missing_count"] == 0
     assert forest.rows()["Czepeku/Forest/Forest_Night.png"].state == FILE_REMOVED
+    assert set(grouping_phashes(forest.api)) == {i.id for i in forest.images().values()}
 
     # Put back, it stays removed
     write_tree(forest.root, {"Czepeku/Forest/Forest_Night.png": image_bytes(2)})
@@ -699,6 +722,7 @@ def test_stop_using_the_folder(forest):
     with forest.api.SessionLocal() as db:
         assert db.query(Image).count() == 0
         assert db.query(SourceFile).count() == 0
+        assert db.query(ImageGroupingFeatures).count() == 0
     status = forest.status()
     assert status["state"] == "detached" and status["image_count"] == 0
     # Until the configuration drops the folder, it isn't scanned again
@@ -759,6 +783,7 @@ def test_purge_never_touches_the_linked_folder(forest):
         assert db.query(Image).count() == 0
         assert db.query(SourceFile).count() == 0
         assert db.query(LibrarySource).count() == 0
+        assert db.query(ImageGroupingFeatures).count() == 0
     assert tree_digest(forest.root) == before
     # The folder is still linked: its next scan adds its maps again
     assert forest.sync().new == 2

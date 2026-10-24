@@ -25,6 +25,9 @@ Section numbers are referenced from code comments (`design/ingestion.md §N`); k
 | `backend/app/services/originals.py` | The source interface: reading an original, stored or linked ([storage.md](storage.md#linked-folder)). |
 | `backend/pipeline/ingest_maintenance.py` | Scheduled, state-based cleanup. |
 | `backend/pipeline/image_hashes.py` | File SHA-256, strip-wise pixel hash, DCT pHash. |
+| `backend/pipeline/grouping_features.py` | Variant-grouping features (256-bit pHash, edge map): computed in prepare, stored at commit, `load_grouping_features` for the grouping phase ([variant-grouping.md §4](variant-grouping.md#4-content-features)). |
+| `backend/pipeline/group_jobs.py` | The grouping phase once a job has finished: `plan_grouping` (pure), `group_job`, `GroupingScheduler` ([§5.8](#58-identifying-groups)). |
+| `backend/app/services/grouping_calibration.py` | Bundled per-encoder embedding thresholds for grouping (`data/heads/grouping/<sha>.json`). |
 | `backend/pipeline/stored_format.py` | Optional conversion of new imports to the configured stored format. |
 | `backend/pipeline/vector_reconcile.py` | SQLite ↔ LanceDB id-set reconciliation. |
 | `backend/pipeline/error_classifier.py` | Exception → user-facing reason and `kind`. |
@@ -68,19 +71,20 @@ Defined in `backend/app/models/database.py`; tables created by Alembic `020_inge
 | `source_roots` | Local imports: JSON list of the folders the job reads from; the worker skips the job while any is missing |
 | `library_source_id` | A scan of the linked folder ([§5.7](#57-linked-items)). Undo is refused for these |
 | `dismissed_at` | Hidden from the activity dock. Deletes nothing. |
+| `grouped_at` | When the grouping phase grouped the job's images ([§5.8](#58-identifying-groups)). A sealed job with nothing open and no `grouped_at` is `grouping`. Cleared whenever the job has open items again. |
 | `created_at`, `updated_at`, `completed_at` | |
 
 ### 3.2 `import_groups`
 
-Groups worked out from paths at seal time.
+Groups the grouping phase found once the job had finished ([§5.8](#58-identifying-groups)): none exist while a job imports.
 
 | Column | Notes |
 |---|---|
 | `id`, `job_id` | |
 | `author`, `group_name` | Parser output |
-| `image_group_id` | Gallery group this resolves to: an existing one (merge) or one created on first commit |
-| `merged_into_existing` | An `ImageGroup` with the same `(base_name, author)` existed at plan time. Undo never deletes such groups. |
-| `sort_order` | Processing order within the job |
+| `image_group_id` | Gallery group this resolves to: an existing one (merge) or one minted for it; NULL when none of its files made an image |
+| `merged_into_existing` | It adds to a gallery group that existed: one with the same `(base_name, author)` (for map groups, only when the name identifies the map: [parser.md](parser.md#grouping-by-type)). Undo never deletes such groups. |
+| `sort_order` | Order in the report (path order) |
 
 ### 3.3 `import_items`
 
@@ -88,12 +92,12 @@ One row per file. All durable ingest state lives here.
 
 | Column | Notes |
 |---|---|
-| `id`, `job_id`, `import_group_id` | `import_group_id` is NULL until planned |
+| `id`, `job_id`, `import_group_id` | `import_group_id` is NULL until the job's grouping phase |
 | `kind` | `image` \| `video` \| `archive` (a zip that failed to expand is one failed `archive` item) |
 | `relative_path`, `filename` | Display and resume matching only; **never used as a filesystem path**. Unique per job (`uq_import_items_job_path`). |
 | `size`, `last_modified` | From the client manifest |
 | `image_type` | `battlemap` \| `scene` \| `auto` (resolved while processing; set to a fixed type on include) |
-| `parsed` | JSON parser output (name, subgroup, tags, filename grid info), set at plan time. Auto items also carry `scene_tags` ([§5.6](#56-auto-image-type)) |
+| `parsed` | JSON parser output (name, tags, filename grid info, and `sibling_grid_counts`: the NxM sizes its effective folder's files name), set at seal. Auto items also carry `scene_tags` ([§5.6](#56-auto-image-type)) |
 | `classification` | Auto items: JSON `{group, probabilities, fell_back, head}` from the image-type head |
 | `preview_key` | Items Auto sorted out: a preview (the medium thumbnail) in the job's staging folder |
 | `state` | See [§4.1](#41-item-states) |
@@ -112,7 +116,7 @@ Indexes: `(state, job_id)` for claiming, `(job_id, state)` for counts, `(job_id,
 
 ### 3.4 Image columns written by ingest
 
-`images.content_hash` (SHA-256 of the original bytes), `stored_hash` (SHA-256 of the stored file; equal to `content_hash` unless the file was converted, see [§10](#10-stored-format)), `pixel_hash` (NULL for video and for reduced-scale JPEG decodes), `phash` (64-bit, NULL for video), and `import_job_id` (provenance and Undo). See [storage.md](storage.md).
+`images.awaiting_grouping` (committed but not yet grouped: listed nowhere, [§5.8](#58-identifying-groups)), `images.content_hash` (SHA-256 of the original bytes), `stored_hash` (SHA-256 of the stored file; equal to `content_hash` unless the file was converted, see [§10](#10-stored-format)), `pixel_hash` (NULL for video and for reduced-scale JPEG decodes), `phash` (64-bit, NULL for video), and `import_job_id` (provenance and Undo). Each image (not video) also gets an `image_grouping_features` row. See [storage.md](storage.md).
 
 ## 4. State machines
 
@@ -137,7 +141,7 @@ The table in `ingest_state._TRANSITIONS` is the source of truth:
 | `awaiting_bytes` | `BYTES_RECEIVED` | `ready` |
 | `awaiting_bytes` | `HASH_DUPLICATE` (client hash or received bytes match the library) | `duplicate` |
 | `awaiting_bytes` | `FILE_ERROR` (bytes fail the magic-byte check; also manifest validation) | `failed` |
-| `awaiting_bytes`, `ready` | `SKIP` (cancel, finish-without, skip group, abandoned, unsupported file in manifest) | `skipped` |
+| `awaiting_bytes`, `ready` | `SKIP` (cancel, finish-without, abandoned, unsupported file in manifest) | `skipped` |
 | `ready` | `CLAIM` (`attempts += 1`) | `processing` |
 | `processing` | `COMMITTED` | `done` |
 | `processing` | `DUPLICATE_AT_COMMIT` | `duplicate` |
@@ -162,10 +166,11 @@ Terminal: `done`, `duplicate`, `failed`, `skipped`. `failed`, `duplicate` and so
 
 - **`active`**: the worker may claim its items.
 - **`paused`**: user pause; the worker skips the job.
-- **`completed`**: planned and no items in `awaiting_bytes`, `ready` or `processing`.
-- **`cancelled`**: sticky. Open items become `skipped`; finished work is kept.
+- **`grouping`**: planned, no items in `awaiting_bytes`, `ready` or `processing`, and not yet grouped (`grouped_at` NULL): its groups are being identified ([§5.8](#58-identifying-groups)).
+- **`completed`**: as `grouping`, once grouped.
+- **`cancelled`**: sticky. Open items become `skipped`; finished work is kept (and still grouped).
 
-`ingest_state.compute_job_status()` derives the status; `ingest_queue.recompute_job_status()` is the only writer and is called after every item transition (byte receipt, client hashes, batch commit, failures, recovery, retry, import-as-copy, skip). A retry on a completed job re-opens it. **A job never fails**: outcomes are counts.
+`ingest_state.compute_job_status()` derives the status; `ingest_queue.recompute_job_status()` is the only writer and is called after every item transition (byte receipt, client hashes, batch commit, failures, recovery, retry, import-as-copy, skip). A retry on a completed job re-opens it, and a job with open items again loses `grouped_at`, so its new images are grouped once it finishes ([§5.8](#58-identifying-groups)). **A job never fails**: outcomes are counts.
 
 Derived in the API, never stored:
 - **`upload_interrupted`**: active, items awaiting bytes, nothing ready or processing, and `last_upload_at` older than 2 minutes (`UPLOAD_STALL`). The UI offers "Choose files to resume" or "Finish without them".
@@ -196,7 +201,7 @@ loop:
 ### 5.2 Scheduling
 
 - **Wake-ups**: an in-process `threading.Event`, set on byte receipt, seal, resume, retry and import-as-copy.
-- **Claiming**: round-robin across `active`, planned jobs with claimable items (ordered by `created_at`), so a small import isn't stuck behind a large one. Within a job, items go in `(import_groups.sort_order, id)` order. Claimable = `ready`, not an archive, and `retry_after` NULL or past. Batch size `ingestion_batch_size` (default 16).
+- **Claiming**: round-robin across `active`, planned jobs with claimable items (ordered by `created_at`), so a small import isn't stuck behind a large one. Within a job, items go in manifest (`id`) order. Claimable = `ready`, not an archive, and `retry_after` NULL or past. Batch size `ingestion_batch_size` (default 16).
 - **Single-process assumption**: no leases. At startup every `processing` item is orphaned by definition.
 - **Holds**: `held(reason)` pauses the queue for the duration of a block and waits for the in-flight batch. The model switch (`backend/app/api/models.py`) uses it ("Paused while the AI model changes"). Holds appear as a system pause.
 - **Tests and CLI** drive it synchronously with `drain()`; no thread is needed.
@@ -209,19 +214,20 @@ One batch, in `ingest_process.py`:
    - Missing staged file → `bytes_lost` failure.
    - `plan_decode` reads the header and estimates peak memory; the item reserves that from `MemoryBudget` before decoding.
    - Decode once. JPEGs over `pixel_hash_max_pixels` are decoded at reduced scale (`Image.draft`) and skip the pixel hash; PNG/WebP always decode in full.
-   - From that decode: pixel hash, then thumbnails (150/400/800 px, cascading large → small, LANCZOS; JPEG, or RGBA WebP when the image has transparent pixels; see [storage.md](storage.md#key-generation)). Colours and pHash read the 800 px thumbnail; colour extraction ignores transparent pixels. Grid detection (`_detect_grid`, battlemaps only) re-reads the file: detector v3 at full resolution for maps of 1000 px or more (unless `grid_analysis_max_dim` is set), the legacy detector below that; see [parser.md](parser.md#2-grid-detection-battlemaps-only) and [grid-detection-v3.md](grid-detection-v3.md).
+   - From that decode: pixel hash, then thumbnails (150/400/800 px, cascading large → small, LANCZOS; JPEG, or RGBA WebP when the image has transparent pixels; see [storage.md](storage.md#key-generation)). Colours, pHash and the grouping features (`grouping_features.compute_grouping_features`: 256-bit pHash and edge map, ~2–3 ms) read the 800 px thumbnail; colour extraction ignores transparent pixels, and the grouping features flatten them onto white. A grouping feature that fails is logged and stored as NULL; it never fails the item. Grid detection (`_detect_grid`, battlemaps only) re-reads the file: detector v3 at full resolution for maps of 1000 px or more (unless `grid_analysis_max_dim` is set), the legacy detector below that; see [parser.md](parser.md#2-grid-detection-battlemaps-only) and [grid-detection-v3.md](grid-detection-v3.md).
    - Convert to the stored format if configured ([§10](#10-stored-format)), writing straight into `{image library}/.incoming/`.
    - Otherwise copy the original to `{image library}/.incoming/`. Thumbnails are written to `{thumbnail store}/.incoming/`. Temp files sit on their destination's volume, so final placement is a rename, and the one unavoidable library-drive write happens in parallel with CPU work, outside the write lock.
-   - Videos: first frame for thumbnails and embedding; no pixel hash or pHash.
+   - Videos: first frame for thumbnails and embedding; no pixel hash, pHash or grouping features.
    - Failures are classified with the stage reached (`decode`, `hash`, `thumbnails`, `colors`, `grid_detection`, `convert`, `copy`) and temp files are deleted.
    - Auto items stop after colours (and the head's image features), as a `DecodedItem`: grid detection and storing the original wait for their type ([§5.6](#56-auto-image-type)). Everything else is prepared in one pass and one memory reservation, as above.
 2. **`embed`**: one batched embedding call over the medium thumbnails. On error, every item in the batch fails together (stage `embedding`). Auto items are then sorted, and maps and scenes are finished on the prepare pool (`finish_item`, with its own reservation from `finish_peak_bytes`).
 3. **`commit_batch`**: one `BEGIN IMMEDIATE` transaction (`write_session`). SQLite's single writer makes check-then-insert race-free.
    - Dedup against the library and earlier items in the batch, unless `allow_duplicate`: `content_hash`/`stored_hash` → tier `bytes`, `pixel_hash` → tier `pixels`.
-   - Rename temp files into place; insert image, tags and colours; resolve or create the `ImageGroup` and record it on `import_groups.image_group_id`; mark items `done`, clear `staging_key`; recompute job status.
+   - Rename temp files into place; insert image, tags, colours and grouping features (replacing any row left under a reused image id); the image has no group yet (`awaiting_grouping`; its author and subgroup come with its group); mark items `done`, clear `staging_key`; recompute job status.
    - On exception, placed files are deleted and every item fails with stage `db_save`.
 4. **`write_vectors`**: LanceDB write after the commit. Failure is logged, not fatal; reconciliation repairs it.
 5. Staged files of `done` items are deleted. A crash between commit and this step leaves files for the stray-staging sweep.
+6. A job the batch finished (nothing left open) enters its grouping phase ([§5.8](#58-identifying-groups)).
 
 Crash windows: between rename and commit → orphan store files (orphan sweep); between commit and vector write → missing vector (reconciliation). FTS is kept current by triggers; there is no per-job rebuild.
 
@@ -269,7 +275,7 @@ Held in worker memory and re-detected after a restart. `default_probe()` checks:
 Rationale: [ADR-020](decisions.md#adr-020-auto-image-type-on-import). Heads: `backend/app/services/image_type_classifier.py`, trained and exported by scene-atlas-learning (`release heads`, `release export-heads`).
 
 - **Which items:** only those whose type is `auto` (the job default or a manifest entry). Battlemaps and Scenes are never classified.
-- **Seal:** Auto items are parsed and grouped as battlemaps (group names don't depend on type). The scene parse's tags are kept as `parsed.scene_tags`. `ingest_queue.effective_parsed` gives a scene its scene tags and no filename grid fields, both when an item is sorted and when an included item is claimed.
+- **Seal:** Auto items are parsed as battlemaps. At the grouping phase each image is grouped by its detected type; files Auto sorted out are grouped with the maps (they made no image). The scene parse's tags are kept as `parsed.scene_tags`. `ingest_queue.effective_parsed` gives a scene its scene tags and no filename grid fields, both when an item is sorted and when an included item is claimed.
 - **Prepare:** decode as usual, then compute the head's image features (`log_aspect`, `white_frac`, `white_border_frac`) from the **800 px** thumbnail, which is what the heads were trained on. Stop there.
 - **Sort** (`sort_auto_items`, after the batch embedding): `active_head()` is the bundled head whose `encoder_sha256` matches the active model's vision encoder (recorded in `version.json` at download, hashed once for older installs). map → `battlemap`, illustration → `scene`. token, asset (props, roof and canopy overlays, wall and door pieces: non-creature cut-outs layered onto a map), other, and anything below the head's `fallback.min_confidence` (which falls back to other) are sorted out. The verdict is stored in `classification` on every Auto item.
 - **Sorted out:** the medium thumbnail moves to `staging/{job}/preview-<stem>.<ext>` (`preview_key`), the other temp files are deleted, and `record_sorted_out` marks the item `skipped` with `error_kind = sorted_out` and a reason: "Looks like a token", "Looks like a map asset (a prop, overlay or tile)", "Doesn't look like a map or a scene", or "Couldn't tell whether this is a map or a scene". Staged bytes are kept. Local imports keep only the preview; the source is still on disk. Videos are sorted from their first frame, like still images (there are video scenes as well as animated maps).
@@ -278,9 +284,9 @@ Rationale: [ADR-020](decisions.md#adr-020-auto-image-type-on-import). Heads: `ba
 - **No head** for the active encoder, or a head whose `embedding_dim` doesn't match: Auto items import as battlemaps (warning logged once per encoder).
 - **Include** (`include_sorted_out`, `POST /imports/include`): ids across imports. Only sorted-out items move; other ids are ignored. Each item gets a fixed type (whichever of map/illustration the head rated higher), so it isn't sorted again. Its preview is deleted after the commit, and it re-opens to `ready` (`awaiting_bytes` if the staged bytes are gone). Its job re-opens too, even if paused, cancelled or dismissed, because the user asked for these files. Expired items can't be included.
 - **Counts:** report groups carry `map_count` / `scene_count` (the images this import added, by type) so surprising sorts stand out; job and group counts carry `sorted_out` (a subset of `skipped`; expired items aren't counted). The frontend treats an import with Auto skips as not a clean finish, so its report opens on Skipped: a folder skipped entirely has no gallery group for the editor to show it in.
-- **Group editor:** `GET /imports/sorted-out/counts` (gallery group → count, via `import_groups.image_group_id`) and `GET /imports/sorted-out?image_group_id=` (items across imports), backed by `ix_import_groups_image_group` and `ix_import_items_group_state`. A group gets its gallery id at its first commit, so only groups with at least one imported image (or merged into an existing group) appear there.
+- **Group editor:** `GET /imports/sorted-out/counts` (gallery group → count, via `import_groups.image_group_id`) and `GET /imports/sorted-out?image_group_id=` (items across imports), backed by `ix_import_groups_image_group` and `ix_import_items_group_state`. Only groups with at least one imported image have a gallery group, so only those appear there, once the import is grouped.
 - **Robustness:** a failure while sorting (a bad head, a database error) fails that batch's Auto items at stage `classify` with their temp files and previews cleaned up; it never leaves items `processing`. A malformed bundled head is skipped with an error logged; the others still load.
-- **Review editor:** only finished groups are opened. The backend defines the rule once: `ImportJobDetail.reviewable_group_ids` are the gallery groups with an imported image from this job and no unfinished import group of this job adding to them; `groups_reviewable` counts them.
+- **Review editor:** only finished groups are opened. The backend defines the rule once: `ImportJobDetail.reviewable_group_ids` are the gallery groups with an imported image from this job, once the job is grouped ([§5.8](#58-identifying-groups)); `groups_reviewable` counts them.
 
 ### 5.7 Linked items
 
@@ -292,7 +298,7 @@ Plan: [library-setup.md §4](library-setup.md#4-linked-library). Storage side: [
 2. **Diff** (`diff_files`, pure) against the source's rows, loaded in one query: new, changed (size or mtime), gone, back again. A scan that finds nothing to do reads no file and creates no job.
 3. **Apply** (one write transaction): gone images get `missing_since` and are kept; gone rows without an image are deleted; back again clears `missing_since`; a missing image takes over a present duplicate of itself. A changed file of an image is queued as a **refresh** (below) unless one is already open for it; its row keeps the version the image was made from (and loses `missing_since`). Other changed rows go back to `pending`. Pending rows with no open item (their job was lost) are queued again. New files get `pending` rows. Up to `max_local_import_items` files are queued per scan; refreshes left over are offered by the next scan, since their rows still look changed.
 4. **Queue**: one job labelled with the folder's name, Auto image type (a refresh has its image's type), `source_roots = [folder]` (so it waits while the folder is offline), rows and items inserted in bulk, left unsealed. An oversized edited file fails without being read, and its row stays its image's.
-5. **Seal** (`seal_scan`): `compute_plan` parses the paths with no lock held, then `apply_plan` writes the groups in a short transaction (`plan_job` is the two together). Measured (WSL, 2026-10-19): 60k new files take about 16 s, of which about 4 s hold the write lock, in two transactions; diffing a rescan with no changes takes under half a second, plus the walk. A crash before sealing leaves an unsealed job; the next scan discards it and its rows, and finds the files new again.
+5. **Seal** (`seal_scan`): `compute_plan` parses the paths with no lock held, then `apply_plan` writes the parses in a short transaction (`plan_job` is the two together). The scan's images appear once its grouping phase has run ([§5.8](#58-identifying-groups)); a refreshed image keeps its group. Measured (WSL, 2026-10-19): 60k new files take about 16 s, of which about 4 s hold the write lock, in two transactions; diffing a rescan with no changes takes under half a second, plus the walk. A crash before sealing leaves an unsealed job; the next scan discards it and its rows, and finds the files new again.
 
 **Processing** (`_prepare_linked`): `_prepare_local` without the copy. The file is resolved through `LinkedFolder.local_path` (the containment check) and hashed, decoded and grid-detected where it is; stored format doesn't apply, and the image is committed with `storage_key` NULL and `source_file_id`. Its (size, mtime) is noted when prepare starts and checked again before commit (`changed_since_read`): a file that changed goes back to `ready` (`SOURCE_CHANGED`). A missing file fails (`The file was moved or deleted`); an unavailable folder refunds the item (`Waiting for <folder name>`).
 
@@ -301,8 +307,8 @@ Plan: [library-setup.md §4](library-setup.md#4-linked-library). Storage side: [
 **Refresh** (library-setup.md §4.5, `linked_refresh.py`): a linked item whose file already is an image's file (`Image.source_file_id`) is a refresh of that image. The claim snapshots the image into `ClaimedItem.refresh` (`RefreshTarget`: its hash, type and grid columns, plus its group's file-name grid sizes when size-only detection applies). Prepare hashes the file:
 
 - **Same bytes as the image** (only touched): `RefreshUnchanged`. The item is `done` with the image's id, and only the row's size, mtime and hash are written. Nothing is decoded or embedded.
-- **Different bytes**: no duplicate check. The user's file is the truth, so the image is refreshed in place even when the new bytes are another image's (a byte or pixel duplicate); both images then share a hash, as "Import as copy" allows. Decode, thumbnails (a new stem, so new keys), colours, pixel hash and pHash, embedding, and the grid by `refresh_grid`, which applies the forced backfill's rules (`grid_rules.detection_mode`): `user` grids and explicit file-name labels ("No Grid", an exact NxM, re-oriented if the image turned) are kept; detector grids are detected again; a name that says gridded gets its size detected again. Nothing detected, or detection off, drops what was detected from the old pixels.
-- **Commit** (`_commit_refresh`, in the batch's transaction, after the same size-and-mtime re-check as any linked item): the image row is re-read and only file-derived columns are written (`width`, `height`, `file_size`, `thumbnail_key`, `content_hash`, `stored_hash`, `pixel_hash`, `phash`, colours). The grid is written only if the image's type and grid columns are still those snapshotted at claim, so a user edit made meanwhile wins. Name, author, tags, group, `image_type`, `filename`, `search_text` and `import_job_id` are never touched. The old thumbnails are deleted after the commit (any left are unreferenced, for the orphan sweep). The vector is upserted after commit; if that fails, the old vector is deleted so reconciliation re-embeds from the new thumbnail rather than keeping a stale one.
+- **Different bytes**: no duplicate check. The user's file is the truth, so the image is refreshed in place even when the new bytes are another image's (a byte or pixel duplicate); both images then share a hash, as "Import as copy" allows. Decode, thumbnails (a new stem, so new keys), colours, pixel hash, pHash and grouping features, embedding, and the grid by `refresh_grid`, which applies the forced backfill's rules (`grid_rules.detection_mode`): `user` grids and explicit file-name labels ("No Grid", an exact NxM, re-oriented if the image turned) are kept; detector grids are detected again; a name that says gridded gets its size detected again. Nothing detected, or detection off, drops what was detected from the old pixels.
+- **Commit** (`_commit_refresh`, in the batch's transaction, after the same size-and-mtime re-check as any linked item): the image row is re-read and only file-derived columns are written (`width`, `height`, `file_size`, `thumbnail_key`, `content_hash`, `stored_hash`, `pixel_hash`, `phash`, colours), and its grouping features row is replaced. The grid is written only if the image's type and grid columns are still those snapshotted at claim, so a user edit made meanwhile wins. Name, author, tags, group, `image_type`, `filename`, `search_text` and `import_job_id` are never touched. The old thumbnails are deleted after the commit (any left are unreferenced, for the orphan sweep). The vector is upserted after commit; if that fails, the old vector is deleted so reconciliation re-embeds from the new thumbnail rather than keeping a stale one.
 - **Image removed meanwhile** (deleted, or "Remove missing maps"): the item is `skipped` (`REFRESH_GONE`, "The map was removed before its file could be refreshed"), with nothing to retry. Its file is `removed` already. The same check runs for an unchanged refresh.
 - **Write-back** (`linked_files._sync_refresh`): the row stays `image` with its `image_id` whatever the item became. Done records the version read and the hash. Failed records the version that failed (`ItemFailure.source_version`) and the reason, so a rescan reads it again only once it changes, and the image is untouched. Cancel, Retry and recovery leave the row alone: a cancelled refresh, or one lost with an unsealed scan, is offered again by the next scan.
 - A known gap: a new file with the image's *old* bytes, prepared in the same batch as the refresh, can still be marked a duplicate of it (prepare's early check reads the library before the refresh commits). The commit's in-batch index drops the old hashes, so only the early check is affected.
@@ -310,6 +316,38 @@ Plan: [library-setup.md §4](library-setup.md#4-linked-library). Storage side: [
 **Moves**: a bytes-tier duplicate (early or at commit) whose match is a linked image whose file is missing is that file, moved: the image is repointed to the new row, keeping all its metadata, and the old row is deleted (`move_if_missing`). A rescan does the same for a missing image with a present `duplicate` row (`repoint_to_duplicates`).
 
 **Startup** (`reconcile_linked_source`, in the lifespan after `open_library`): a configured folder gets its row (created, or its location updated: unfinished scans then wait on the new place) and is online or offline; with no folder configured, an existing row is detached and its unfinished scans are cancelled.
+
+### 5.8 Identifying groups
+
+Rationale: [ADR-028](decisions.md#adr-028-variant-grouping-by-bottom-up-tree-walk-once-an-import-has-finished); the algorithm: [variant-grouping.md](variant-grouping.md). Code: `backend/pipeline/group_jobs.py`.
+
+User decision (2026-10-22): **groups are minted once, at the end of an import, and the pipeline never changes them afterwards.**
+
+**While importing**, a committed image has no group, author or subgroup: it is `images.awaiting_grouping` and listed nowhere. Every query that lists or counts images uses `models.listed_images()` (rendered `awaiting_grouping = 0`; partial indexes with that condition, `ix_images_listed_*`, keep the facet, browse and count queries on covering indexes: on 50k images the facets took 511 ms with the predicate and no such index, 180 ms with them, 169 ms before the predicate existed): search and browsing (`search_service.image_conditions`, so the text, semantic and hybrid paths too), facets, `GET /images/`, `/images/authors`, exports (`api/export.py`, `export_library`), the library's image count (`/system/info`), and `fix_orphaned_images` (which must not take them). Group views list groups, which awaiting images aren't in. Lookups by id don't filter. Vector reconciliation and duplicate detection treat them as library images.
+
+**The grouping phase.** A sealed job with nothing open and `grouped_at` NULL is `grouping` (cancelled ones too: their images aren't stranded). `group_job`:
+
+1. **Read** (a plain session, no lock): every file of the job the seal parsed (not archives, nor files the manifest settled), with its import group if it has one, the image this job made from it (refreshes of older images keep their own), its features and dimensions, the active model's vectors when the encoder has a calibration, the awaiting images' tags, and the creators of groups that existed when the job was sealed (`known_authors(created_before=planned_at)`).
+2. **Compute** (no lock): by detected type (an image's own type, else the file's: an Auto file that made no image counts as a map), maps through `variant_grouping.group_with_content`, then scenes through `group_scenes` (attached to a map group, or grouped among themselves and named by `ImageParser.group_files`). Every other file is a scene: Auto skips tokens and assets, and Include imports them as maps or scenes. Each group is a proposal; a map proposal may pick an existing gallery group only when its name identifies the map and no other map group of the job has it.
+3. **Write** (one `write_session()`): give up if the job was undone or re-opened meanwhile; read it again (up to three passes) if its files changed (item, image, awaiting flag or import group). Otherwise plan with `plan_grouping` (pure) and write it in batches: new `ImportGroup` rows (path order), new gallery groups (one ordered `INSERT .. RETURNING`), each file's import group, and each awaiting image's group, author, subgroup and search text. Then `grouped_at`, the status (`completed`), and a worker `bump()` (the list's ETag changes).
+
+A crash rolls the write back: the job stays `grouping` and is grouped again. INFO logs the counts; DEBUG the walk's folder decisions and suggestions (not stored).
+
+**Late files.** Retry, Import as copy and Include re-open the job (`recompute_job_status` clears `grouped_at`). When it has finished again it is grouped again: the walk covers every file, but only images still awaiting a group are placed and nothing already grouped moves. A file keeps the import group it had and its image joins that group's gallery group; an import group without one (all its files had failed or been sorted out) takes the gallery group of this job its proposal overlaps most, else a new one with its name. Nothing is reviewable while the job is re-opened.
+
+**Triggers** (`GroupingScheduler`, one run per job at a time; runs go to the JobRunner as "Import grouping …", which the activity dock leaves to the import's own row):
+
+- `process_batch`, last step: every job due, the one its batch finished among them;
+- the API actions that can settle a job (`_action`: cancel, finish without missing files), straight away;
+- every idle wake of the worker (one cheap query): jobs settled without a batch (all duplicates, recovery), runs that waited, and runs lost with a restart (JobRunner work is; the worker wakes once the model has loaded).
+
+Each sweep is one query for the jobs due. A run that raises is retried by later sweeps; after three failures (`_MAX_FAILED_RUNS`) the job is grouped by its paths alone (`ImageParser.group_files` per type, no content read), so its images don't stay hidden, and if that fails too it is left alone until a restart. The counts are kept in memory: a restart only repeats a bounded number of runs.
+
+**Model availability.** While the worker is held (a model switch) or the model is loading, the phase waits: the job stays `grouping` and a later sweep runs it. With no model it runs without embeddings. Without a calibration for the active encoder the embedding rules are off. Groups are minted once, so with them on, a run first embeds the job's images that have no vector (`vector_reconcile.repair_missing`: a failed vector write is otherwise repaired only by reconciliation, at startup and daily). While more than a tenth of its map and scene images still have none (a failed LanceDB lookup returns none), it waits, for up to five minutes from its first wait (`_VECTOR_WAIT_SECONDS`, in memory), then groups without those vectors and logs how many were missing.
+
+**Performance** (WSL, 2026-10-22, 19.8k synthetic map paths, 7,410 groups): 7.4 s in all, 2.1 s of it under the write lock (the image updates and their triggers); the seal's parsing 3.4 s.
+
+**Imports from before migration 029** are already grouped: the migration stamps `grouped_at` on every sealed job with nothing open. One still running is left unstamped; its remaining images commit ungrouped and, when it finishes, join the groups its seal planned (their files' import groups).
 
 ## 6. Duplicate detection
 
@@ -333,14 +371,13 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports/{id}/manifest` | Chunk of ≤2,000 `{client_ref, relative_path, size, last_modified, image_type?}`. OS junk (`._*`, `__MACOSX`, `.DS_Store`, `Thumbs.db`, `desktop.ini`) is ignored; unsupported files become `skipped`, oversized ones `failed`. Paths already in the job are ignored. 413 above `max_import_items` per import; 409 after seal. |
 | `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `name` is the zip's relative path, so its folder is known ([Archive member paths](#archive-member-paths)). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
 | `POST /imports/{id}/local-sources` | Desktop app only (404 in server mode). `{paths}` (≤1,000 absolute roots): the server lists them and adds `ready` items with `source_path`; zips are expanded in place and kept. 422 for a bad path, 413 above `max_local_import_items` (250k). Listing runs before the write lock. See [local-ingest.md §4](local-ingest.md#4-backend). |
-| `POST /imports/{id}/seal` | Parse and group paths, resolve groups against the gallery (`IN` queries chunked at 500), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Idempotent. Gated by the heavy-op semaphore. |
+| `POST /imports/{id}/seal` | Parse each path (no grouping: [§5.8](#58-identifying-groups)), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Parsing runs before the write lock is taken (about 3.4 s for 20k maps); a file list that changed meanwhile is parsed again under the lock. Idempotent. Gated by the heavy-op semaphore. |
 | `POST /imports/{id}/hashes` | Chunk of ≤2,000 `{item_id, sha256}`. Items whose hash matches the library become `duplicate` without uploading. The client hash is only used to skip. |
 | `PUT /imports/{id}/items/{item_id}/content` | Raw body streamed to `staging/{job_id}/.{staging_key}.part` with inline SHA-256, then magic-byte check (`verify_media_mime`) and a size check against the manifest ("File changed size after it was chosen"), rename to `staging/{job_id}/{staging_key}` (`staging_key` = uuid hex + extension) and `mark_bytes_received` (→ `ready` or `duplicate`). Size limit `max_import_file_size` (`max_video_file_size` for videos). Idempotent: an item already past `awaiting_bytes` drains the body and returns its state. |
 | `GET /imports` | Job summaries for the dock (counts by state, group count, `upload_interrupted`) plus queue status. Weak `ETag` from the worker's version counter plus a minute bucket; `If-None-Match` → 304. |
-| `GET /imports/{id}` | One job with per-group counts and resolution |
+| `GET /imports/{id}` | One job with per-group counts and resolution (groups once grouped) |
 | `GET /imports/{id}/items` | Paginated (keyset on `id`, `after` / `next_after`), filter by `state`, `group_id`, `error_kind` |
 | `POST /imports/{id}/pause`, `/resume`, `/cancel` | Job control |
-| `POST /imports/{id}/groups/{group_id}/skip` | Skip one group's open items |
 | `POST /imports/{id}/retry` | `{item_ids?}`, default all `failed` |
 | `POST /imports/{id}/import-as-copy` | `{item_ids?}`, default all `duplicate` |
 | `POST /imports/{id}/finish-upload` | `awaiting_bytes` → `skipped` ("Not uploaded") |
@@ -375,7 +412,7 @@ Screens and components: [frontend.md](frontend.md#imports).
 `ImportManager` (`frontend/src/lib/import/ImportManager.ts`) is a module-level store read through `useSyncExternalStore` hooks; dialogs and the dock are views over it.
 
 ```
-create job → manifest chunks → (archives) → seal ──▶ show group plan
+create job → manifest chunks → (archives) → seal ──▶ show progress
                                               │
              hash worker ──50-file rounds──▶ POST /hashes ──▶ skip dups
                   │                                            │
@@ -400,7 +437,7 @@ create job → manifest chunks → (archives) → seal ──▶ show group plan
 | Task | When | Behaviour |
 |---|---|---|
 | `IngestWorker.recover()` | Startup, after the storage locks are taken (so no other backend is using the stores) | Deletes `.incoming/` in both stores; `recover_interrupted()` returns `processing` items to `ready`, or fails them at 3 attempts. Deletes no images. |
-| `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, hourly | Finished jobs older than 24 h are dismissed and their sorted-out items expired ([§5.6](#56-auto-image-type)). `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always, except items Auto sorted out, which keep theirs until they expire (dismissal or 24 h after the job finished); of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched). `sweep_stray_staging_files`: staging files and directories older than 1 h that no item's `staging_key` or `preview_key` refers to. |
+| `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, hourly | Finished jobs older than 24 h are dismissed and their sorted-out items expired ([§5.6](#56-auto-image-type)). `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always, except items Auto sorted out, which keep theirs until they expire (dismissal or 24 h after the job finished); of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched), unless the job is still to be grouped (a cancelled job can be dismissed first). `sweep_stray_staging_files`: staging files and directories older than 1 h that no item's `staging_key` or `preview_key` refers to. |
 | `reconcile_vectors` | Startup (once the model has loaded, via `JobRunner`, shown as "Updating image embeddings" with progress) and scheduler every 24 h | Compares SQLite and LanceDB id sets; re-embeds missing images from their thumbnails and deletes orphaned vectors. |
 | `sweep_orphaned_store_files` | Scheduler, every 24 h | Deletes store files no image references. Only considers the `xx/yy/<key>` shard layout (so `.incoming/` and `backups/` are never touched), ignores files younger than 1 h, and deletes nothing if more than 25% of the store looks orphaned. |
 | `backup_database` | Scheduler, every 24 h | SQLite + LanceDB snapshot with rotation |

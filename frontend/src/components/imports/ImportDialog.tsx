@@ -32,7 +32,7 @@ import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob, useImportManagerSnapshot } from '@/lib/import/useImports'
 import type { ImageType, PickedFile } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, Notice, TextButton } from './ImportFrame'
-import { NowImporting, ProblemsLine, ProgressSummary } from './ImportProgress'
+import { ProblemsLine, ProgressSummary } from './ImportProgress'
 import { ResultView } from './ImportResultView'
 import {
   formatBytes,
@@ -323,7 +323,7 @@ function ProgressView({
 }) {
   const manager = getImportManager()
   const { queue, connection } = useImportManagerSnapshot()
-  const { job, upload, detail } = useImportJob(jobId, { watch: open, scope: 'active' })
+  const { job, upload } = useImportJob(jobId)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [busy, setBusy] = useState(false)
   const resumeFiles = useRef<HTMLInputElement>(null)
@@ -364,7 +364,7 @@ function ProgressView({
   const label = job?.label ?? upload?.label ?? 'Import'
   const finished = job ? isFinished(job) : upload?.phase === 'failed'
 
-  // The editor on every group with images so far; more can be added from there later
+  // The editor on the import's groups (they exist once the import has finished)
   const reviewSoFar = async () => {
     const ids = (await manager.getDetail(jobId)).reviewable_group_ids
     if (ids.length > 0) onReviewGroups?.(ids)
@@ -542,10 +542,11 @@ function ProgressView({
         onChange={onResumePicked}
       />
 
-      <div className="px-6 pb-4 space-y-3 border-t border-border/30 pt-3">
-        <NowImporting groups={detail?.groups ?? []} planned={!!job?.planned} />
-        {counts && <ProblemsLine counts={counts} />}
-      </div>
+      {counts && (counts.duplicate > 0 || counts.failed > 0) && (
+        <div className="px-6 pb-4 space-y-3 border-t border-border/30 pt-3">
+          <ProblemsLine counts={counts} />
+        </div>
+      )}
 
       {confirmingCancel && (
         <ConfirmOverlay

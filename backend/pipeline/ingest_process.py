@@ -1,7 +1,11 @@
 """Process one claimed batch of import items (ADR-018, design/ingestion.md §5.3).
 
     prepare (prepare pool) → embed (one batch) → commit (one BEGIN IMMEDIATE
-    transaction) → vectors (LanceDB, after commit) → staging cleanup
+    transaction) → vectors (LanceDB, after commit) → staging cleanup → the grouping
+    phase of the jobs due (``group_jobs``)
+
+A committed image has no group yet: it is ``awaiting_grouping`` and listed nowhere until its
+import has finished and its grouping phase has grouped it (ADR-028).
 
 Auto items (design §5.6) stop prepare after decoding: their type, and so whether grid
 detection runs, comes from the image-type head, which reads the embedding. They are
@@ -39,7 +43,7 @@ from sqlalchemy import delete
 
 from backend.app.config import settings
 from backend.app.file_hash import file_sha256
-from backend.app.models import Color, Image, ImageGroup, ImportGroup, ImportItem, Tag
+from backend.app.models import Color, Image, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
 from backend.app.services import (
     get_image_store,
@@ -58,6 +62,8 @@ from backend.app.services.validation import verify_media_mime
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .filename_grid import filename_grid_counts
+from .group_jobs import schedule_grouping
+from .grouping_features import GroupingFeatures, compute_grouping_features, store_grouping_features
 from .image_hashes import perceptual_hash, pixel_hash
 from .ingest_queue import (
     AUTO,
@@ -139,6 +145,7 @@ class DecodedItem:
     phash: int | None
     colors: list[dict]
     features: dict[str, float] | None = None  # image-type head inputs (Auto items)
+    grouping: GroupingFeatures | None = None  # variant-grouping features; None for videos
     embedding: list[float] | None = None
     classification: dict | None = None  # Auto items: the image-type head's verdict
 
@@ -523,7 +530,8 @@ def _decode(
     stem: str | None = None,
     owned: bool = False,
 ) -> DecodedItem:
-    """Hashes, thumbnails, perceptual hash, colours and (Auto) the head's image features.
+    """Hashes, thumbnails, perceptual hash, grouping features, colours and (Auto) the
+    head's image features.
 
     ``owned``: ``staged`` is already this item's temp copy in the library's temp folder
     (named ``stem`` + extension), so it becomes the stored original without another copy.
@@ -539,7 +547,7 @@ def _decode(
     pictures = (
         _video_pictures(staged, stem, thumbs_dir, progress)
         if item.kind == "video"
-        else _image_pictures(staged, stem, thumbs_dir, plan, progress)
+        else _image_pictures(staged, stem, thumbs_dir, plan, progress, item.relative_path)
     )
     thumbnails = pictures.thumbnails
     features = _head_features(thumbnails["large"][1], progress) if item.image_type == AUTO else None
@@ -567,6 +575,7 @@ def _decode(
         phash=pictures.phash,
         colors=colors,
         features=features,
+        grouping=pictures.grouping,
     )
 
 
@@ -580,17 +589,20 @@ def _head_features(large_thumbnail: Path, progress: _Progress) -> dict[str, floa
 
 @dataclass(frozen=True)
 class _Pictures:
-    """What decoding gives: thumbnails ({size: (key, temp path)}), pixel size and hashes."""
+    """What decoding gives: thumbnails ({size: (key, temp path)}), pixel size, hashes and
+    grouping features."""
 
     thumbnails: dict[str, tuple[str, Path]]
     width: int
     height: int
     pixel_hash: str | None
     phash: int | None
+    grouping: GroupingFeatures | None = None
 
 
 def _video_pictures(staged: Path, stem: str, thumbs_dir: Path, progress: _Progress) -> _Pictures:
-    """Thumbnails from a video's first frame; videos get no pixel hash or pHash."""
+    """Thumbnails from a video's first frame; videos get no pixel hash, pHash or grouping
+    features."""
     from backend.app.services.video_utils import extract_first_frame, get_video_dimensions
 
     progress.stage = "thumbnails"
@@ -605,10 +617,10 @@ def _video_pictures(staged: Path, stem: str, thumbs_dir: Path, progress: _Progre
 
 
 def _image_pictures(
-    staged: Path, stem: str, thumbs_dir: Path, plan: DecodePlan, progress: _Progress
+    staged: Path, stem: str, thumbs_dir: Path, plan: DecodePlan, progress: _Progress, label: str
 ) -> _Pictures:
     """Decode once (reduced scale for huge JPEGs) for the pixel hash and thumbnails; the
-    perceptual hash reads the large thumbnail."""
+    perceptual hash and grouping features read the large thumbnail."""
     progress.stage = "decode"
     with PILImage.open(staged) as decoded:
         if not plan.full_decode:
@@ -622,7 +634,8 @@ def _image_pictures(
     progress.stage = "hash"
     with PILImage.open(thumbnails["large"][1]) as large:
         image_phash = perceptual_hash(large)
-    return _Pictures(thumbnails, plan.width, plan.height, image_pixel_hash, image_phash)
+        grouping = compute_grouping_features(large, label)
+    return _Pictures(thumbnails, plan.width, plan.height, image_pixel_hash, image_phash, grouping)
 
 
 def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> PreparedItem:
@@ -854,8 +867,6 @@ def _sort(decoded: list[DecodedItem]) -> tuple[list[DecodedItem], int, list[Item
 class CommittedImage:
     prepared: PreparedItem
     image_id: int
-    group_name: str | None
-    author: str | None
 
 
 @dataclass
@@ -893,23 +904,6 @@ def _existing_hash_matches(db, prepared: list[PreparedItem]) -> tuple[dict, dict
     return by_bytes, by_pixels
 
 
-def _resolve_group(db, import_group_id: int | None, cache: dict) -> tuple[ImageGroup | None, str]:
-    """The gallery group for an import group, created on first use. Returns (group, name)."""
-    if import_group_id is None:
-        return None, ""
-    if import_group_id in cache:
-        return cache[import_group_id]
-    import_group = db.get(ImportGroup, import_group_id)
-    group = db.get(ImageGroup, import_group.image_group_id) if import_group.image_group_id else None
-    if group is None:
-        group = ImageGroup(base_name=import_group.group_name, author=import_group.author)
-        db.add(group)
-        db.flush()
-        import_group.image_group_id = group.id
-    cache[import_group_id] = (group, import_group.group_name)
-    return cache[import_group_id]
-
-
 def _place(temp: Path, final: Path, placed: list[Path]) -> None:
     final.parent.mkdir(parents=True, exist_ok=True)
     os.replace(temp, final)
@@ -931,7 +925,6 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
     try:
         with write_session() as db:
             by_bytes, by_pixels = _existing_hash_matches(db, prepared)
-            group_cache: dict = {}
             item_rows = {
                 row.id: row
                 for row in db.query(ImportItem).filter(
@@ -975,18 +968,16 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 for key, temp in d.temp_thumbnails.items():
                     _place(temp, thumbnail_store.get_path(key), placed)
 
-                group, group_name = _resolve_group(db, p.item.import_group_id, group_cache)
                 parsed = p.item.parsed
-                author = group.author if group is not None else None
-                name = parsed.get("name") or group_name or Path(p.item.filename).stem
+                name = parsed.get("name") or Path(p.item.filename).stem
                 tags = parsed.get("tags") or []
+                # No group, author or subgroup yet: the grouping phase gives them
                 image = Image(
                     filename=p.item.filename,
                     storage_key=p.storage_key,
                     source_file_id=p.item.source_file_id,
                     name=name,
-                    author=author,
-                    group_id=group.id if group is not None else None,
+                    awaiting_grouping=True,
                     width=d.width,
                     height=d.height,
                     file_size=p.file_size,
@@ -997,7 +988,6 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     grid_type=p.grid.get("grid_type"),
                     grid_confidence=p.grid.get("grid_confidence"),
                     grid_source=p.grid.get("grid_source"),
-                    subgroup=parsed.get("subgroup"),
                     image_type=p.item.image_type,
                     media_type=p.media_type,
                     content_hash=d.source_hash,
@@ -1005,13 +995,7 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                     pixel_hash=d.pixel_hash,
                     phash=d.phash,
                     import_job_id=p.item.job_id,
-                    search_text=build_search_text(
-                        name=name,
-                        filename=p.item.filename,
-                        author=author,
-                        tags=tags,
-                        subgroup=parsed.get("subgroup"),
-                    ),
+                    search_text=build_search_text(name=name, filename=p.item.filename, tags=tags),
                 )
                 db.add(image)
                 db.flush()
@@ -1035,8 +1019,12 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 row.staging_key = None
 
                 _index(p, image.id, (by_bytes, by_pixels))
-                result.done.append(CommittedImage(p, image.id, group_name or None, author))
+                result.done.append(CommittedImage(p, image.id))
 
+            # New and refreshed images alike: a refresh replaces the image's features
+            store_grouping_features(
+                db, {c.image_id: c.prepared.decoded.grouping for c in result.done}
+            )
             db.flush()
             versions = {p.item.id: p.item.source_version for p in prepared if p.item.source_version}
             sync_files(db, item_rows.values(), versions)
@@ -1119,10 +1107,7 @@ def _commit_refresh(
 
     finish_committed(row, image.id, d.source_hash)
     _index(p, image.id, matches)
-    group = db.get(ImageGroup, image.group_id) if image.group_id is not None else None
-    result.done.append(
-        CommittedImage(p, image.id, group.base_name if group else None, image.author)
-    )
+    result.done.append(CommittedImage(p, image.id))
     result.refreshed.append(image.id)
 
 
@@ -1163,11 +1148,7 @@ def write_vectors(done: list[CommittedImage], refreshed: Iterable[int] = ()) -> 
         {
             "image_id": c.image_id,
             "embedding": c.prepared.decoded.embedding,
-            "metadata": {
-                "filename": c.prepared.item.filename,
-                "author": c.author or "",
-                "base_name": c.group_name or "",
-            },
+            "metadata": {"filename": c.prepared.item.filename},
         }
         for c in done
         if c.prepared.decoded.embedding is not None
@@ -1291,6 +1272,10 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
         outcome.duplicates = len(commit.duplicates)
     outcome.done += len(split.unchanged)
     outcome.duplicates += len(split.early)
+
+    # A job this batch finished (nothing left open) enters its grouping phase now that its
+    # vectors are written (ADR-028), as does any other due job: one cheap query
+    schedule_grouping()
 
     logger.info(
         "Ingest batch: %d done, %d duplicate, %d sorted out, %d failed",

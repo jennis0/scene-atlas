@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TextButton } from '@/components/imports/ImportFrame'
-import { isFinished, plural } from '@/components/imports/format'
+import { finishedCount, isFinished, plural } from '@/components/imports/format'
 import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob } from '@/lib/import/useImports'
 
@@ -63,7 +63,9 @@ export function ImportRunningStrip({
         <span role="status">
           {finished
             ? `Import finished · ${plural(job.group_count, 'group')}`
-            : `Import still running · ${job.groups_done.toLocaleString()} of ${plural(job.group_count, 'group')} done`}
+            : job.status === 'grouping'
+              ? 'Import still running · identifying groups'
+              : `Import still running · ${finishedCount(job.counts).toLocaleString()} of ${plural(job.counts.total, 'file')} done`}
         </span>
       </span>
       {ready > 0 && onAddGroups && (

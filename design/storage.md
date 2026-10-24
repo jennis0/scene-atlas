@@ -47,6 +47,8 @@ images
   media_type       TEXT DEFAULT 'image'      -- "image" | "video"
   image_type       TEXT DEFAULT 'battlemap'  -- "battlemap" | "scene"
   import_job_id    TEXT FK → import_jobs.id  -- NULL for images that predate import jobs
+  awaiting_grouping BOOLEAN NOT NULL DEFAULT 0  -- Committed by an import not yet grouped
+                                       --   (migration 029, ADR-028): listed nowhere
   thumbnail_key    TEXT                -- Medium thumbnail key
   created_at, updated_at  DATETIME
 
@@ -57,6 +59,14 @@ variant_groups                         -- ORM: ImageGroup
   primary_image_id INTEGER FK → images.id
   image_count      INTEGER NOT NULL DEFAULT 0   -- Maintained by triggers on images
   created_at       DATETIME
+
+image_grouping_features                -- Variant-grouping features (migration 029, ADR-028)
+  image_id         INTEGER PK FK → images.id
+  version          SMALLINT NOT NULL   -- Feature algorithm version (GROUPING_FEATURES_VERSION)
+  phash256         BLOB(32)            -- 256-bit DCT pHash = imagehash.phash(hash_size=16),
+                                       --   MSB-first row-major
+  edge             BLOB(2048)          -- 32×32 edge map, 1024 little-endian float16, z-scored
+                                       --   (a·b / 1024 = correlation)
 
 tags
   id               INTEGER PK
@@ -87,7 +97,8 @@ colors
 
 import_jobs
   id               TEXT PK             -- UUID hex
-  status           TEXT NOT NULL DEFAULT 'active'  -- active | paused | completed | cancelled
+  status           TEXT NOT NULL DEFAULT 'active'  -- active | paused | grouping |
+                                       --   completed | cancelled
                                        --   (derived from item counts)
   source_label     TEXT                -- e.g. "Pack.zip"
   default_image_type TEXT NOT NULL DEFAULT 'battlemap'
@@ -96,9 +107,10 @@ import_jobs
   dismissed_at     DATETIME            -- Hidden from the activity dock
   source_roots     TEXT                -- Local imports: JSON list of folders read from
   library_source_id INTEGER FK → library_sources.id  -- A scan of the linked folder (no Undo)
+  grouped_at       DATETIME            -- Its grouping phase ran (migration 029, ADR-028)
   created_at, updated_at, completed_at  DATETIME
 
-import_groups                          -- Groups planned at seal time
+import_groups                          -- Groups found by the import's grouping phase
   id               INTEGER PK
   job_id           TEXT FK → import_jobs.id NOT NULL
   author           TEXT
@@ -182,6 +194,7 @@ The virtual table `image_fts` (Porter stemmer) indexes `images.search_text`. Tri
 ### Key Relationships
 - `Image` → `ImageGroup` (many-to-one via `variant_group_id`)
 - `Image` → `Tag`, `Color` (one-to-many, ORM cascade delete)
+- `Image` → `image_grouping_features` (one-to-one, no ORM relationship). Written from the 800 px thumbnail at commit and replaced by a linked refresh; videos have none, and an image whose features failed has NULLs. Foreign keys aren't enforced, so `deletion_service` (single, bulk, group and Undo deletes, linked removal) and library purge delete these rows explicitly; the commit replaces rather than inserts, so a row left under a reused image id can't block an import. Images from before migration 029 have no row.
 - `ImportJob` → `ImportGroup`, `ImportItem` (one-to-many, ORM cascade delete)
 - `Image.import_job_id` → `ImportJob` has no cascading relationship: dismissing or pruning a job never deletes its images; only Undo (`DELETE /imports/{job_id}`) does.
 

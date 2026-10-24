@@ -13,6 +13,7 @@ from ..config import settings
 from ..models import (
     Image,
     ImageResponse,
+    listed_images,
 )
 from ..models.database import GRID_FIELDS, GRID_SOURCE_USER
 from ..models.schemas import (
@@ -68,7 +69,7 @@ def list_authors(db: Session = Depends(get_db)):
     rows = cast(
         list[tuple[str]],
         db.query(Image.author)
-        .filter(Image.author.isnot(None), Image.author != "")
+        .filter(listed_images(), Image.author.isnot(None), Image.author != "")
         .distinct()
         .all(),
     )
@@ -78,7 +79,14 @@ def list_authors(db: Session = Depends(get_db)):
 @router.get("/", response_model=list[ImageResponse])
 def list_images(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """List all images with pagination."""
-    return db.query(Image).options(*_WITH_RELATIONS).offset(skip).limit(limit).all()
+    return (
+        db.query(Image)
+        .options(*_WITH_RELATIONS)
+        .filter(listed_images())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.post("/bulk-edit", response_model=BulkImageEditResponse)

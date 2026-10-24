@@ -9,7 +9,8 @@ export type ImageType = 'battlemap' | 'scene' | 'auto'
 export type ItemState =
   'awaiting_bytes' | 'ready' | 'processing' | 'done' | 'duplicate' | 'failed' | 'skipped'
 
-export type JobStatus = 'active' | 'paused' | 'completed' | 'cancelled'
+/** ``grouping``: every file is settled and the import's groups are being identified (ADR-028) */
+export type JobStatus = 'active' | 'paused' | 'grouping' | 'completed' | 'cancelled'
 
 export interface ImportCounts {
   awaiting_bytes: number
@@ -54,15 +55,19 @@ export interface ImportJobSummary {
   /** A local import's folders that are missing right now; the import waits for them. */
   waiting_for: string[]
   counts: ImportCounts
+  /** The import's groups: none until they have been identified, once every file is settled. */
   group_count: number
-  /** Groups with nothing left to import (once planned). */
-  groups_done: number
   /** Gallery groups the review editor can open (the detail's ``reviewable_group_ids``) */
   groups_reviewable: number
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
   last_upload_at: string | null
+  /**
+   * When the import's groups were last identified (ADR-028); null until then, and again while
+   * files it re-opened import. The gallery refreshes when it changes.
+   */
+  grouped_at: string | null
 }
 
 export interface ImportJobDetail extends ImportJobSummary {

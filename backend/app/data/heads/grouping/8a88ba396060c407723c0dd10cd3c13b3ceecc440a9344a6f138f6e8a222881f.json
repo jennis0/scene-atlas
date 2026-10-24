@@ -1,0 +1,33 @@
+{
+  "format": "scene-atlas-grouping-calibration/2",
+  "encoder_version": "siglip2-base-384-rc4",
+  "encoder_sha256": "8a88ba396060c407723c0dd10cd3c13b3ceecc440a9344a6f138f6e8a222881f",
+  "embedding_dim": 768,
+  "thresholds": {
+    "agree_emb": 0.7012,
+    "coh": 0.8134,
+    "coh_all": 0.7955,
+    "coh_key": 0.682,
+    "coh_suggest": 0.6618,
+    "leaf_diff": 0.55,
+    "leaf_same_prod": 0.8,
+    "leaf_same": 0.84,
+    "scene_agree_emb": 0.85
+  },
+  "method": "quantile-mapped from E5's thresholds (siglip2_base_384_rc4 Qdrant vectors) onto Scene Atlas-style ONNX embeddings of 400 px medium thumbnails; grouping/e5/calibrate.py",
+  "validation": {
+    "dev_f1": 0.9737,
+    "test_realistic_f1": 0.976,
+    "test_targeted_f1": 0.976,
+    "reserved_f1": 0.9431,
+    "embeddings_off_test_f1": 0.8489,
+    "embeddings_off_test_targeted_f1": 0.8638,
+    "embeddings_off_reserved_f1": 0.786
+  },
+  "built_at": "2026-10-22T20:58:04+00:00",
+  "git": "a6652c6-dirty",
+  "leaf_method": "leaf_diff / leaf_same_prod / leaf_same: E6 change 2 (leaf default, positive different-map evidence) cohesion cuts, tuned on the dev small-import suite with the medium SA embeddings; medium keeps the tuned values (0.55 / 0.80 / 0.84).",
+  "leaf_source": "E6, tuned on the medium SA embeddings",
+  "scene_method": "scene_agree_emb: E7 R5 scene agreement (edge map >= 0.50, a parameter, AND embedding cosine >= this), tuned on the E7 dev suites with the medium SA embeddings; medium keeps the tuned value 0.85.",
+  "scene_source": "E7, tuned on the medium SA embeddings"
+}

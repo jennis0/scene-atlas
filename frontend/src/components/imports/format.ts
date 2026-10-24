@@ -66,7 +66,7 @@ export function uploadPhaseText(upload: LocalUpload | undefined): string | null 
     case 'archives':
       return 'Unpacking archives'
     case 'sealing':
-      return 'Sorting files into groups'
+      return 'Reading the file names'
     case 'uploading':
       return `Sending ${upload.sentFiles.toLocaleString()} of ${plural(upload.totalFiles, 'file')}`
     case 'waiting-for-connection':
@@ -104,6 +104,7 @@ export function jobStatusText(job: ImportJobSummary, upload: LocalUpload | undef
   if (job.status === 'paused') return `Paused. ${outcomeText(job.counts)}`
   if (job.status === 'cancelled') return `Cancelled. ${outcomeText(job.counts)}`
   if (job.status === 'completed') return outcomeText(job.counts)
+  if (job.status === 'grouping') return 'Identifying groups'
   if (!job.planned) return 'Preparing'
   return `${finishedCount(job.counts).toLocaleString()} of ${plural(job.counts.total, 'file')} processed`
 }

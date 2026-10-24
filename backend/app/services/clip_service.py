@@ -669,6 +669,12 @@ def get_clip_unavailable_reason() -> str | None:
     return None
 
 
+def is_clip_loading() -> bool:
+    """True while the model is loading or reloading (a model switch): a transient state,
+    unlike a missing model. Never blocks."""
+    return not _clip_ready.is_set()
+
+
 def wait_for_clip_ready() -> None:
     """Block until the CLIPService has finished loading (or failed).
 

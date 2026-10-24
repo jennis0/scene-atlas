@@ -27,6 +27,7 @@ from backend.app.config import settings
 from backend.app.services import get_image_store, get_thumbnail_store
 from backend.app.services.prepare_pool import get_prepare_pool
 
+from .group_jobs import schedule_grouping
 from .ingest_process import BatchOutcome, clear_incoming, process_batch, settled_count
 from .ingest_queue import claim_next_batch, recover_interrupted
 from .ingest_rate import ProcessingRate
@@ -149,6 +150,11 @@ class IngestWorker:
                 seconds_per_item=self._rate.seconds_per_item(),
             )
 
+    def is_held(self) -> bool:
+        """True while something holds the queue (``held``), e.g. a model switch."""
+        with self._lock:
+            return bool(self._holds)
+
     @contextmanager
     def held(self, reason: str, timeout: float | None = None) -> Iterator[None]:
         """Pause the queue for the duration of the block, e.g. while the AI model changes.
@@ -223,6 +229,10 @@ class IngestWorker:
         cfg = self._config_loader()
         job_id, items = claim_next_batch(self._cursor, max(1, cfg.ingestion_batch_size))
         if not items:
+            # Jobs settled without a batch (every file a duplicate, recovery, cancel) and ones
+            # that waited while the model was busy enter their grouping phase: one cheap
+            # query per idle wake (design/ingestion.md §5.8)
+            schedule_grouping()
             return False
 
         self._cursor = job_id

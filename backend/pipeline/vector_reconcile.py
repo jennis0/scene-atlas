@@ -16,7 +16,7 @@ batch, so a run that stops part-way leaves its work in place and the next run
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from backend.app.models import Image, ImageGroup
@@ -121,14 +121,7 @@ def reconcile_vectors(
         raise_if_shutting_down()
         svc.delete_embeddings(orphaned[start : start + _DELETE_CHUNK])
 
-    tally = _Tally()
-    for start in range(0, len(missing), batch_size):
-        raise_if_shutting_down()  # what's left is still missing next run
-        if progress_fn:
-            progress_fn(start, len(missing), f"{start:,} of {len(missing):,} images")
-        pending = _to_embed(missing[start : start + batch_size], tally)
-        if pending:
-            _embed_and_write(pending, tally)
+    tally = _reembed(missing, batch_size, progress_fn)
     if progress_fn and missing:
         progress_fn(len(missing), len(missing), f"{len(missing):,} images")
 
@@ -146,3 +139,23 @@ def reconcile_vectors(
         "unrepairable": tally.unrepairable,
         "orphaned": len(orphaned),
     }
+
+
+def repair_missing(image_ids: Iterable[int], batch_size: int = 32) -> int:
+    """Re-embed those of ``image_ids`` that have no vector, now rather than at the next
+    reconciliation (startup and daily): an import's grouping phase uses it for its images.
+    Returns how many were repaired. Raises if the index can't be read."""
+    missing = sorted(set(image_ids) - get_lancedb_service().get_all_ids())
+    return _reembed(missing, batch_size).repaired if missing else 0
+
+
+def _reembed(missing: list[int], batch_size: int, progress_fn: ProgressFn | None = None) -> _Tally:
+    tally = _Tally()
+    for start in range(0, len(missing), batch_size):
+        raise_if_shutting_down()  # what's left is still missing next run
+        if progress_fn:
+            progress_fn(start, len(missing), f"{start:,} of {len(missing):,} images")
+        pending = _to_embed(missing[start : start + batch_size], tally)
+        if pending:
+            _embed_and_write(pending, tally)
+    return tally

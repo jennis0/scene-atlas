@@ -23,7 +23,6 @@ const running = (partial = {}) =>
   jobSummary({
     counts: counts({ done: 6, ready: 40 }),
     group_count: 347,
-    groups_done: 103,
     groups_reviewable: 3,
     ...partial,
   })
@@ -40,7 +39,7 @@ describe('ImportRunningStrip', () => {
       />,
     )
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Import still running · 103 of 347 groups done',
+      'Import still running · 6 of 46 files done',
     )
     expect(screen.queryByText(/more group/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Show progress' }))
@@ -106,7 +105,7 @@ describe('ImportRunningStrip', () => {
   })
 
   it('stays until a finished import has nothing more to add', async () => {
-    const done = running({ status: 'completed', groups_done: 347, groups_reviewable: 4 })
+    const done = running({ status: 'completed', groups_reviewable: 4 })
     ;({ manager } = await installFakeImportManager({ jobs: [done] }))
     const { rerender } = renderWithProviders(
       <ImportRunningStrip jobId="job1" reviewedGroupIds={[41, 42, 43]} onAddGroups={vi.fn()} />,

@@ -208,6 +208,6 @@ def test_a_refreshed_images_old_vector_never_outlives_a_failed_write(monkeypatch
     prepared = SimpleNamespace(
         decoded=SimpleNamespace(embedding=[0.1] * 8), item=SimpleNamespace(filename="x.png")
     )
-    done = [ingest_process.CommittedImage(prepared, 7, None, None)]  # type: ignore[arg-type]
+    done = [ingest_process.CommittedImage(prepared, 7)]  # type: ignore[arg-type]
     assert ingest_process.write_vectors(done, refreshed=[7]) is ok
     assert vectors.deleted == ([] if ok else [7])

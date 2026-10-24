@@ -4,7 +4,42 @@ Battlemap artists often make several versions of one scene: day and night, seaso
 
 A group has a **name**, an **author** and one or more images. It can contain both battlemaps and scenes.
 
-Groups are made for you when you [import](/guide/importing#groups-and-names), from folders and shared filename prefixes. Most of this page is about fixing the ones it gets wrong.
+Groups are made for you when you [import](/guide/importing#groups-and-names). Scene Atlas looks at your folders, your file names and the pictures themselves. Most of this page is about fixing the groups it gets wrong.
+
+## How Groups Are Made
+
+When an import's images have all been processed, Scene Atlas spends a moment **identifying groups**. It works up from the deepest folders and asks, at each level, whether the files belong to one map. Groups appear once this is done and aren't changed by the import afterwards.
+
+It uses three kinds of evidence:
+
+- **The pictures.** Two files showing the same picture, such as a gridded and a gridless copy, or the same map at two sizes, always end up together, wherever they are in the import. Versions with the same layout but different lighting, season or props are joined when they're in the same folder.
+- **File names.** Files whose names differ only by version words belong together: `Tavern_Night_Gridded.jpg` and `Tavern_Day.jpg`. Words like *night*, *winter*, *gridless*, *VTT*, *300dpi* or *22x30* are ignored when comparing names. A prefix that every file in a collection shares, such as `MyCollection_`, is ignored too, so it doesn't merge different maps.
+- **Folders.**
+  - A folder named after a map, or full of files named only `Day`, `Night` and so on, is one group.
+  - Folders such as `Gridded`, `No Grid`, `VTT`, `Print` or `70 DPI` are treated as versions of what's around them, not as groups of their own.
+  - Folders inside a map's folder, like the rooms of a tower or the floors of an inn, become **subgroups** of one group, as long as they look like they belong to the same place.
+  - Folders for an author, a topic (`Forests`, `Taverns`) or a download (`Maps`, `Pack 03`) are never treated as one map, and groups are never merged across them, except for identical copies. An author already in your library is recognised by name.
+  - A folder holding only map folders, drawn at different sizes, is a collection of separate maps.
+  - In a folder named after something specific, files belong together unless their names or pictures say they're different maps.
+
+Floors and rooms are only joined when a folder or their names say they belong together. Two maps that merely look alike are kept apart.
+
+### Scenes
+
+Scenes are grouped after the battlemaps and never change them.
+
+- **A scene joins a battlemap group** when it sits in that map's folder (or in a `Scenes`, `Art` or `Illustrations` folder inside it), when its name starts with the map's name (`Anglers Wharf Night Scene.jpg` beside the Anglers Wharf maps), or when it's a copy of one of the maps.
+- **A scene in a different folder doesn't join a map** just because it's in the same import: `Maps/Keep.jpg` and `Other Art/Vista.jpg` stay separate.
+- **Other scenes start on their own.** They're grouped only when their names say they're versions of one picture (`Tavern Day.jpg`, `Tavern Night.jpg`), when they're named `Day`, `Night` and so on inside a folder named after the place, or when the pictures are clearly the same view. Scenes in different folders are only joined if they're copies of the same picture.
+
+### How your folders affect the result
+
+- **One folder per map gives the best groups.** Anything inside a map's folder, including subfolders for grid versions, sizes or rooms, ends up in that group.
+- **It doesn't matter how much you import at once.** A folder is grouped the same whether you import it on its own or as part of your whole library.
+- **Many maps in one folder works** when their file names tell them apart. Very large flat folders take a little longer to sort out.
+- **Splitting a map's versions across distant folders** (for example `Forests/Hut/` and `Swamps/Hut/`) only rejoins identical copies. Other versions stay separate groups; move them together before importing, or merge them afterwards.
+- **Renaming files to numbers** (`IMG_0012.jpg`) leaves only the pictures to go on. Identical copies and close versions still join, but different floors of one map won't.
+- **Reorganising files after an import doesn't regroup them.** Grouping happens when files are imported; existing groups only change when you edit them.
 
 ## Subgroups
 

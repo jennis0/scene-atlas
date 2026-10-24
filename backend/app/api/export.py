@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ...pipeline.naming import export_metadata, unique_export_path
 from ..config import settings
-from ..models import Image
+from ..models import Image, listed_images
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db
 from .rate_limits import limiter
@@ -62,6 +62,7 @@ def _collect_entries(db: Session) -> tuple[list[tuple[str, Path]], dict]:
             .options(
                 joinedload(Image.tags), joinedload(Image.group), selectinload(Image.source_file)
             )
+            .filter(listed_images())
             .order_by(Image.id)
             .offset(offset)
             .limit(_BATCH)

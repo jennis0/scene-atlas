@@ -3,13 +3,16 @@ import { act, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { QUERY_KEYS } from '@/lib/queryKeys'
-import { IMPORT_REFRESH_INTERVAL_MS, useImportGalleryRefresh } from './useImportGalleryRefresh'
+import {
+  IMPORT_REFRESH_INTERVAL_MS,
+  latestGroupedAt,
+  useImportGalleryRefresh,
+} from './useImportGalleryRefresh'
 
 const SEARCH_KEY = [...QUERY_KEYS.search, { sort_by: 'created_at' }]
 
 interface Props {
-  importedTotal: number
-  newestAtTop: boolean
+  groupedAt: string | null | undefined
   paused: boolean
   libraryEmpty: boolean
 }
@@ -26,13 +29,7 @@ function setup(initial: Partial<Props> = {}) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  const props: Props = {
-    importedTotal: 0,
-    newestAtTop: true,
-    paused: false,
-    libraryEmpty: false,
-    ...initial,
-  }
+  const props: Props = { groupedAt: null, paused: false, libraryEmpty: false, ...initial }
   const hook = renderHook((p: Props) => useImportGalleryRefresh({ containerRef, ...p }), {
     initialProps: props,
     wrapper,
@@ -72,30 +69,36 @@ describe('useImportGalleryRefresh', () => {
     document.body.replaceChildren()
   })
 
-  it('refreshes in place when maps are imported and the user is at the top', () => {
+  it('refreshes in place when an import is grouped and the user is at the top', () => {
     const t = setup()
-    t.update({ importedTotal: 3 })
+    t.update({ groupedAt: '2026-10-22T10:00:00' })
+    t.elapse()
+    expect(t.refreshed()).toBe(true)
+    expect(t.facetsRefreshed()).toBe(false) // the library already had maps
+  })
+
+  it('does nothing until an import is grouped', () => {
+    const t = setup()
+    t.elapse(IMPORT_REFRESH_INTERVAL_MS * 3)
+    expect(t.refreshed()).toBe(false)
+  })
+
+  it('refreshes when an import finishes', () => {
+    const t = setup()
+    t.markFinished()
     t.elapse()
     expect(t.refreshed()).toBe(true)
   })
 
-  it('does nothing until something is imported', () => {
-    const t = setup({ importedTotal: 5 })
-    t.elapse()
-    expect(t.refreshed()).toBe(false)
-  })
-
-  it('refreshes at most once per interval while the count keeps growing', () => {
+  it('refreshes at most once per interval', () => {
     const t = setup()
-    t.update({ importedTotal: 1 })
+    t.update({ groupedAt: '2026-10-22T10:00:00' })
     t.elapse(0) // nothing to wait behind yet
     expect(t.refreshed()).toBe(true)
 
     t.seed()
-    t.update({ importedTotal: 2 })
-    t.elapse(IMPORT_REFRESH_INTERVAL_MS / 2)
-    t.update({ importedTotal: 3 })
-    t.elapse(IMPORT_REFRESH_INTERVAL_MS / 2 - 1)
+    t.update({ groupedAt: '2026-10-22T10:00:01' })
+    t.elapse(IMPORT_REFRESH_INTERVAL_MS - 1)
     expect(t.refreshed()).toBe(false)
     t.elapse(1)
     expect(t.refreshed()).toBe(true)
@@ -104,31 +107,8 @@ describe('useImportGalleryRefresh', () => {
   it('waits while the user is scrolled down, then catches up at the top', () => {
     const t = setup()
     t.scrollTo(2000)
-    t.update({ importedTotal: 4 })
+    t.update({ groupedAt: '2026-10-22T10:00:00' })
     t.elapse(IMPORT_REFRESH_INTERVAL_MS * 3)
-    expect(t.refreshed()).toBe(false)
-
-    t.scrollTo(0)
-    t.elapse()
-    expect(t.refreshed()).toBe(true)
-  })
-
-  it('does not reshuffle a name sort or a search while importing, but does once finished', () => {
-    const t = setup({ newestAtTop: false })
-    t.update({ importedTotal: 4 })
-    t.elapse(IMPORT_REFRESH_INTERVAL_MS * 3)
-    expect(t.refreshed()).toBe(false)
-
-    t.markFinished()
-    t.elapse()
-    expect(t.refreshed()).toBe(true)
-  })
-
-  it('a finished import still waits for the user to be at the top', () => {
-    const t = setup()
-    t.scrollTo(2000)
-    t.markFinished()
-    t.elapse()
     expect(t.refreshed()).toBe(false)
 
     t.scrollTo(50)
@@ -138,7 +118,7 @@ describe('useImportGalleryRefresh', () => {
 
   it('holds updates while the image viewer is open', () => {
     const t = setup({ paused: true })
-    t.update({ importedTotal: 2 })
+    t.update({ groupedAt: '2026-10-22T10:00:00' })
     t.elapse(IMPORT_REFRESH_INTERVAL_MS * 3)
     expect(t.refreshed()).toBe(false)
 
@@ -147,18 +127,49 @@ describe('useImportGalleryRefresh', () => {
     expect(t.refreshed()).toBe(true)
   })
 
-  it('replaces the welcome screen as soon as the first maps arrive, whatever the sort', () => {
-    const t = setup({ newestAtTop: false, libraryEmpty: true })
-    t.update({ importedTotal: 1 })
+  it('replaces the welcome screen when the first maps are grouped', () => {
+    const t = setup({ libraryEmpty: true })
+    t.update({ groupedAt: '2026-10-22T10:00:00' })
     t.elapse()
     expect(t.facetsRefreshed()).toBe(true)
   })
 
-  it('leaves the facets alone once the library has maps', () => {
-    const t = setup()
-    t.update({ importedTotal: 1 })
+  it('takes the first loaded grouping as a baseline, not as news', () => {
+    const t = setup({ groupedAt: undefined }) // the import list hasn't loaded
+    t.update({ groupedAt: '2026-10-22T10:00:00' }) // grouped before the gallery opened
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+
+    t.update({ groupedAt: '2026-10-22T10:01:00' })
     t.elapse()
     expect(t.refreshed()).toBe(true)
-    expect(t.facetsRefreshed()).toBe(false)
+  })
+
+  it('ignores a grouping time that goes back or is cleared', () => {
+    const t = setup({ groupedAt: '2026-10-22T10:05:00' })
+    t.update({ groupedAt: '2026-10-22T10:00:00' }) // the latest import was dismissed
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+    t.update({ groupedAt: null }) // or re-opened, or left the list
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+    t.update({ groupedAt: '2026-10-22T10:05:00' }) // seen already
+    t.elapse()
+    expect(t.refreshed()).toBe(false)
+  })
+})
+
+describe('latestGroupedAt', () => {
+  it('is the most recent grouping among the imports', () => {
+    expect(latestGroupedAt([])).toBeNull()
+    expect(latestGroupedAt([{ grouped_at: null }])).toBeNull()
+    expect(
+      latestGroupedAt([
+        { grouped_at: '2026-10-22T09:00:00' },
+        { grouped_at: null },
+        { grouped_at: '2026-10-22T10:00:00' },
+        { grouped_at: '2026-10-22T09:59:59.900000' },
+      ]),
+    ).toBe('2026-10-22T10:00:00')
   })
 })

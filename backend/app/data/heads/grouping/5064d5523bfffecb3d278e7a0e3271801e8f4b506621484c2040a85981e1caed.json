@@ -1,0 +1,33 @@
+{
+  "format": "scene-atlas-grouping-calibration/2",
+  "encoder_version": "siglip2-l-384-rc4",
+  "encoder_sha256": "5064d5523bfffecb3d278e7a0e3271801e8f4b506621484c2040a85981e1caed",
+  "embedding_dim": 1024,
+  "thresholds": {
+    "agree_emb": 0.6961,
+    "coh": 0.8178,
+    "coh_all": 0.7972,
+    "coh_key": 0.6767,
+    "coh_suggest": 0.657,
+    "leaf_diff": 0.5454,
+    "leaf_same_prod": 0.8033,
+    "leaf_same": 0.8429,
+    "scene_agree_emb": 0.8539
+  },
+  "method": "quantile-mapped from E5's thresholds (siglip2_base_384_rc4 Qdrant vectors) onto Scene Atlas-style ONNX embeddings of 400 px medium thumbnails; grouping/e5/calibrate.py",
+  "validation": {
+    "dev_f1": 0.9739,
+    "test_realistic_f1": 0.9761,
+    "test_targeted_f1": 0.9762,
+    "reserved_f1": 0.9442,
+    "embeddings_off_test_f1": 0.8489,
+    "embeddings_off_test_targeted_f1": 0.8638,
+    "embeddings_off_reserved_f1": 0.786
+  },
+  "built_at": "2026-10-22T20:58:08+00:00",
+  "git": "a6652c6-dirty",
+  "leaf_method": "leaf_diff / leaf_same_prod / leaf_same: E6 change 2 (leaf default, positive different-map evidence) cohesion cuts, tuned on the dev small-import suite with the medium SA embeddings; quantile-mapped onto this encoder on the unit population of dev images (cosine of group-half means and of within-maker group means), t -> Q_this(F_medium(t)), as grouping/e5/calibrate.py; grouping/e6/calibrate_leaf.py.",
+  "leaf_source": "E6, tuned on the medium SA embeddings; mapped to this encoder",
+  "scene_method": "scene_agree_emb: E7 R5 scene agreement (edge map >= 0.50, a parameter, AND embedding cosine >= this), tuned on the E7 dev suites with the medium SA embeddings; quantile-mapped onto this encoder on a pair population of dev scenes (same-group pairs, same-folder pairs of different groups, random singleton pairs; identical draws for every encoder), t -> Q_this(F_medium(t)), as grouping/e6/calibrate_leaf.py; grouping/e7/calibrate_encoders.py.",
+  "scene_source": "E7, tuned on the medium SA embeddings; mapped to this encoder"
+}

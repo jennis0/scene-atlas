@@ -24,7 +24,15 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from ..models import Color, Image, ImageGroup, ImageResponse, ImageSearchResponse, Tag
+from ..models import (
+    Color,
+    Image,
+    ImageGroup,
+    ImageResponse,
+    ImageSearchResponse,
+    Tag,
+    listed_images,
+)
 from ..models.schemas import GroupSearchResponse, GroupSearchResult
 from . import get_clip_service, get_lancedb_service
 from .app_settings import get_settings as get_app_settings
@@ -150,8 +158,9 @@ def _image_property_conditions(db: Session, filters: SearchFilters) -> list[Colu
 
 
 def image_conditions(db: Session, filters: SearchFilters) -> list[ColumnElement[bool]]:
-    """WHERE conditions on ``Image`` for all filters."""
-    conditions = _image_property_conditions(db, filters)
+    """WHERE conditions on ``Image`` for all filters, and only images the library lists
+    (not those an import hasn't grouped yet)."""
+    conditions = [listed_images(), *_image_property_conditions(db, filters)]
     if filters.authors:
         conditions.append(Image.author.in_(filters.authors))
     if filters.exclude_authors:
@@ -528,7 +537,7 @@ def get_facets(db: Session) -> dict:
     image_count = func.count(Image.id)
     authors = db.execute(
         select(Image.author, image_count)
-        .where(Image.author.is_not(None), Image.author != "")
+        .where(listed_images(), Image.author.is_not(None), Image.author != "")
         .group_by(Image.author)
         .order_by(image_count.desc())
     ).all()
@@ -538,6 +547,7 @@ def get_facets(db: Session) -> dict:
     for category, value, count in db.execute(
         select(Tag.category, Tag.value, tagged_images)
         .join(Image, Image.id == Tag.image_id)
+        .where(listed_images())
         .group_by(Tag.category, Tag.value)
         .order_by(Tag.category, tagged_images.desc())
     ):
@@ -545,7 +555,9 @@ def get_facets(db: Session) -> dict:
 
     grid = {"gridded": 0, "gridless": 0, "unknown": 0, "square": 0, "hex": 0}
     for gridded, grid_type, count in db.execute(
-        select(Image.gridded, Image.grid_type, image_count).group_by(Image.gridded, Image.grid_type)
+        select(Image.gridded, Image.grid_type, image_count)
+        .where(listed_images())
+        .group_by(Image.gridded, Image.grid_type)
     ):
         if gridded is True:
             grid["gridded"] += count
@@ -560,13 +572,18 @@ def get_facets(db: Session) -> dict:
     colors = db.execute(
         select(Color.color_hex, coloured_images)
         .join(Image, Image.id == Color.image_id)
+        .where(listed_images())
         .group_by(Color.color_hex)
         .order_by(coloured_images.desc())
         .limit(50)
     ).all()
 
-    image_types = db.execute(select(Image.image_type, image_count).group_by(Image.image_type)).all()
-    media_types = db.execute(select(Image.media_type, image_count).group_by(Image.media_type)).all()
+    image_types = db.execute(
+        select(Image.image_type, image_count).where(listed_images()).group_by(Image.image_type)
+    ).all()
+    media_types = db.execute(
+        select(Image.media_type, image_count).where(listed_images()).group_by(Image.media_type)
+    ).all()
 
     return {
         "total_images": sum(count for _, count in image_types),

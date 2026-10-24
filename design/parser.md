@@ -170,9 +170,32 @@ Example: `AbandonedCampsiteNight30x30` → `Abandoned Campsite Night 30 x 30`
 
 In `backend/pipeline/ingest_process.py` (`commit_batch`), `Image.name` is populated from `parsed["name"]`, falling back to the import group's name, then the filename stem. This gives each image a distinct, human-readable display name separate from its group.
 
+## Grouping by type
+
+The seal only parses each path (`ingest_queue.compute_plan`: name, tags, grid hints; an Auto
+item's `scene_tags`; the NxM sizes its effective folder's files name). Groups are identified
+once the import has finished, from paths and content (`group_jobs`, [ingestion.md
+§5.8](ingestion.md#58-identifying-groups), ADR-028), by **detected** type:
+
+- **Maps** (battlemaps, Auto files the image-type head called maps, and map-type files that
+  made no image) go through the variant-grouping tree walk, `variant_grouping.group_with_content`
+  ([variant-grouping.md](variant-grouping.md)). It decides the groups, their names and authors,
+  and each file's subgroup.
+- **Scenes** (everything else: Auto skips tokens and assets) are attached to a map group or
+  grouped among themselves by `variant_grouping.group_scenes`; each scene group is named by
+  `group_files()`, below.
+
+Both get the library's creators as `known_authors` (`ingest_queue.known_authors`). A group
+whose `(name, author)` already exists in the gallery adds to it ([ingestion.md](ingestion.md#3-data-model)),
+except a map group whose name is a fallback (`ProposedGroup.name_is_identity` false: a numbering
+such as `IMG`) or is shared by two of the import's map groups: such a name doesn't say which map
+it is, so each becomes a new group. Files already settled by the manifest (oversized, not an
+image) are not parsed or grouped.
+
 ## Group Detection (`group_files()`)
 
-Called at seal time (`ingest_queue.plan_job`) to group an import's files into import groups, separately per `image_type`. Groups whose `(name, author)` already exist in the gallery are merged into them; see [ingestion.md](ingestion.md#3-data-model).
+Called in an import's grouping phase for types other than maps (see above), separately per
+`image_type`.
 
 ### Pass 0: `folder/file` paths, group or creator
 
@@ -181,7 +204,7 @@ A folder that holds files directly is either one map's folder ("Golden Forest/")
 - carry the folder's name, which is cleaned and stripped of variant words first, so "dww-hydra-island-print" matches "dww-hydra-island-blood-print";
 - contain only variant words: lighting, season, weather, state, theme, population, style and perspective tags; grid and junk words; numbers, sizes and versions ("Night_Snow_Gridded", "2", "30x30").
 
-It is never the group when the folder is generic, when it is named after a creator already in the library (`plan_job` passes `known_authors` from `ImageGroup.author`), or when a file's `by<Name>` names the folder ("mutenn/DillingerGateByMutenn_GL").
+It is never the group when the folder is generic, when it is named after a creator already in the library (the grouping phase passes `known_authors` from `ImageGroup.author`), or when a file's `by<Name>` names the folder ("mutenn/DillingerGateByMutenn_GL").
 
 **Calibration (2026-10-19, the real 56k library):** each real map folder (`author/G/file`) was replayed as `G/file`, and each creator folder with loose files (`author/file`) as itself.
 

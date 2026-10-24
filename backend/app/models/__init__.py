@@ -6,6 +6,7 @@ from .database import (
     Color,
     Image,
     ImageGroup,
+    ImageGroupingFeatures,
     ImportGroup,
     ImportItem,
     ImportJob,
@@ -16,6 +17,7 @@ from .database import (
     get_engine,
     get_session_local,
     init_db,
+    listed_images,
     seed_default_settings,
     seed_tag_categories,
 )
@@ -48,6 +50,7 @@ __all__ = [
     "Base",
     "Image",
     "ImageGroup",
+    "ImageGroupingFeatures",
     "ImportJob",
     "ImportGroup",
     "ImportItem",
@@ -59,6 +62,7 @@ __all__ = [
     "get_engine",
     "get_session_local",
     "init_db",
+    "listed_images",
     "seed_default_settings",
     "seed_tag_categories",
     # Schemas

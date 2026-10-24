@@ -120,3 +120,18 @@ class TestComputeJobStatus:
 
     def test_completed_reopens_when_items_retried(self):
         assert st.compute_job_status(st.JOB_COMPLETED, True, {st.READY: 1}) == st.JOB_ACTIVE
+
+    def test_a_settled_job_is_grouping_until_grouped(self):
+        """ADR-028: nothing open, then the grouping phase, then completed."""
+        done = {st.DONE: 3, st.FAILED: 1}
+        assert st.compute_job_status(st.JOB_ACTIVE, True, done, grouped=False) == st.JOB_GROUPING
+        assert st.compute_job_status(st.JOB_PAUSED, True, done, grouped=False) == st.JOB_GROUPING
+        assert st.compute_job_status(st.JOB_GROUPING, True, done, grouped=True) == (
+            st.JOB_COMPLETED
+        )
+        assert st.compute_job_status(st.JOB_GROUPING, True, {st.READY: 1}, grouped=False) == (
+            st.JOB_ACTIVE
+        )
+        assert st.compute_job_status(st.JOB_CANCELLED, True, done, grouped=False) == (
+            st.JOB_CANCELLED
+        )

@@ -162,10 +162,9 @@ class TestEncoderSha:
 class TestBundledHeads:
     @pytest.fixture
     def heads_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(itc, "HEADS_DIR", tmp_path)
-        monkeypatch.setattr(itc, "_heads", None)
-        yield tmp_path
-        itc._heads = None  # the next caller loads the real bundled heads again
+        heads = itc.BundledHeads(tmp_path, itc.ImageTypeHead, "image-type head")
+        monkeypatch.setattr(itc, "HEADS", heads)
+        return tmp_path
 
     def test_a_malformed_head_does_not_break_the_others(self, heads_dir):
         good = _head(encoder_sha256="b" * 64)
@@ -176,12 +175,12 @@ class TestBundledHeads:
         misnamed = _head(encoder_sha256="e" * 64)
         (heads_dir / f"{'f' * 64}.json").write_text(json.dumps(misnamed))
 
-        assert set(itc.bundled_heads()) == {"b" * 64}
+        assert set(itc.HEADS.all()) == {"b" * 64}
         (heads_dir / f"{'b' * 64}.json").unlink()
-        assert set(itc.bundled_heads()) == {"b" * 64}  # loaded once, cached
+        assert set(itc.HEADS.all()) == {"b" * 64}  # loaded once, cached
 
     def test_all_bundled_heads_load(self):
-        heads = itc.bundled_heads()
+        heads = itc.HEADS.all()
         for sha, head in heads.items():
             assert head.encoder_sha256 == sha
 
@@ -192,7 +191,7 @@ class TestBundledHeads:
         if entry.get("image_type_head") is False:
             pytest.skip("model explicitly has no image-type head")
         matches = [
-            h for h in itc.bundled_heads().values() if h.encoder_version == entry.get("hf_revision")
+            h for h in itc.HEADS.all().values() if h.encoder_version == entry.get("hf_revision")
         ]
         assert len(matches) == 1, f"{entry['name']}: no bundled head for {entry.get('hf_revision')}"
         assert matches[0].embedding_dim == entry["embedding_dim"]

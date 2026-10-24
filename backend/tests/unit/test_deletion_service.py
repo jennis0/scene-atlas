@@ -4,13 +4,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.app.models.database import Color, Image, Tag
+from backend.app.models.database import Color, Image, ImageGroupingFeatures, Tag
 from backend.app.services.deletion_service import (
     _delete_all_thumbnails,
     delete_image_rows,
     safe_delete_image,
 )
 from backend.app.services.image_store import ImageStore
+from backend.pipeline.grouping_features import GroupingFeatures, store_grouping_features
 
 
 def _make_image(storage_key: str, thumbnail_key: str | None = None, **kwargs) -> Image:
@@ -24,6 +25,15 @@ def _make_image(storage_key: str, thumbnail_key: str | None = None, **kwargs) ->
         media_type="image",
         image_type="battlemap",
     )
+
+
+def _add_grouping_features(db_session, image_id: int) -> None:
+    store_grouping_features(db_session, {image_id: GroupingFeatures(bytes(32), None)})
+    db_session.flush()
+
+
+def _grouping_feature_ids(db_session) -> set[int]:
+    return {row.image_id for row in db_session.query(ImageGroupingFeatures)}
 
 
 def _seed_store(store: ImageStore, key: str, content: bytes = b"data") -> None:
@@ -254,6 +264,23 @@ class TestSafeDeleteImageDbCleanup:
 
         assert db_session.get(Color, color_id) is None
 
+    def test_grouping_features_deleted(self, db_session, stores, monkeypatch, mock_vector_db):
+        """No relationship and no enforced foreign key: the row must be deleted explicitly."""
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        _seed_store(image_store, "f4f5f6.jpg")
+        img, other = _make_image("f4f5f6.jpg"), _make_image("f7f8f9.jpg")
+        db_session.add_all([img, other])
+        db_session.flush()
+        _add_grouping_features(db_session, img.id)
+        _add_grouping_features(db_session, other.id)
+        db_session.commit()
+
+        safe_delete_image(db_session, img)
+        db_session.commit()
+
+        assert _grouping_feature_ids(db_session) == {other.id}
+
 
 class TestSafeDeleteImageVectorDb:
     """Vector DB embedding must always be deleted, regardless of ref count."""
@@ -449,6 +476,19 @@ class TestDeleteImageRows:
         pending = delete_image_rows(db_session, [first])
         assert pending.storage_keys == []
         assert pending.thumbnail_keys == []
+
+    def test_grouping_features_deleted(self, db_session, stores, monkeypatch):
+        image_store, thumbnail_store = stores
+        _patch_stores(monkeypatch, image_store, thumbnail_store)
+        gone = self._seed(db_session, image_store, thumbnail_store, "dd44.jpg", "dd44_400x400.jpg")
+        kept = self._seed(db_session, image_store, thumbnail_store, "ee55.jpg", "ee55_400x400.jpg")
+        for image in (gone, kept):
+            _add_grouping_features(db_session, image.id)
+        kept_id = kept.id
+
+        delete_image_rows(db_session, [gone])
+        db_session.commit()
+        assert _grouping_feature_ids(db_session) == {kept_id}
 
     def test_empty_list_is_a_no_op(self, db_session):
         pending = delete_image_rows(db_session, [])
