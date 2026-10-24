@@ -36,7 +36,7 @@ from . import vocab as V
 from .evidence import ContentFeatures, FeatureMatrix
 from .params import VARIANT_ONLY_SHARE, GroupingParams
 from .phash_index import radius_pairs
-from .schema import Grouping, GroupingFile
+from .schema import FolderVerdict, Grouping, GroupingFile
 from .tree import ancestors, build_tree
 from .walk import UnionFind, join_agreeing
 
@@ -284,76 +284,14 @@ def group_scenes[K: Hashable](
     stem = [N.file_stem(name) for _, name in split]
     attach_of = _effective([_attach_folder(f) for f in raw])
     folder = ["/".join(attach_of[_attach_folder(f)]) for f in raw]
+    container = _container_verdict(raw, maps, verdicts)
 
-    # The walk's container verdict per attach folder: that of the shallowest raw map folder
-    # standing for it (``Pack`` for ``Pack``, not the generic ``Pack/Maps``)
-    prefixes = sorted(
-        {raw[i][:d] for i in maps for d in range(len(raw[i]) + 1)}, key=lambda f: (len(f), f)
-    )
-    attach_eff = _effective([_attach_folder(f) for f in prefixes])
-    walk_eff = _effective(prefixes)
-    walk_of: dict[str, N.Folder] = {}
-    for f in prefixes:
-        walk_of.setdefault("/".join(attach_eff[_attach_folder(f)]), walk_eff[f])
-
-    def container(a: str) -> bool:
-        verdict = verdicts.get(walk_of[a]) if a in walk_of else None
-        return True if verdict is None else verdict.container
-
-    attach: dict[int, tuple[int, str]] = {}
-    # r2: the nearest folder holding maps holds one group (guarded: own folder, or the group's top)
-    under: dict[str, set[int]] = defaultdict(set)
-    for i in maps:
-        for a in ancestors(folder[i]):
-            under[a].add(group_of[i])
-    direct = {folder[i] for i in maps}
-    top = {g: _top([folder[i] for i in members]) for g, members in enumerate(groups)}
-    nearest = {s: next((a for a in ancestors(folder[s]) if a in under), None) for s in scenes}
-    for s in scenes:
-        a = nearest[s]
-        if a is None or len(under[a]) != 1:
-            continue
-        (g,) = under[a]
-        if (a == folder[s] and a in direct) or (not container(a) and a == top[g]):
-            attach[s] = (g, "r2 folder holds one map group")
-
-    # r3: in its own folder of several map groups, a scene's name key starts with one group's key
-    map_ids = {i: _map_identity(stem[i]) for i in maps}
+    under, nearest = _map_groups_above(maps, scenes, folder, group_of)
     scene_ids = {s: scene_identity(stem[s]) for s in scenes}
-    scope: dict[str, list[int]] = defaultdict(list)
-    for s in scenes:
-        a = nearest[s]
-        if s not in attach and a is not None and len(under[a]) >= 2 and folder[s] == a:
-            scope[a].append(s)
-    for a, scoped in scope.items():
-        candidates = sorted(under[a])
-        members = {g: [i for i in groups[g] if a in ancestors(folder[i])] for g in candidates}
-        strip = _common_strip(
-            [map_ids[i] for g in candidates for i in members[g]] + [scene_ids[s] for s in scoped]
-        )
-        group_keys: dict[int, set[N.Seq]] = {}
-        for g in candidates:
-            ids = [
-                x for x in (tuple(t for t in map_ids[i] if t not in strip) for i in members[g]) if x
-            ]
-            if not ids:
-                continue
-            prefix = N.common_prefix(ids)
-            group_keys[g] = {prefix} if prefix else {x[:2] for x in ids if len(x) >= 2}
-        for s in scoped:
-            key = tuple(t for t in scene_ids[s] if t not in strip)
-            if not key:
-                continue
-            best, best_len, tie = None, 0, False
-            for g, gkeys in group_keys.items():
-                for k in gkeys:
-                    if key == k or (len(k) >= 2 and key[: len(k)] == k):
-                        if len(k) > best_len:
-                            best, best_len, tie = g, len(k), False
-                        elif len(k) == best_len and g != best:
-                            tie = True
-            if best is not None and not tie:
-                attach[s] = (best, "r3 name key (prefix)")
+    attach = _attach_by_folder(scenes, maps, folder, groups, under, nearest, container)
+    attach.update(
+        _attach_by_name(scenes, maps, folder, stem, scene_ids, groups, under, nearest, attach)
+    )
 
     units = _Units(n)
     for s, (g, _) in attach.items():
@@ -397,6 +335,31 @@ def group_scenes[K: Hashable](
             continue
         join(a, b, "r6 rendition across folders")
 
+    _collect(out, keys, scenes, units, attach)
+    return out
+
+
+def _map_groups_above(
+    maps: list[int], scenes: list[int], folder: list[str], group_of: Mapping[int, int]
+) -> tuple[dict[str, set[int]], dict[int, str | None]]:
+    """The map groups under each folder holding maps, and each scene's nearest such folder."""
+    under: dict[str, set[int]] = defaultdict(set)
+    for i in maps:
+        for a in ancestors(folder[i]):
+            under[a].add(group_of[i])
+    nearest = {s: next((a for a in ancestors(folder[s]) if a in under), None) for s in scenes}
+    return under, nearest
+
+
+def _collect[K: Hashable](
+    out: SceneGrouping[K],
+    keys: list[K],
+    scenes: list[int],
+    units: _Units,
+    attach: Mapping[int, tuple[int, str]],
+) -> None:
+    """Fill ``out`` from the units: each scene's attachment (the reason it attached, or the first
+    join that brought it to an attached unit), or its scene group."""
     first_join: dict[K, str] = {}
     for a, b, reason in out.joins:
         first_join.setdefault(a, reason)
@@ -410,7 +373,108 @@ def group_scenes[K: Hashable](
         else:
             rest[units.find(s)].append(keys[s])
     out.groups = list(rest.values())
-    return out
+
+
+def _container_verdict(
+    raw: list[N.Folder], maps: list[int], verdicts: Mapping[N.Folder, FolderVerdict]
+) -> Callable[[str], bool]:
+    """The walk's container verdict per attach folder: that of the shallowest raw map folder
+    standing for it (``Pack`` for ``Pack``, not the generic ``Pack/Maps``)."""
+    prefixes = sorted(
+        {raw[i][:d] for i in maps for d in range(len(raw[i]) + 1)}, key=lambda f: (len(f), f)
+    )
+    attach_eff = _effective([_attach_folder(f) for f in prefixes])
+    walk_eff = _effective(prefixes)
+    walk_of: dict[str, N.Folder] = {}
+    for f in prefixes:
+        walk_of.setdefault("/".join(attach_eff[_attach_folder(f)]), walk_eff[f])
+
+    def container(a: str) -> bool:
+        verdict = verdicts.get(walk_of[a]) if a in walk_of else None
+        return True if verdict is None else verdict.container
+
+    return container
+
+
+def _attach_by_folder(
+    scenes: list[int],
+    maps: list[int],
+    folder: list[str],
+    groups: list[list[int]],
+    under: Mapping[str, set[int]],
+    nearest: Mapping[int, str | None],
+    container: Callable[[str], bool],
+) -> dict[int, tuple[int, str]]:
+    """r2: the nearest folder holding maps holds one group (guarded: own folder, or the group's
+    top)."""
+    direct = {folder[i] for i in maps}
+    top = {g: _top([folder[i] for i in members]) for g, members in enumerate(groups)}
+    attach: dict[int, tuple[int, str]] = {}
+    for s in scenes:
+        a = nearest[s]
+        if a is None or len(under[a]) != 1:
+            continue
+        (g,) = under[a]
+        if (a == folder[s] and a in direct) or (not container(a) and a == top[g]):
+            attach[s] = (g, "r2 folder holds one map group")
+    return attach
+
+
+def _attach_by_name(
+    scenes: list[int],
+    maps: list[int],
+    folder: list[str],
+    stem: list[str],
+    scene_ids: Mapping[int, N.Seq],
+    groups: list[list[int]],
+    under: Mapping[str, set[int]],
+    nearest: Mapping[int, str | None],
+    attached: Mapping[int, tuple[int, str]],
+) -> dict[int, tuple[int, str]]:
+    """r3: in its own folder of several map groups, a scene's name key starts with one group's
+    key. Scenes in ``attached`` are skipped."""
+    map_ids = {i: _map_identity(stem[i]) for i in maps}
+    scope: dict[str, list[int]] = defaultdict(list)
+    for s in scenes:
+        a = nearest[s]
+        if s not in attached and a is not None and len(under[a]) >= 2 and folder[s] == a:
+            scope[a].append(s)
+    attach: dict[int, tuple[int, str]] = {}
+    for a, scoped in scope.items():
+        candidates = sorted(under[a])
+        members = {g: [i for i in groups[g] if a in ancestors(folder[i])] for g in candidates}
+        strip = _common_strip(
+            [map_ids[i] for g in candidates for i in members[g]] + [scene_ids[s] for s in scoped]
+        )
+        group_keys: dict[int, set[N.Seq]] = {}
+        for g in candidates:
+            ids = [
+                x for x in (tuple(t for t in map_ids[i] if t not in strip) for i in members[g]) if x
+            ]
+            if not ids:
+                continue
+            prefix = N.common_prefix(ids)
+            group_keys[g] = {prefix} if prefix else {x[:2] for x in ids if len(x) >= 2}
+        for s in scoped:
+            key = tuple(t for t in scene_ids[s] if t not in strip)
+            best = _leading_group(key, group_keys) if key else None
+            if best is not None:
+                attach[s] = (best, "r3 name key (prefix)")
+    return attach
+
+
+def _leading_group(key: N.Seq, group_keys: Mapping[int, set[N.Seq]]) -> int | None:
+    """The group whose longest key ``key`` equals or starts with (keys of two tokens or more for a
+    prefix); None when no group's does, or two groups' tie."""
+    best, best_len, tie = None, 0, False
+    for g, gkeys in group_keys.items():
+        for k in gkeys:
+            if key == k or (len(k) >= 2 and key[: len(k)] == k):
+                if len(k) > best_len:
+                    best, best_len, tie = g, len(k), False
+                elif len(k) == best_len and g != best:
+                    tie = True
+    return None if tie else best
 
 
 def _leaf_joins(

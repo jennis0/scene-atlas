@@ -14,6 +14,7 @@ renditions (gridded/gridless, DPI, print/VTT, file format), and give each group 
 and, where the map has floors or rooms, sub-groups.
 
 Nothing about the tree can be assumed. The same library can arrive as:
+
 - `Maker/Map/*`;
 - `Forest/Maker/Map/*`;
 - `Maker/{Gridded,No Grid}/*`;
@@ -76,6 +77,7 @@ groups by paths alone, every content join withheld; content only ever adds joins
   never a map.
 
 The output is a `Grouping`:
+
 - groups (`ProposedGroup(keys, name, author, subgroups, reasons, name_is_identity)`);
 - `suggestions` (joins deliberately not made, each with a reason);
 - `folders`: effective folder (a tuple of canonical names) → `FolderVerdict`, what the walk
@@ -91,6 +93,7 @@ first.
 ### 4.1 Tokens
 
 `tokenize` lowercases and splits a file stem:
+
 - at separators, camelCase, letter↔digit boundaries and acronym boundaries
   (`ChempunklaboratoryVttGL` → `chempunklaboratory vtt gl`);
 - `[tag,lists]` and OS copy suffixes (`name (2)`) are removed;
@@ -103,6 +106,7 @@ first.
 ### 4.2 Identity tokens
 
 `identity_tokens` keeps only the words that could name a map. It drops:
+
 - **axis words:** lighting, time, season, weather, state (`night`, `winter`, `ruined`, `propless`);
 - **rendition words:** grid, format, DPI, platform, size (`gridless`, `vtt`, `140dpi`, `print`, `webp`);
 - **numbers and sizes;**
@@ -113,6 +117,7 @@ Grid phrases like `no grid` count as rendition words. Consecutive repeats collap
 (`leasealair maps leasealair maps` → `leasealair maps`).
 
 Two exceptions keep numbers that matter:
+
 - **Series numbers are identity:** `Vol4` becomes the token `vol#4`, so `Forest Path Vol4` and
   `Vol6` are different maps.
 - **Level designators are not identity:** `strip_level_suffix` cuts a trailing run such as
@@ -149,6 +154,7 @@ A token every file shares can't help split a set, and leaving it in made whole f
 ### 4.4 Keys
 
 After stripping, each file has:
+
 - a **full identity** (all remaining identity tokens): equal full identities → same-name join (a2);
 - a **2-token key** (the first two): equal keys → shared-base join (a4). Two tokens because one
   shared word (`forest`) is too weak;
@@ -184,6 +190,7 @@ Each folder is classified against its parent's and grandparent's names (`folder_
 
 Rendition and variant folders are **transparent**: their files belong to the parent. Two more
 adjustments:
+
 - near-spellings of the parent's tokens count as the parent's name (`colossas` ≈ `colossus`);
 - **mirror siblings** collapse into one effective folder: siblings whose names are equal after
   dropping rendition and axis words, such as `Forest Road Gridded` / `Forest Road Gridless`.
@@ -210,6 +217,7 @@ each. Those are author or topic folders (`Forests/Czepeku/…` and `Swamps/Czepe
 ### 6.1 Candidate pairs
 
 Comparing every pair is quadratic, so only candidates are scored:
+
 - **pHash pairs within 20 bits, anywhere in the import.** These are found exactly with a
   multi-index hash (`phash_index.py`): the 256 bits split into 21 chunks, and by pigeonhole any
   pair within 20 bits matches on at least one chunk. Buckets over 256 hashes fall back to
@@ -223,12 +231,14 @@ Comparing every pair is quadratic, so only candidates are scored:
 ### 6.2 Pair signals
 
 Each candidate gets these signals:
+
 - pHash Hamming bits;
 - edge correlation;
 - embedding cosine;
 - |log aspect| difference.
 
 Two pair-level relations come from them:
+
 - **rendition:** ≤ 12 bits **and** aspect difference ≤ 0.02. Dev precision 0.999.
 - **agreement:** edge ≥ 0.70 **and** embedding ≥ the calibrated threshold (≈ 0.70) **and** aspect
   difference ≤ 0.05, unless the two files' veto keys or series say different maps.
@@ -240,6 +250,7 @@ agreement.
 
 A **unit** is a set of files already joined. To decide whether two units can join as parts of one
 map, `unit_similarity` uses:
+
 - **theme cohesion:** the cosine of the units' mean embeddings. It is raised to the parent
   threshold when their mean edge correlation is ≥ 0.25, i.e. the same building drawn again;
 - **production fingerprint:** compatible when the median aspects are within 0.03 and the `NxM`
@@ -280,6 +291,7 @@ finds positive evidence.
 A folder is a **container** if any of these holds. Every test asks what the folder *is*, never
 how much it holds, so a subtree is grouped the same imported alone as inside a large import
 (scale invariance). The verdict's `reason` (`FolderReason`) says which:
+
 - it is the root;
 - its name is generic;
 - its name recurs elsewhere in the tree (author or topic);
@@ -298,6 +310,7 @@ A container **seals** its subtree: nothing below it joins across it by folder or
 
 **Whole-folder exception (c0).** A folder over the safety cap, or named after its files, still joins
 whole when **every** unit has an embedding and:
+
 - mean cohesion ≥ ≈ 0.80;
 - the 10th percentile ≥ ≈ 0.70;
 - ≥ 90% of unit pairs have compatible fingerprints.
@@ -308,6 +321,7 @@ files). Limithron's `Coral Reef Shipwreck` is the motivating case.
 ### 7.3 Meaningful parent (stage b)
 
 A meaningful folder joins its units on:
+
 - **b1–b4:** the same certain and agreement evidence across its children (renditions,
   same-name, agreement, shared base; b4 uses a4's gate);
 - **b5 unnamed parts:** in a folder named after its map, child units whose files have no identity
@@ -346,6 +360,7 @@ The joined child folders become the group's **sub-groups**.
 ≥ 20 images (that becomes a suggestion).
 
 Everything else that might join across the tree becomes a suggestion with its reason:
+
 - same name across folders;
 - same base plus layout;
 - same-named folders;
@@ -378,6 +393,7 @@ nothing names them together, so they stay five groups.
 
 The walk sees maps only. Scenes come after it, so adding a scene to a folder never changes that
 folder's map groups. Three facts shape the rules:
+
 - scenes are mostly singletons, so a scene starts **alone** and joins only on positive evidence
   (the opposite of the map leaf default);
 - pHash finds only scene *renditions*: scene variants (Day / Night repaints) sit about 54–78 bits
@@ -395,6 +411,7 @@ so `Loc/Scenes/x.jpg` is one of `Loc`'s files and `Pack/Maps/X/` mirrors `Pack/S
 re-files files already typed: Czepeku's `Airships/…/Scenes/` holds top-down maps.
 
 **Attach**, in order:
+
 - **r2, same folder:** the nearest folder holding maps holds one group, and is either the scene's
   own folder with maps directly in it, or not a container (the walk's `FolderVerdict`) and the
   group's own top folder (the longest common folder of its maps). `Root/Map.jpg` + `Root/x.jpg`
@@ -406,6 +423,7 @@ re-files files already typed: Czepeku's `Airships/…/Scenes/` holds top-down ma
   group's key (the longest common prefix of its maps' identities) joins it. A tie joins nothing.
 
 **Group the rest (r5),** per attach folder:
+
 - **names:** identical keys that lead the file name (`Tavern Night` leads with *tavern*;
   `foggy_dark_village` does not lead with *village*), with a word of ≥ 3 letters. Stems differing
   only by numbers or rendition words, ID-like stems (`582d0779-…`, `d83lgl`), identical stems
@@ -428,6 +446,7 @@ type is added.
 ## 8. Naming (`naming.py`)
 
 Each group's name, in order of preference:
+
 1. **The folder that names it:**
    - a folder named after its files;
    - an a6 variant-only folder;
@@ -438,6 +457,7 @@ Each group's name, in order of preference:
    group is never matched to an existing gallery group by name.
 
 The author, in order:
+
 1. a folder named after a known author;
 2. a folder named by a stripped house prefix (`Woods/Moonlight Maps/…` gives Moonlight Maps);
 3. a `by<Author>` marker in the file name;
@@ -457,10 +477,10 @@ Encoder-independent thresholds are research-tuned on the benchmark's dev split; 
 | Parameter | Value | Meaning |
 |---|---|---|
 | `rendition_bits` | 12 | pHash bits of 256 |
-| `rendition_aspect` | 0.02 | |log aspect| of renditions |
+| `rendition_aspect` | 0.02 | \|log aspect\| of renditions |
 | `agree_edge` | 0.70 | edge correlation for agreement |
 | `scene_agree_edge` | 0.50 | edge correlation for agreement between scenes |
-| `agree_aspect` | 0.05 | |log aspect| for agreement |
+| `agree_aspect` | 0.05 | \|log aspect\| for agreement |
 | `agree_fraction` | 0.25 | share of cross pairs that must agree to join units |
 | `big_family` | 8 | a shared base over more units is gated |
 | `layout_overlap` | 0.25 | mean edge correlation that raises unit cohesion |
@@ -513,6 +533,7 @@ These are from the research audit; see `results/grouping/e5-audit.md` in scene-a
 
 `Grouping.debug_lines()` (and `SceneGrouping.debug_lines()` for scenes) prints each effective
 folder's decision:
+
 - container or meaningful, and why;
 - units before → after;
 - the name analysis (house prefix or map name);
@@ -520,6 +541,7 @@ folder's decision:
 
 Each `ProposedGroup.reasons` counts the reason codes that built it. To see why two files ended up
 together, or didn't:
+
 1. Find their effective folder in `folders` (the verdict) and `decisions` (the words).
 2. Check whether a container sealed them apart.
 3. Check which rule joined them, or which suggestion withheld the join.

@@ -94,6 +94,7 @@ parsing 3.4 s.
 New table `image_grouping_features(image_id PK, version, phash256 BLOB(32), edge BLOB(2048))`.
 It is computed in `_decode` from the large (800 px) thumbnail next to the existing pHash, and
 rewritten on linked refresh.
+
 - **`phash256`:** DCT pHash identical to `imagehash.phash(hash_size=16)`, the research
   catalog's hash. The rendition threshold transfers unchanged. The existing 64-bit `phash`
   column is untouched.
@@ -106,6 +107,7 @@ Both features flatten transparency onto white first, as the research thumbnails 
 is stored z-scored, so `a @ b / 1024` is the Pearson correlation.
 
 Measured parity (A3, 399 real maps, research thumbnail path vs Scene Atlas's):
+
 - **opaque maps (JPEG):** mean 0.9 bits apart, max 6; none past the 12-bit rendition threshold;
 - **transparent tokens and assets (WebP):** mean 1.9, max 22 (2% past 12);
 - **edge correlation:** at least 0.996.
@@ -141,11 +143,13 @@ The grouping phase mints its groups inline, in its write transaction (`group_job
 ## 7. Scope
 
 **In:**
+
 - maps (battlemap and Auto items the head called maps), by the walk; every other file as a scene;
 - new imports and linked-folder scans (a scan job's images appear after its grouping phase; a
   refreshed image keeps its group).
 
 **Out (for now):**
+
 - suggestions in the UI (computed and logged at DEBUG, not stored);
 - regrouping existing libraries: migration 029 stamps every finished job grouped; one still
   running finishes into the groups its seal planned;
@@ -174,6 +178,7 @@ The grouping phase mints its groups inline, in its write transaction (`group_job
 The port's deliberate deviations from the research method are listed in the research log.
 
 `backend/pipeline/` holds the DB glue:
+
 - seal: `compute_plan` (parsing only);
 - features: `ingest_process`;
 - the grouping phase, minting included: `group_jobs.py` (lifecycle and triggers: [ingestion.md §5.8](ingestion.md#58-identifying-groups)).
