@@ -1,8 +1,8 @@
 """Tests of the learned namer (variant_grouping.learned_naming).
 
 ``learned_naming_fixtures.json`` holds 30 small imports with the names, authors and
-``is_identity`` flags of the research namer given no known authors (scene-atlas-learning:
-``python -m naming.extractive.export fixtures --no-gazetteer``). The port must match exactly.
+``is_identity`` flags the research namer gives for an empty library (scene-atlas-learning:
+``python -m naming.extractive.export fixtures --sa PATH``). The port must match exactly.
 """
 
 import json
@@ -36,12 +36,12 @@ def test_names_match_the_research_namer(fixture):
     assert got == want
 
 
-def test_known_authors_give_the_display_name():
-    """Without known authors a folder author is the parser-cleaned folder name."""
+def test_the_library_spelling_of_an_author_wins():
+    """A packaged creator is shown by its name; the library's own spelling overrides it."""
     paths = [f"moonlight_maps/Hill Top/{g}/Hill Top Day.jpg" for g in ("Gridded", "Gridless")]
-    assert run_paths(files(paths)).groups[0].author == "Moonlight"
-    g = run_paths(files(paths), known_authors=["Moonlight Maps"])
-    assert (g.groups[0].name, g.groups[0].author) == ("Hill Top", "Moonlight Maps")
+    assert run_paths(files(paths)).groups[0].author == "Moonlight Maps"
+    g = run_paths(files(paths), known_authors=["MOONLIGHT MAPS"])
+    assert (g.groups[0].name, g.groups[0].author) == ("Hill Top", "MOONLIGHT MAPS")
 
 
 def test_the_rules_name_groups_when_the_assets_fail(monkeypatch, tmp_path):

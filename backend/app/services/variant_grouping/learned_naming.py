@@ -1,7 +1,8 @@
 """Learned group names and authors: candidate token runs of the members' paths, and the rule
 names, scored by bundled gradient-boosted trees (design/variant-grouping-algorithm.md §8).
 
-The feature code must match the models and tables in ``backend/app/data/group_naming/``.
+The feature code must match the models and tables in ``backend/app/data/group_naming/``;
+``creators.json`` there lists known creators (names and aliases) for authors.
 """
 
 from __future__ import annotations
@@ -307,6 +308,11 @@ class LearnedNamer:
             for k in ("point", "pair", "author", "identity")
         }
         self.tables = _Tables(json.loads((asset_dir / "tables.json").read_text(encoding="utf-8")))
+        creators = json.loads((asset_dir / "creators.json").read_text(encoding="utf-8"))["creators"]
+        self.creators: dict[str, str] = {}  # packaged creators: author_key of name or alias -> name
+        for c in creators:
+            for alias in (c["name"], *c["aliases"]):
+                self.creators.setdefault(author_key(alias), c["name"])
 
     def predict(self, model: str, x: np.ndarray) -> np.ndarray:
         """Severity (``point``, lower is better) or P(yes) of the other models, per row."""
@@ -383,7 +389,7 @@ class WalkNamer:
     """Names the groups of one walk; import-wide statistics are computed once.
 
     ``known_author`` maps a folder name to the known author it names; ``authors`` maps
-    ``author_key``s to known authors' display names."""
+    ``author_key``s to known authors' display names, which replace a predicted author's text."""
 
     def __init__(
         self,
@@ -515,7 +521,10 @@ class WalkNamer:
         x_id = np.concatenate([[scores[best], margin], X[best]])[None, :]
         is_identity = bool(self._m.predict("identity", x_id)[0] >= 0.5)
         name = self._clean(list(cands.values())[best].text) or rule.name
-        return name, self._author(grp), is_identity
+        author = self._author(grp)
+        if author is not None:
+            author = self._authors.get(author_key(author), author)
+        return name, author, is_identity
 
     def _group(
         self, members: Sequence[int], rule: GroupName, naming_folder: Folder | None

@@ -32,7 +32,7 @@
      "moonlight_maps/Hill Top/Gridless/Hill Top Day.jpg"
     ],
     "name": "Hill Top",
-    "author": "Moonlight",
+    "author": "Moonlight Maps",
     "is_identity": true
    },
    {
@@ -41,7 +41,7 @@
      "moonlight_maps/Old Mill/Gridless/Old Mill.jpg"
     ],
     "name": "Old Mill",
-    "author": "Moonlight",
+    "author": "Moonlight Maps",
     "is_identity": true
    }
   ]
@@ -63,7 +63,7 @@
      "TC_Desert Camp_Night.jpg"
     ],
     "name": "Desert Camp",
-    "author": "TC",
+    "author": "Tom Cartos",
     "is_identity": true
    },
    {
@@ -72,7 +72,7 @@
      "TC_Forest Road_Night.jpg"
     ],
     "name": "Forest Road",
-    "author": "TC",
+    "author": "Tom Cartos",
     "is_identity": true
    },
    {
@@ -81,7 +81,7 @@
      "TC_Swamp Hut_Night.jpg"
     ],
     "name": "Swamp Hut",
-    "author": "TC",
+    "author": "Tom Cartos",
     "is_identity": true
    }
   ]
@@ -162,7 +162,7 @@
     "paths": [
      "BBEB Free Maps 2/1fzwkjs6ugb81.jpg"
     ],
-    "name": "Fzwkjs",
+    "name": "Fzwkjs 6 Ugb",
     "author": "BBEB Free 2",
     "is_identity": false
    },
@@ -190,8 +190,8 @@
      "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGL.png",
      "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGrid.png"
     ],
-    "name": "K Still Battlemap",
-    "author": "Beneos",
+    "name": "Still",
+    "author": "Beneos Battlemaps",
     "is_identity": false
    }
   ]
@@ -207,7 +207,7 @@
     "paths": [
      "Downloads/Maps/IMG_0231_night.jpg"
     ],
-    "name": "Downloads",
+    "name": "IMG 0231 night",
     "author": null,
     "is_identity": false
    },
@@ -215,7 +215,7 @@
     "paths": [
      "Downloads/Maps/IMG_0232_day_grid.jpg"
     ],
-    "name": "Day",
+    "name": "IMG 0232 day",
     "author": null,
     "is_identity": false
    }
@@ -234,7 +234,7 @@
      "moonlight_maps/Gridless/map_01_winter.jpg"
     ],
     "name": "Map",
-    "author": "Moonlight",
+    "author": "Moonlight Maps",
     "is_identity": false
    }
   ]

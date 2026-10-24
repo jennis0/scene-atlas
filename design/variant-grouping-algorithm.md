@@ -454,14 +454,18 @@ share it, and its overlap with the rule name.
 - **Scoring.** Gradient-boosted trees score the candidates for severity. A pairwise model
   re-ranks the best 8.
 - **Cleaning.** The winner is cleaned: `clean_group_name`, sequence numbers, glued words, case.
-- **`name_is_identity`.** A third model sets it to False when the group has no real name.
-- **Authors.** Candidates come from folders, `by` credits, the library's known authors, house
-  prefixes, runs shared across the import, and the rule author. A credit carried by most members
-  wins; otherwise a fourth model picks one, or none.
+- **`name_is_identity`.** A third model sets it to False when the group has no real name; the
+  group then keeps the rule name (often the first file's stem), so such groups stay apart.
+- **Authors.** Candidates come from folders, `by` credits, known authors, house prefixes, runs
+  shared across the import, and the rule author. A credit carried by most members wins;
+  otherwise a fourth model picks one, or none. Known authors are the library's plus ~110
+  packaged creators with aliases (`creators.json`, built by scene-atlas-learning's
+  `naming.creators` from its creator survey); a picked author matching one is shown by its name
+  ("TC" → "Tom Cartos"). The packaged list is not passed to the walk.
 
 The models were trained in scene-atlas-learning on groupings made by this package
 (`naming/extractive`; feature spec `FEATURES.md`). They ship as ONNX tree ensembles with a
-token table in `backend/app/data/group_naming/`.
+token table and the creator list in `backend/app/data/group_naming/`.
 
 | Measure | Learned namer | Rules |
 |---|---|---|

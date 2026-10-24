@@ -132,6 +132,8 @@ class GroupNamer:
         self._known = known_authors
         model = learned_naming.load()
         authors = {learned_naming.author_key(a): a for a in sorted(set(known_authors.values()))}
+        if model:  # the creators shipped with the namer; the library's own spelling wins
+            authors = model.creators | authors
         self._learned = (
             learned_naming.WalkNamer(model, parser, result, files, self._known_author, authors)
             if model
@@ -274,14 +276,18 @@ class GroupNamer:
 
     def name(self, members: Sequence[int]) -> GroupName:
         """Display name and author of a group given its members (walk indices, path order):
-        the learned namer's, else the rules'."""
+        the learned namer's, else the rules'. A group the namer finds nameless keeps the
+        rules' name (``IMG 0001``), so such groups stay apart."""
         folder = self._naming_folder(members)
         rule = self._rule_name(members, folder)
         if self._learned is None:
             return rule
         identity = self._identity_name(members, None)
         folder_name = self._folder_display(folder, None) if folder is not None else None
-        return GroupName(*self._learned.name(members, rule, folder, identity, folder_name))
+        name, author, is_identity = self._learned.name(members, rule, folder, identity, folder_name)
+        if not is_identity:  # a placeholder: the rules' name keeps such groups apart
+            name = rule.name
+        return GroupName(name, author, is_identity)
 
     def _rule_name(self, members: Sequence[int], folder: Folder | None) -> GroupName:
         """The rules' name and author. The author is chosen against the name (a folder naming
