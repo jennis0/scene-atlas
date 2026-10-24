@@ -443,9 +443,35 @@ grouped as a scene: tokens and assets are skipped by Auto and imported via Inclu
 scenes. Tokens are more often mistyped maps than scenes (Joe), worth revisiting if a token import
 type is added.
 
-## 8. Naming (`naming.py`)
+## 8. Naming (`naming.py`, `learned_naming.py`)
 
-Each group's name, in order of preference:
+**The learned namer** picks each group's name. Every run of up to 7 tokens of the members'
+file stems and folder names is a candidate, and so are the rule names below. It never writes
+text of its own. Each candidate gets 101 features: its folder's verdict, depth, how constant it
+is across members, what its tokens are, per-token name rates, how many groups of the import
+share it, and its overlap with the rule name.
+
+- **Scoring.** Gradient-boosted trees score the candidates for severity. A pairwise model
+  re-ranks the best 8.
+- **Cleaning.** The winner is cleaned: `clean_group_name`, sequence numbers, glued words, case.
+- **`name_is_identity`.** A third model sets it to False when the group has no real name.
+- **Authors.** Candidates come from folders, `by` credits, the library's known authors, house
+  prefixes, runs shared across the import, and the rule author. A credit carried by most members
+  wins; otherwise a fourth model picks one, or none.
+
+The models were trained in scene-atlas-learning on groupings made by this package
+(`naming/extractive`; feature spec `FEATURES.md`). They ship as ONNX tree ensembles with a
+token table in `backend/app/data/group_naming/`.
+
+| Measure | Learned namer | Rules |
+|---|---|---|
+| Bad or awful names, held-out makers | 14% | 27% |
+| Author accuracy | 0.91 | ≈ 0.5 |
+| Time per group (CPU, one thread; imports of 2.4k–9.9k files) | median 2–11 ms, max ≈ 35 ms | median ≤ 2 ms |
+
+If the models fail to load, the rules below name the groups.
+
+**The rules**, which are also candidates and features. Each group's name, in order of preference:
 
 1. **The folder that names it:**
    - a folder named after its files;

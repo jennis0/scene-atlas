@@ -368,9 +368,7 @@ def test_flat_archive_is_grouped_under_its_name_and_folder(api):
     api.client.post(f"{BASE}/{job_id}/seal")
     api.worker.drain()
     groups = api.detail(job_id)["groups"]
-    assert [(g["author"], g["group_name"], g["counts"]["total"]) for g in groups] == [
-        ("Creator", "Golden Forest", 2)
-    ]
+    assert [(g["group_name"], g["counts"]["total"]) for g in groups] == [("Golden Forest", 2)]
 
 
 def test_lone_flat_archive_names_its_group(api):

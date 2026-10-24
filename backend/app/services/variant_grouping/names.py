@@ -195,6 +195,13 @@ def name_identity(name: str) -> Seq:
     return identity_tokens(name_tokens(name))
 
 
+def is_rendition_folder_name(name: str) -> bool:
+    """A folder named only with rendition / variant words (``Gridded``, ``VTT``, ``Night``):
+    a packaging folder, never a creator. A one-letter folder (``A``) does not count."""
+    words = [t for t in name_tokens(name) if not t.isdigit() and t != V.DIMS and len(t) > 1]
+    return bool(words) and all(t in V.REND or t in V.AXIS for t in words)
+
+
 def file_stem(file_name: str) -> str:
     """A file name without its extension and OS copy suffix ("Map (2).jpg" -> "Map")."""
     stem = file_name.rsplit(".", 1)[0] if "." in file_name else file_name

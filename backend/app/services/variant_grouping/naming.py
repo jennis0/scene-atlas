@@ -1,6 +1,10 @@
 """Display names, authors and sub-group labels for walk groups, via ``ImageParser``.
 
-A group is named, in order of preference (design/variant-grouping-algorithm.md §8):
+Names and authors are picked by the learned namer (``learned_naming``) from candidates that
+include the rules' choices below; the rules alone name the groups when its models fail to load
+(design/variant-grouping-algorithm.md §8).
+
+By the rules, a group is named, in order of preference:
 
 1. after the **effective folder it occupies** (its members' deepest common folder) when that
    folder is named after its files, or is a meaningful folder holding exactly this group (below
@@ -23,8 +27,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from . import learned_naming
 from . import names as N
-from . import vocab as V
 from .names import Folder, Token
 from .schema import SubLabel, WalkFiles, WalkResult
 from .vocab import PART_WORDS
@@ -39,13 +43,6 @@ def _most_common(values: Iterable[str]) -> str | None:
     if not counts:
         return None
     return min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
-
-
-def _is_rendition_folder_name(name: str) -> bool:
-    """A folder named only with rendition / variant words (``Gridded``, ``VTT``, ``Night``):
-    a packaging folder, never a creator. A one-letter folder (``A``) does not count."""
-    words = [t for t in N.name_tokens(name) if not t.isdigit() and t != V.DIMS and len(t) > 1]
-    return bool(words) and all(t in V.REND or t in V.AXIS for t in words)
 
 
 def _matches(token: str, target: str) -> bool:
@@ -107,9 +104,8 @@ def _level_label(tag: str) -> str:
 class GroupName:
     """A group's display name and author.
 
-    ``is_identity`` is True when the name came from a folder or from identity tokens, False for
-    a fallback (a numbering such as ``IMG_0001``): only identity names should be matched against
-    existing gallery groups.
+    ``is_identity`` is False when the name is a placeholder (the files are a numbering such as
+    ``IMG_0001``): only identity names should be matched against existing gallery groups.
     """
 
     name: str
@@ -134,6 +130,13 @@ class GroupNamer:
         self._files = files
         self._paths = paths
         self._known = known_authors
+        model = learned_naming.load()
+        authors = {learned_naming.author_key(a): a for a in sorted(set(known_authors.values()))}
+        self._learned = (
+            learned_naming.WalkNamer(model, parser, result, files, self._known_author, authors)
+            if model
+            else None
+        )
 
     def _clean(self, raw: str, author: str | None = None) -> str:
         """A folder or name fragment cleaned exactly as the parser cleans group names."""
@@ -224,7 +227,7 @@ class GroupNamer:
         if by_author is not None:
             return by_author
         top = 0
-        while top < len(raw) and _is_rendition_folder_name(raw[top]):
+        while top < len(raw) and N.is_rendition_folder_name(raw[top]):
             top += 1
         if top == len(raw):
             return None
@@ -270,12 +273,20 @@ class GroupNamer:
         return self._clean(stem, author) or stem, False
 
     def name(self, members: Sequence[int]) -> GroupName:
-        """Display name and author of a group given its members (walk indices, path order).
-
-        The author is chosen against the name (a folder naming the group is not its author),
-        and the name is then cleaned with the author (a leading author prefix is dropped).
-        """
+        """Display name and author of a group given its members (walk indices, path order):
+        the learned namer's, else the rules'."""
         folder = self._naming_folder(members)
+        rule = self._rule_name(members, folder)
+        if self._learned is None:
+            return rule
+        identity = self._identity_name(members, None)
+        folder_name = self._folder_display(folder, None) if folder is not None else None
+        return GroupName(*self._learned.name(members, rule, folder, identity, folder_name))
+
+    def _rule_name(self, members: Sequence[int], folder: Folder | None) -> GroupName:
+        """The rules' name and author. The author is chosen against the name (a folder naming
+        the group is not its author), and the name is then cleaned with the author (a leading
+        author prefix is dropped)."""
         provisional, _ = self._display(members, folder, None)
         author = self._author(members, folder, provisional)
         name, is_identity = self._display(members, folder, author)
