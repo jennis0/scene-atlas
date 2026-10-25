@@ -443,7 +443,7 @@ grouped as a scene: tokens and assets are skipped by Auto and imported via Inclu
 scenes. Tokens are more often mistyped maps than scenes (Joe), worth revisiting if a token import
 type is added.
 
-## 8. Naming (`naming.py`, `learned_naming.py`)
+## 8. Naming (`naming.py`, `learned_naming/`)
 
 **The learned namer** picks each group's name. Every run of up to 7 tokens of the members'
 file stems and folder names is a candidate, and so are the rule names below. It never writes
