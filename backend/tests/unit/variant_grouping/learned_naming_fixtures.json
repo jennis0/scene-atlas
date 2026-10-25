@@ -1,0 +1,626 @@
+[
+ {
+  "description": "single folder, named files",
+  "paths": [
+   "Forest Shrine/Forest Shrine Day.jpg",
+   "Forest Shrine/Forest Shrine Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Forest Shrine/Forest Shrine Day.jpg",
+     "Forest Shrine/Forest Shrine Night.jpg"
+    ],
+    "name": "Forest Shrine",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "creator + map folders",
+  "paths": [
+   "moonlight_maps/Hill Top/Gridded/Hill Top Day.jpg",
+   "moonlight_maps/Hill Top/Gridless/Hill Top Day.jpg",
+   "moonlight_maps/Old Mill/Gridded/Old Mill.jpg",
+   "moonlight_maps/Old Mill/Gridless/Old Mill.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "moonlight_maps/Hill Top/Gridded/Hill Top Day.jpg",
+     "moonlight_maps/Hill Top/Gridless/Hill Top Day.jpg"
+    ],
+    "name": "Hill Top",
+    "author": "Moonlight Maps",
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "moonlight_maps/Old Mill/Gridded/Old Mill.jpg",
+     "moonlight_maps/Old Mill/Gridless/Old Mill.jpg"
+    ],
+    "name": "Old Mill",
+    "author": "Moonlight Maps",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "house prefix",
+  "paths": [
+   "TC_Forest Road_Day.jpg",
+   "TC_Forest Road_Night.jpg",
+   "TC_Desert Camp_Day.jpg",
+   "TC_Desert Camp_Night.jpg",
+   "TC_Swamp Hut_Day.jpg",
+   "TC_Swamp Hut_Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "TC_Desert Camp_Day.jpg",
+     "TC_Desert Camp_Night.jpg"
+    ],
+    "name": "Desert Camp",
+    "author": "Tom Cartos",
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "TC_Forest Road_Day.jpg",
+     "TC_Forest Road_Night.jpg"
+    ],
+    "name": "Forest Road",
+    "author": "Tom Cartos",
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "TC_Swamp Hut_Day.jpg",
+     "TC_Swamp Hut_Night.jpg"
+    ],
+    "name": "Swamp Hut",
+    "author": "Tom Cartos",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "by credit",
+  "paths": [
+   "2mtt_community/2mttCommunity_2mtt100_ArenabyUpsetti_Arena,Day.png",
+   "2mtt_community/2mttCommunity_2mtt100_ArenabyUpsetti_Arena,Night.png",
+   "2mtt_community/2mttCommunity_2mtt100_SeaAmbushbyConor.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "2mtt_community/2mttCommunity_2mtt100_ArenabyUpsetti_Arena,Day.png",
+     "2mtt_community/2mttCommunity_2mtt100_ArenabyUpsetti_Arena,Night.png"
+    ],
+    "name": "Arenaby Upsetti Arena",
+    "author": "Upsetti",
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "2mtt_community/2mttCommunity_2mtt100_SeaAmbushbyConor.jpg"
+    ],
+    "name": "Mtt Community",
+    "author": "Conor",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "separated by credit",
+  "paths": [
+   "Maps/Warehouse_by_Upsetti_Day.jpg",
+   "Maps/Warehouse_by_Upsetti_Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Maps/Warehouse_by_Upsetti_Day.jpg",
+     "Maps/Warehouse_by_Upsetti_Night.jpg"
+    ],
+    "name": "Warehouse",
+    "author": "Upsetti",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "credit false split",
+  "paths": [
+   "czepeku/Haunted Ghost Ship/GL_HauntedGhostShipExterior_RubyGhost.jpg",
+   "czepeku/Haunted Ghost Ship/G_HauntedGhostShipExterior_RubyGhost.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "czepeku/Haunted Ghost Ship/GL_HauntedGhostShipExterior_RubyGhost.jpg",
+     "czepeku/Haunted Ghost Ship/G_HauntedGhostShipExterior_RubyGhost.jpg"
+    ],
+    "name": "Haunted Ghost Ship",
+    "author": "Czepeku",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "reddit id minority",
+  "paths": [
+   "BBEB Free Maps 2/1fzwkjs6ugb81.jpg",
+   "BBEB Free Maps 2/Growing Flesh Lvl 1.jpg",
+   "BBEB Free Maps 2/Growing Flesh Lvl 2.jpg",
+   "BBEB Free Maps 2/Growing Flesh Lvl 3.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "BBEB Free Maps 2/1fzwkjs6ugb81.jpg"
+    ],
+    "name": "Fzwkjs 6 Ugb",
+    "author": "BBEB Free 2",
+    "is_identity": false
+   },
+   {
+    "paths": [
+     "BBEB Free Maps 2/Growing Flesh Lvl 1.jpg",
+     "BBEB Free Maps 2/Growing Flesh Lvl 2.jpg",
+     "BBEB Free Maps 2/Growing Flesh Lvl 3.jpg"
+    ],
+    "name": "Growing Flesh",
+    "author": "BBEB Free 2",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "zip timestamp",
+  "paths": [
+   "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGL.png",
+   "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGrid.png"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGL.png",
+     "Beneos/Snow120200925t081429z001_0801Snow1_4kStillBattlemapGrid.png"
+    ],
+    "name": "Still",
+    "author": "Beneos Battlemaps",
+    "is_identity": false
+   }
+  ]
+ },
+ {
+  "description": "camera stems only",
+  "paths": [
+   "Downloads/Maps/IMG_0231_night.jpg",
+   "Downloads/Maps/IMG_0232_day_grid.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Downloads/Maps/IMG_0231_night.jpg"
+    ],
+    "name": "IMG 0231 night",
+    "author": null,
+    "is_identity": false
+   },
+   {
+    "paths": [
+     "Downloads/Maps/IMG_0232_day_grid.jpg"
+    ],
+    "name": "IMG 0232 day",
+    "author": null,
+    "is_identity": false
+   }
+  ]
+ },
+ {
+  "description": "numbered generic stems",
+  "paths": [
+   "moonlight_maps/Gridded/map_01_winter.jpg",
+   "moonlight_maps/Gridless/map_01_winter.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "moonlight_maps/Gridded/map_01_winter.jpg",
+     "moonlight_maps/Gridless/map_01_winter.jpg"
+    ],
+    "name": "Map",
+    "author": "Moonlight Maps",
+    "is_identity": false
+   }
+  ]
+ },
+ {
+  "description": "floors in one folder",
+  "paths": [
+   "Grand Inn/Grand Inn - Floor 1.png",
+   "Grand Inn/Grand Inn - Floor 2.png",
+   "Grand Inn/Grand Inn - Roof.png"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Grand Inn/Grand Inn - Floor 1.png",
+     "Grand Inn/Grand Inn - Floor 2.png",
+     "Grand Inn/Grand Inn - Roof.png"
+    ],
+    "name": "Grand Inn",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "floors as files at root",
+  "paths": [
+   "Inn_Basement.jpg",
+   "Inn_Floor1.jpg",
+   "Inn_Roof.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Inn_Basement.jpg",
+     "Inn_Floor1.jpg",
+     "Inn_Roof.jpg"
+    ],
+    "name": "Inn",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "collection folder with packs",
+  "paths": [
+   "04. Mythic Greece/MAD-MythicGreece-05-FVTT-20x20-Setessa-Night.webp",
+   "04. Mythic Greece/MAD-MythicGreece-05-FVTT-20x20-Setessa.webp",
+   "04. Mythic Greece/MAD-MythicGreece-07-FVTT-22x16-Oreskos-Watering-Hole.webp",
+   "04. Mythic Greece/MAD-MythicGreece-07-FVTT-22x16-Oreskos-Watering-Hole-Night.webp"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "04. Mythic Greece/MAD-MythicGreece-05-FVTT-20x20-Setessa-Night.webp",
+     "04. Mythic Greece/MAD-MythicGreece-05-FVTT-20x20-Setessa.webp"
+    ],
+    "name": "Mythic Greece",
+    "author": "Mythic Greece",
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "04. Mythic Greece/MAD-MythicGreece-07-FVTT-22x16-Oreskos-Watering-Hole-Night.webp",
+     "04. Mythic Greece/MAD-MythicGreece-07-FVTT-22x16-Oreskos-Watering-Hole.webp"
+    ],
+    "name": "Mythic Greece",
+    "author": "Mythic Greece",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "rendition folders",
+  "paths": [
+   "Banshee Moor [22x40]/Gridless/GL_BansheeMoor_Lava.jpg",
+   "Banshee Moor [22x40]/Gridded/G_BansheeMoor_Day.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Banshee Moor [22x40]/Gridded/G_BansheeMoor_Day.jpg",
+     "Banshee Moor [22x40]/Gridless/GL_BansheeMoor_Lava.jpg"
+    ],
+    "name": "Banshee Moor",
+    "author": "Banshee Moor",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "variant-only files",
+  "paths": [
+   "Golden Forest/Night.webp",
+   "Golden Forest/Day.webp",
+   "Golden Forest/Dusk.webp"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Golden Forest/Day.webp",
+     "Golden Forest/Dusk.webp",
+     "Golden Forest/Night.webp"
+    ],
+    "name": "Golden Forest",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "glued words",
+  "paths": [
+   "Bluedragonlair_Day.jpg",
+   "Bluedragonlair_Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Bluedragonlair_Day.jpg",
+     "Bluedragonlair_Night.jpg"
+    ],
+    "name": "Bluedragonlair",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "possessive",
+  "paths": [
+   "Dragons Lair/Dragons Lair Day.jpg",
+   "Dragons Lair/Dragons Lair Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Dragons Lair/Dragons Lair Day.jpg",
+     "Dragons Lair/Dragons Lair Night.jpg"
+    ],
+    "name": "Dragon's Lair",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "sequence number",
+  "paths": [
+   "Swamp Pack/Swamps 10 Bloodmire Gridless.jpg",
+   "Swamp Pack/Swamps 10 Bloodmire Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Swamp Pack/Swamps 10 Bloodmire Gridless.jpg",
+     "Swamp Pack/Swamps 10 Bloodmire Night.jpg"
+    ],
+    "name": "Swamps 10 Blood Mire",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "tier and size noise",
+  "paths": [
+   "Patreon/Tier 2/Oakhollow Tavern_Floor1_30x30.jpg",
+   "Patreon/Tier 2/Oakhollow Tavern_Floor2_30x30.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Patreon/Tier 2/Oakhollow Tavern_Floor1_30x30.jpg",
+     "Patreon/Tier 2/Oakhollow Tavern_Floor2_30x30.jpg"
+    ],
+    "name": "Oak Hollow Tavern",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "library roots",
+  "paths": [
+   "RPG/Battlemaps/D&D/Downloads/Crystal Cave.jpg",
+   "RPG/Battlemaps/D&D/Downloads/Crystal Cave Night.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "RPG/Battlemaps/D&D/Downloads/Crystal Cave Night.jpg",
+     "RPG/Battlemaps/D&D/Downloads/Crystal Cave.jpg"
+    ],
+    "name": "Crystal Cave",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "community folder",
+  "paths": [
+   "community/ancient_elevator_3.webp",
+   "community/ancient_elevator_4.webp"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "community/ancient_elevator_3.webp",
+     "community/ancient_elevator_4.webp"
+    ],
+    "name": "Ancient Elevator",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "single file at root",
+  "paths": [
+   "Cave With Cliffs.webp"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Cave With Cliffs.webp"
+    ],
+    "name": "Cave with Cliffs",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "copy suffix",
+  "paths": [
+   "Maps/Old Bridge.jpg",
+   "Maps/Old Bridge (2).jpg",
+   "Maps/Old Bridge copy.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Maps/Old Bridge (2).jpg",
+     "Maps/Old Bridge copy.jpg",
+     "Maps/Old Bridge.jpg"
+    ],
+    "name": "Old Bridge",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "hash suffix",
+  "paths": [
+   "Shared/Sunken Temple_8bfbc3f6.jpg",
+   "Shared/Sunken Temple_02cffbbf2fd6.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Shared/Sunken Temple_02cffbbf2fd6.jpg",
+     "Shared/Sunken Temple_8bfbc3f6.jpg"
+    ],
+    "name": "Sunken Temple",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "pixel sizes",
+  "paths": [
+   "dreadmaps/Haven Town/HavenTown_40x30_11200x5600.jpg",
+   "dreadmaps/Haven Town/HavenTown_40x30_5000x5000.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "dreadmaps/Haven Town/HavenTown_40x30_11200x5600.jpg",
+     "dreadmaps/Haven Town/HavenTown_40x30_5000x5000.jpg"
+    ],
+    "name": "Haven Town",
+    "author": "Dreadmaps",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "tile series",
+  "paths": [
+   "Rakin City/Rakin-City-Map-10x10-Tile01-NightVersion.jpg",
+   "Rakin City/Rakin-City-Map-10x10-Tile02-NightVersion.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Rakin City/Rakin-City-Map-10x10-Tile01-NightVersion.jpg",
+     "Rakin City/Rakin-City-Map-10x10-Tile02-NightVersion.jpg"
+    ],
+    "name": "Rakin City",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "dims in folder",
+  "paths": [
+   "neutral_party/Haunted Village Bridge 35x40/Day/Haunted_Village_Bridge.jpg",
+   "neutral_party/Haunted Village Bridge 35x40/Night/Haunted_Village_Bridge.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "neutral_party/Haunted Village Bridge 35x40/Day/Haunted_Village_Bridge.jpg",
+     "neutral_party/Haunted Village Bridge 35x40/Night/Haunted_Village_Bridge.jpg"
+    ],
+    "name": "Haunted Village Bridge",
+    "author": "Neutral Party",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "assets folder",
+  "paths": [
+   "morvold_press/cabin_in_the_woods/Assets & Tokens/Cabin1stFloor_Token.png",
+   "morvold_press/cabin_in_the_woods/Assets & Tokens/Cabin2ndFloor_Token.png"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "morvold_press/cabin_in_the_woods/Assets & Tokens/Cabin1stFloor_Token.png",
+     "morvold_press/cabin_in_the_woods/Assets & Tokens/Cabin2ndFloor_Token.png"
+    ],
+    "name": "Cabin in the Woods",
+    "author": "Morvold Press",
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "series volumes",
+  "paths": [
+   "Airships Part 3/Airship Deck.jpg",
+   "Airships Part 3/Airship Hold.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Airships Part 3/Airship Deck.jpg"
+    ],
+    "name": "Airship",
+    "author": null,
+    "is_identity": true
+   },
+   {
+    "paths": [
+     "Airships Part 3/Airship Hold.jpg"
+    ],
+    "name": "Airship",
+    "author": null,
+    "is_identity": true
+   }
+  ]
+ },
+ {
+  "description": "no name at all",
+  "paths": [
+   "Downloads/export_3.jpg",
+   "Downloads/export_4.jpg"
+  ],
+  "groups": [
+   {
+    "paths": [
+     "Downloads/export_3.jpg",
+     "Downloads/export_4.jpg"
+    ],
+    "name": "Export",
+    "author": null,
+    "is_identity": false
+   }
+  ]
+ }
+]

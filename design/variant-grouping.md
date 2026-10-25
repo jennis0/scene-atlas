@@ -172,6 +172,7 @@ The grouping phase mints its groups inline, in its write transaction (`group_job
 | `folders.py` | what each folder is, from its name and its files' names (fixed before the walk) |
 | `walk.py` | the walk |
 | `naming.py` | group names and authors, via `ImageParser`'s public `clean_group_name` / `author_from_stem` |
+| `learned_naming/` | the learned namer that picks names and authors: text and cleaning, name features, author features (models in `backend/app/data/group_naming/`; the rules are its fallback) |
 | `scenes.py` | `group_scenes()`: scenes attached to map groups or grouped among themselves |
 | `__init__.py` | `group_with_content()` (the pipeline's; with no features it groups by paths alone) |
 

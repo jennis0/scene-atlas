@@ -1,0 +1,507 @@
+{
+ "source": "scene-atlas-learning docs/rpg-art-creators.md + naming/gazetteer.json",
+ "creators": [
+  {
+   "name": "Czepeku",
+   "aliases": [
+    "Cze & Peku"
+   ]
+  },
+  {
+   "name": "Tom Cartos",
+   "aliases": [
+    "TC",
+    "Tom Cartos Patreon"
+   ]
+  },
+  {
+   "name": "Forgotten Adventures",
+   "aliases": [
+    "fa"
+   ]
+  },
+  {
+   "name": "2-Minute Tabletop",
+   "aliases": [
+    "2mtt",
+    "2mtt_community",
+    "Two Minute Tabletop"
+   ]
+  },
+  {
+   "name": "Afternoon Maps",
+   "aliases": []
+  },
+  {
+   "name": "Dice Grimorium",
+   "aliases": []
+  },
+  {
+   "name": "Fantasy Battlemaps",
+   "aliases": [
+    "AAD Maps",
+    "Alan Smithee"
+   ]
+  },
+  {
+   "name": "Fantasy Atlas",
+   "aliases": []
+  },
+  {
+   "name": "Moonlight Maps",
+   "aliases": []
+  },
+  {
+   "name": "Neutral Party",
+   "aliases": []
+  },
+  {
+   "name": "Crosshead",
+   "aliases": []
+  },
+  {
+   "name": "Venatus Maps",
+   "aliases": []
+  },
+  {
+   "name": "Ori the Cartographer",
+   "aliases": [
+    "Ori"
+   ]
+  },
+  {
+   "name": "Heroic Maps",
+   "aliases": []
+  },
+  {
+   "name": "The MAD Cartographer",
+   "aliases": []
+  },
+  {
+   "name": "Baileywiki",
+   "aliases": []
+  },
+  {
+   "name": "Caeora",
+   "aliases": []
+  },
+  {
+   "name": "Seafoot Games",
+   "aliases": [
+    "seafoot_games_towns"
+   ]
+  },
+  {
+   "name": "Eightfold Paper",
+   "aliases": []
+  },
+  {
+   "name": "Morvold Press",
+   "aliases": []
+  },
+  {
+   "name": "Domille's Wondrous Works",
+   "aliases": [
+    "dww"
+   ]
+  },
+  {
+   "name": "Angela Maps",
+   "aliases": []
+  },
+  {
+   "name": "Party of Two",
+   "aliases": []
+  },
+  {
+   "name": "Lost Trails",
+   "aliases": [
+    "lost_trail"
+   ]
+  },
+  {
+   "name": "Dreadmaps",
+   "aliases": []
+  },
+  {
+   "name": "Spellarena",
+   "aliases": []
+  },
+  {
+   "name": "Mikwewa",
+   "aliases": []
+  },
+  {
+   "name": "Atraxian Bear",
+   "aliases": []
+  },
+  {
+   "name": "Limithron",
+   "aliases": []
+  },
+  {
+   "name": "Eledryll",
+   "aliases": []
+  },
+  {
+   "name": "Cropox Battlemaps",
+   "aliases": []
+  },
+  {
+   "name": "Map Doctor",
+   "aliases": []
+  },
+  {
+   "name": "Maphammer",
+   "aliases": []
+  },
+  {
+   "name": "Gilded Maps",
+   "aliases": []
+  },
+  {
+   "name": "Zovya",
+   "aliases": []
+  },
+  {
+   "name": "KrityaMaps",
+   "aliases": []
+  },
+  {
+   "name": "Cedrich Maps",
+   "aliases": []
+  },
+  {
+   "name": "Tehox Maps",
+   "aliases": []
+  },
+  {
+   "name": "ElRichMC's Maps",
+   "aliases": []
+  },
+  {
+   "name": "Summit Games Maps",
+   "aliases": []
+  },
+  {
+   "name": "Advanced Battlemaps",
+   "aliases": []
+  },
+  {
+   "name": "Gabriel Pickard",
+   "aliases": []
+  },
+  {
+   "name": "Lease a Lair",
+   "aliases": []
+  },
+  {
+   "name": "Fablekit",
+   "aliases": []
+  },
+  {
+   "name": "Stained Karbon Maps",
+   "aliases": []
+  },
+  {
+   "name": "Lord Zsezse Works",
+   "aliases": []
+  },
+  {
+   "name": "Abyssal Brews",
+   "aliases": []
+  },
+  {
+   "name": "Paths Peculiar",
+   "aliases": []
+  },
+  {
+   "name": "DMDave",
+   "aliases": []
+  },
+  {
+   "name": "J.Dungeonmaster",
+   "aliases": []
+  },
+  {
+   "name": "Dedalo Studios",
+   "aliases": []
+  },
+  {
+   "name": "Dynamic Dungeons",
+   "aliases": []
+  },
+  {
+   "name": "Beneos Battlemaps",
+   "aliases": []
+  },
+  {
+   "name": "Animated Dungeon Maps",
+   "aliases": []
+  },
+  {
+   "name": "Dransky Battlemaps",
+   "aliases": []
+  },
+  {
+   "name": "Solution Maps",
+   "aliases": [
+    "S0LU7I0N"
+   ]
+  },
+  {
+   "name": "Mattlebaps",
+   "aliases": []
+  },
+  {
+   "name": "Czepeku Sci-Fi",
+   "aliases": []
+  },
+  {
+   "name": "Miska's Maps",
+   "aliases": [
+    "miska"
+   ]
+  },
+  {
+   "name": "Miska's Cyberpunk Maps",
+   "aliases": []
+  },
+  {
+   "name": "TC Modern",
+   "aliases": []
+  },
+  {
+   "name": "HoloGrounds",
+   "aliases": []
+  },
+  {
+   "name": "Frag Maps",
+   "aliases": []
+  },
+  {
+   "name": "EpisodicMaps",
+   "aliases": []
+  },
+  {
+   "name": "DroidCartographer",
+   "aliases": []
+  },
+  {
+   "name": "Cybermaps",
+   "aliases": []
+  },
+  {
+   "name": "Devin Night",
+   "aliases": [
+    "Immortal Nights"
+   ]
+  },
+  {
+   "name": "Loot Tavern",
+   "aliases": [
+    "hgtmh"
+   ]
+  },
+  {
+   "name": "The Griffon's Saddlebag",
+   "aliases": []
+  },
+  {
+   "name": "Cartography Assets",
+   "aliases": []
+  },
+  {
+   "name": "Krager's Assets",
+   "aliases": []
+  },
+  {
+   "name": "Printable Heroes",
+   "aliases": []
+  },
+  {
+   "name": "Paper Forge",
+   "aliases": []
+  },
+  {
+   "name": "Dyson Logos",
+   "aliases": [
+    "Dyson"
+   ]
+  },
+  {
+   "name": "Elven Tower",
+   "aliases": [
+    "Derek Ruiz",
+    "Elven Tower Cartography"
+   ]
+  },
+  {
+   "name": "Mike Schley",
+   "aliases": []
+  },
+  {
+   "name": "Deven Rue",
+   "aliases": [
+    "Rue Ink"
+   ]
+  },
+  {
+   "name": "Watabou",
+   "aliases": []
+  },
+  {
+   "name": "Jonathan Roberts",
+   "aliases": [
+    "Fantastic Maps"
+   ]
+  },
+  {
+   "name": "Daniel Hasenbos",
+   "aliases": []
+  },
+  {
+   "name": "Czepeku Scenes",
+   "aliases": []
+  },
+  {
+   "name": "James' RPG Art",
+   "aliases": [
+    "jrpgart"
+   ]
+  },
+  {
+   "name": "Tony Tran",
+   "aliases": []
+  },
+  {
+   "name": "Odd Artworks",
+   "aliases": []
+  },
+  {
+   "name": "ImagiNation Patreon",
+   "aliases": []
+  },
+  {
+   "name": "Dean Spencer",
+   "aliases": []
+  },
+  {
+   "name": "Rick Hershey",
+   "aliases": [
+    "Publisher's Choice",
+    "Fat Goblin"
+   ]
+  },
+  {
+   "name": "JEShields",
+   "aliases": []
+  },
+  {
+   "name": "Wizards of the Coast: D&D",
+   "aliases": []
+  },
+  {
+   "name": "Wizards of the Coast: Magic: The Gathering",
+   "aliases": []
+  },
+  {
+   "name": "Paizo",
+   "aliases": []
+  },
+  {
+   "name": "Kobold Press",
+   "aliases": []
+  },
+  {
+   "name": "Fantasy Flight Games",
+   "aliases": []
+  },
+  {
+   "name": "Games Workshop",
+   "aliases": []
+  },
+  {
+   "name": "Ghostfire Gaming",
+   "aliases": []
+  },
+  {
+   "name": "MCDM",
+   "aliases": []
+  },
+  {
+   "name": "Free League",
+   "aliases": []
+  },
+  {
+   "name": "Darrington Press",
+   "aliases": []
+  },
+  {
+   "name": "Chaosium",
+   "aliases": []
+  },
+  {
+   "name": "Hit Point Press",
+   "aliases": []
+  },
+  {
+   "name": "DnDavid",
+   "aliases": [
+    "dndavid_public",
+    "DnD David"
+   ]
+  },
+  {
+   "name": "D&Demetrius",
+   "aliases": [
+    "ddemetrius",
+    "DnDemetrius"
+   ]
+  },
+  {
+   "name": "The Crafty Dice",
+   "aliases": []
+  },
+  {
+   "name": "Reclusive Cartographer",
+   "aliases": []
+  },
+  {
+   "name": "Shards Of The Storm",
+   "aliases": []
+  },
+  {
+   "name": "Daniel's Maps",
+   "aliases": []
+  },
+  {
+   "name": "Timhartin",
+   "aliases": []
+  },
+  {
+   "name": "Zach Moeller",
+   "aliases": [
+    "zack_moeller"
+   ]
+  },
+  {
+   "name": "Dr. Mapzo",
+   "aliases": []
+  },
+  {
+   "name": "MapMasters",
+   "aliases": []
+  },
+  {
+   "name": "Galaxy Compass",
+   "aliases": [
+    "Mutenn"
+   ]
+  },
+  {
+   "name": "Joe Maps",
+   "aliases": []
+  }
+ ]
+}

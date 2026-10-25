@@ -363,13 +363,14 @@ def test_archive_member_paths_that_collide_are_prefixed(api):
 def test_flat_archive_is_grouped_under_its_name_and_folder(api):
     job_id = api.create()
     body = _zip({"Day.png": image_bytes(15), "Night.png": image_bytes(16)})
-    name = "Creator/Golden Forest.zip"
+    # a creator's name: a folder named "Creator" is a generic word to the namer, never an author
+    name = "Kelpie Cartography/Golden Forest.zip"
     api.client.put(f"{BASE}/{job_id}/archives", params={"name": name}, content=body)
     api.client.post(f"{BASE}/{job_id}/seal")
     api.worker.drain()
     groups = api.detail(job_id)["groups"]
     assert [(g["author"], g["group_name"], g["counts"]["total"]) for g in groups] == [
-        ("Creator", "Golden Forest", 2)
+        ("Kelpie Cartography", "Golden Forest", 2)
     ]
 
 

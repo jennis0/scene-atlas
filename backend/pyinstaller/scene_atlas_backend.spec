@@ -86,6 +86,7 @@ a = Analysis(
         (str(project_root / 'backend' / 'app' / 'data' / 'tag_vocabulary.json'), 'backend/app/data'),
         (str(project_root / 'backend' / 'app' / 'data' / 'grid_models'),         'backend/app/data/grid_models'),
         (str(project_root / 'backend' / 'app' / 'data' / 'heads'),               'backend/app/data/heads'),
+        (str(project_root / 'backend' / 'app' / 'data' / 'group_naming'),        'backend/app/data/group_naming'),
     ],
     hiddenimports=[
         # uvicorn internals
