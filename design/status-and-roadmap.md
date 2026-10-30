@@ -1,6 +1,6 @@
 # Scene Atlas: Status and Roadmap
 
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-30
 
 This is the single source of truth for what exists, what is in progress and what is outstanding. Architecture detail lives in the docs linked from [README.md](README.md).
 
@@ -22,10 +22,10 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | FTS phrase matching and aliases | `backend/app/services/fts_service.py` | Quoted phrases use FTS5 adjacency and skip alias expansion |
 | Grouped search | `GET /search/groups`, `frontend/src/hooks/useGroupSearch.ts` | Server-side grouping with hero + mosaic, 50 groups per page, infinite scroll |
 | Colour search | `backend/app/services/color_search.py` | CIE76 delta E over dominant colours in SQL; Settings → Colour match (Close 12 / Similar 25 / Broad 40). [search.md](search.md#colour-search) |
-| Import pipeline | `backend/app/api/imports.py`, `backend/pipeline/ingest_*.py`, `frontend/src/lib/import/`, `frontend/src/components/imports/` | Durable per-item queue with a dedicated worker (ADR-018). Auto image type sorts maps / scenes and skips tokens and other art for review (ADR-020). [ingestion.md](ingestion.md) |
+| Import pipeline | `backend/app/api/imports.py`, `backend/pipeline/ingest_*.py`, `frontend/src/lib/import/`, `frontend/src/components/imports/` | Durable per-item queue with a dedicated worker (ADR-018). Auto image type sorts maps / scenes and puts tokens and other art in an asset bucket for review (ADR-020, PR #62). [ingestion.md](ingestion.md) |
 | Duplicate detection | `backend/pipeline/image_hashes.py`, `ingest_queue.py`, `ingest_process.py` | Byte and pixel tiers auto-skip; "Import as new copy" override; pHash stored but unused |
 | Stored format | `backend/pipeline/stored_format.py` | Optional WebP/JPEG/PNG conversion of new imports (`stored_format`); off by default |
-| Group detection and name parsing | `backend/app/services/image_parser.py` | Folder-based + prefix-based. [parser.md](parser.md) |
+| Variant grouping and naming (ADR-028) | `backend/app/services/variant_grouping/`, `backend/app/services/image_parser.py` | Bottom-up tree walk with content evidence, run once an import has finished; scenes attach to maps after them. A learned namer picks group names and authors from a packaged creator list (PRs #63, #64). Name parsing is still `image_parser.py`. [variant-grouping.md](variant-grouping.md), [parser.md](parser.md) |
 | Grid detection (ADR-019) | `backend/app/services/grid/`, `backend/app/services/grid_detector.py` | Filename keywords plus image analysis for battlemaps: v3 spectral detector with ONNX classifiers for maps ≥1000 px, legacy detector below; `grid_source` records filename/detector/user. [grid-detection-v3.md](grid-detection-v3.md) |
 | Tag system and tag packs | `backend/app/api/tags.py`, `backend/app/services/tag_packs.py`, `frontend/src/components/TagManagementDialog.tsx` | Categories with aliases, colours, icons; installable packs. [tag-packs.md](tag-packs.md) |
 | Image viewer | `frontend/src/components/ImageViewer.tsx` | Metadata sidebar; scenes partitioned by subgroup |
@@ -34,7 +34,7 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Settings | `frontend/src/components/settings/`, `backend/app/api/settings.py` | DB-backed app settings |
 | Activity dock | `frontend/src/components/ActivityDock.tsx`, `frontend/src/components/imports/ImportJobRow.tsx` | Import and background-job progress, connection state |
 | Video support | `backend/app/services/video_utils.py` | `.mp4`/`.webm`; first frame for thumbnails and embeddings |
-| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-large, 1024-d). |
+| Multi-model ONNX inference | `backend/app/services/clip_service.py`, `backend/app/services/model_registry.py` | Small (CLIP ViT-B/32, 512-d), medium (SigLIP2-base, 768-d), large (SigLIP2-large, 1024-d), all fine-tuned in scene-atlas-learning (large: 8-bit, PR #59). |
 | Model download and switching | `backend/app/services/model_download_service.py`, `backend/app/api/models.py`, `frontend/src/components/setup/ModelStep.tsx` | Hugging Face-hosted ONNX; switch pauses ingest and re-embeds. [hf-model-management.md](hf-model-management.md) |
 | GPU acceleration | `backend/app/services/ort_providers.py`, `clip_service.py` | `inference_device=auto`; CUDA / DirectML / CoreML / CPU. [gpu-acceleration.md](gpu-acceleration.md) |
 | Electron desktop app | `electron/src/`, `backend/pyinstaller/` | Sidecar lifecycle, storage-folder setup. Updates via electron-updater: installs on Windows and AppImage, notifies on macOS and .deb (ADR-021); the user chooses Automatic, Ask first (default) or Off (ADR-025). [electron.md](electron.md#updates) |
@@ -44,15 +44,14 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | Security hardening | `backend/app/main.py` (`SecurityHeadersMiddleware`), `backend/app/api/rate_limits.py` | Security headers, rate limits, CORS warning. No built-in authentication. [security.md](security.md) |
 | Checks | `.husky/pre-push`, `.github/workflows/ci.yml`, `.github/workflows/release.yml` | Lint + unit tests pre-push; security, integration and frontend build on PRs; manual release with cross-platform tests, E2E and builds. [testing.md](testing.md) |
 | Release builds | `.github/workflows/release.yml`, `release-published.yml`, `scripts/build/`, `scripts/release/` | Windows x64 (DirectML), macOS arm64, Linux x64, and a CPU Docker image on GHCR (amd64). Version in the repo, draft releases (ADR-024). [releasing.md](releasing.md) |
-| Library setup and the linked library | `backend/app/library_identity.py`, `backend/pipeline/linked_*.py`, `frontend/src/components/setup/LibraryStep.tsx`, `frontend/src/components/settings/LinkedFolderSection.tsx` | Storage in the wizard, one read-only linked folder, library identity and reopening (PR #51, ADR-026). [library-setup.md](library-setup.md) |
+| Library setup and the linked library | `backend/app/library_identity.py`, `backend/pipeline/linked_*.py`, `frontend/src/components/setup/LibraryStep.tsx`, `frontend/src/components/settings/LinkedFolderSection.tsx` | Storage in the wizard, one read-only linked library, library identity and reopening (PR #51, ADR-026). All env vars take the `SCENE_ATLAS_` prefix, with no aliases for the old names (ADR-027; nobody had pulled 0.1.x, confirmed 2026-10-30). [library-setup.md](library-setup.md) |
 | User docs | `docs/` (VitePress, GitHub Pages) | Guide (with Your Library and Settings pages), Deploy, Reference (configuration, how search works, CLI, troubleshooting), Development. Update the guide with any user-facing change |
 
 ## In progress
 
 | Work | Where | Notes |
 |---|---|---|
-| Pre-release code-quality pass | PR #4 (`chore/pre-release-quality`) | [code-quality-baseline.md](code-quality-baseline.md) |
-| Tech-debt pass (follow-up to PR #4) | branch `chore/tech-debt` | Clears the previous backlog's debt rows |
+| Release 0.2.0 | `main` is bumped to 0.2.0 (PR #57) but unreleased; the latest published release is v0.1.1 | Since the bump: the fine-tuned large model, asset bucket, tag pack expansion, the env-var rename, grouping v2 and the learned namer. Before release: the Move library and Export/backup rows below, a real-library grouping test, the SmartScreen check, then a non-publishing Release run (expect to need `accept_search_changes` for the new large model) |
 
 ## Backlog
 
@@ -84,8 +83,12 @@ A tool for viewing and searching large collections of tabletop RPG scenes (battl
 | E2E first run on a clean machine | The backend can start before the model has downloaded, so the seed import never runs. Download before starting the webServer. | Low |
 | Session-based authentication | Until then server mode must sit behind an authenticating reverse proxy. [security.md](security.md) | Medium |
 | Drop folder | Server-mode bulk import without the browser: a watched folder whose files are imported, then removed. Local folder import and the linked library are built ([library-setup.md](library-setup.md)). [local-ingest.md](local-ingest.md#9-feature-3-drop-folder-outline) | Low |
-| Move library | Settings only repoints folders today; the user moves files by hand. Copy, verify, switch, then remove the old copy. Due before launch (user decision 2026-10-19). | High |
-| Backups as a feature | Daily backups exist (SQLite plus a full LanceDB copy into the store) plus a snapshot before migrations, but have no restore and no UI, and copy every model's vectors. Deferred from library setup (2026-10-19); design them on their own. [storage.md](storage.md#backups) | Medium |
+| Move library | Settings only repoints folders today; the user moves files by hand. Copy, verify, switch, then remove the old copy. Due before launch (user decision 2026-10-19). Must work for a 1 TB library: a background job that is resumable (skips files already copied and verified), checks free space first, verifies against the stored SHA-256, renames instead of copying when source and target are on one volume, and pauses ingest, linked scans and the orphan sweep while it runs. Not started. | High |
+| Export doesn't scale | Settings → Export downloads the whole ZIP through axios into a browser `Blob` with a 5-minute timeout (`frontend/src/lib/download.ts`), so it fails for anything beyond a few GB. The endpoint itself streams, but builds every entry and the whole `metadata.json` in memory first and has no resume (no `Range`). The folder export (`pipeline/export_library.py`) is CLI-only, restarts from zero, has no free-space check and writes `metadata.json` only at the end. Linked-library files are exported too. Proposed: the folder export becomes a resumable background job in the UI (desktop and server), and the ZIP is a plain browser download for small libraries only. Nothing imports `metadata.json` back. | High |
+| Validate backup and export at scale | Neither has been tested beyond small libraries. Generate a synthetic large library (e.g. 200k images / ~1 TB, or a sparse-file equivalent) and measure backup time and size, export throughput, memory and resume behaviour. | High |
+| LanceDB is never compacted | Nothing calls `optimize`/`compact_files`/`cleanup_old_versions`, so every write batch adds a fragment and a version. Search slows over time and each daily backup copies the full history. Add compaction to maintenance. | Medium |
+| Backups as a feature | Daily backups exist (SQLite plus a full LanceDB copy into the store) plus a snapshot before migrations, but have no restore and no UI, and copy every model's vectors. They cover metadata only, never originals, and sit inside `SCENE_ATLAS_IMAGES_DIR`, so they share a disk with what they protect. Up to 11 full LanceDB copies are kept, uncompacted (above); at 200k images that is about 0.8 GB per model per copy before history. The copy holds the LanceDB write lock, blocking embedding writes while it runs. Deferred from library setup (2026-10-19); raised to High (2026-10-30). Proposed: metadata backups to a user-chosen folder, restore, and originals left to the user's own backup tool, documented. [storage.md](storage.md#backups) | High |
+| Real-library grouping test | Grouping v2 and the learned namer were scored on the research benchmark only. Import the full library and a messy creator folder before release; recheck the Moonlight Maps and "Portrait of" parser rows under v2. Paused: the full library isn't to hand (2026-10-30). | High |
 | Framework majors | Tailwind 3 → 4 with tailwind-merge 3 (also clears the `braces` audit finding), vitepress 2 once stable (then drop the docs `vite` override). Tailwind 4 needs a visual pass: v4 has no regex `safelist` (tag chip colours) or `<alpha-value>` (the `shade` colour), its CSS theme has no separate text-colour palette (the ink colours), it changes the default border, ring and shadow scales, and needs `tw-animate-css` in place of `tailwindcss-animate`. Dependabot ignores Tailwind 4 and tailwind-merge 3 until then. TypeScript 7 waits on typescript-eslint (supports < 6.1). jscpd 5 is a rewrite that scans a different file set; check its coverage before moving the gate off 4.0.5. | Low |
 
 ## Key design constraints
