@@ -1,288 +1,226 @@
 # Export, backup and moving a library
 
-**Status:** Design (2026-10-30). Not started.
+**Status:** Design, second draft (2026-10-30). Not started. The first draft was reviewed and rejected; this one replaces it.
 **Roadmap rows:** Move library, Export doesn't scale, Validate backup and export at scale, Backups as a feature, LanceDB is never compacted ([status-and-roadmap.md](status-and-roadmap.md)).
 
-Getting a library out of Scene Atlas (download, export), back in (re-import), protected (metadata backup and restore) and moved (Move library), at sizes up to about 1 TB / 200k images, in both the desktop app and server mode.
+Getting a library out (download, export), back in (re-import), protected (backup, restore) and moved (Move library), at up to about 1 TB / 200k images, on desktop and server.
 
 ## 1. Decisions
 
 User decisions (2026-10-30):
 
-1. **Backups never copy originals.** A terabyte of art belongs to the user's own backup tool. Ours covers the metadata, and the button says so: **Backup metadata**.
-2. **Metadata backup works in server mode**, downloaded through the browser, not only in the desktop app.
-3. **One download endpoint** takes image and group ids and returns their files, optionally with metadata. Bulk downloads and full exports are both built on it.
-4. **An export re-imports fully** (names, authors, groups, subgroups, types, grids, tags), and **the importer recognises an export by itself**: a zip or folder in the Scene Atlas layout goes through the normal import, with no special route or button.
-5. **Move library is due before launch.**
+1. **Backups never hold originals.** The button says **Backup metadata**. Originals are for the user's own backup tool.
+2. **Backup works in server mode** as a download, not only on desktop.
+3. **One download endpoint** takes image and group ids. Bulk downloads and full exports are both built on it, and server mode exports only through it.
+4. **An export re-imports fully, recognised by the normal importer.** There's no special route.
+5. **One format, a JSONL line per group** ([§2](#2-the-format)), for exports and backups alike.
+6. **Restore wipes the library and rebuilds it from the backup.** Nothing is merged.
+7. **Move library is due before launch.** Keep the design minimal.
 
-Design decisions taken here (open to review):
+Consequences:
 
-- **Exports are split into parts.** The server plans the parts, and each part is an ordinary download ([§4](#4-full-export)).
-- **Downloads are native browser downloads.** The browser or Electron writes them straight to disk. Today's axios `Blob` download is removed.
-- **On desktop, the full export writes into a folder** as a resumable background job instead of downloading zips ([§5](#5-desktop-folder-export)).
-- **Move library is desktop only.** In server mode the folders are mounts and env vars the app doesn't own; the docs say how to move them ([§8](#8-move-library)).
-- **Copy, verify and resume is one engine** (`pipeline/file_transfer.py`), shared by the folder export and Move library ([§9](#9-the-transfer-engine)).
+- **Restore is an import.** It is a wipe, then an import of the backup that adopts the files already in the store ([§6](#6-restore)). There's no SQLite file swap and no second format.
+- **Re-import is for sharing or leaving, not for moving 1 TB.** Re-importing redoes decoding and thumbnails. Moving a library is Move library, or copying both folders and reopening ([library-setup.md](library-setup.md)).
+- **One startup step** ("pending library operation") runs restore and the last stage of Move library before the library check, with nothing open ([§8](#8-the-startup-step)).
 
-## 2. Export format v2
+## 2. The format
 
-Today's `metadata.json` (version 1) holds per-image type, grid and tags, keyed by archive path. Name, author, group and subgroup are only implied by the folder path. That can't round-trip: names are sanitised for the filesystem, and two groups with one name collide. Version 2 replaces it.
+`scene-atlas.jsonl`, UTF-8, one JSON object per line.
 
-**File:** `scene-atlas-export.json` at the root of the zip or folder. The specific name avoids picking up the `metadata.json` that some packs ship. A v1 `metadata.json` is not recognised: nobody has exported one we need to read (0.1.x was never pulled).
+**Line 1, the header:**
 
-```jsonc
-{
-  "format": "scene-atlas-export",
-  "version": 2,
-  "app_version": "0.2.0",
-  "library_id": "…",            // the source library (library_identity.py)
-  "exported_at": "2026-10-30T12:00:00Z",
-  "part": {"index": 3, "count": 47, "export_id": "…"},  // absent for a plain download
-  "tag_categories": [            // only the categories these images use
-    {"name": "season", "description": "…", "color": "sky", "icon": "snowflake", "common_values": ["winter", "…"]}
-  ],
-  "groups": {                    // key: the source library's group id, as a string
-    "812": {"base_name": "Golden Forest", "author": "Czepeku"}
-  },
-  "images": [
-    {
-      "path": "Czepeku/Golden Forest/Golden Forest - Day - Grid 30x30.webp",
-      "sha256": "…",             // content_hash: the original's bytes
-      "name": "Day",
-      "author": "Czepeku",
-      "group": "812",            // null when ungrouped
-      "subgroup": null,
-      "image_type": "battlemap",
-      "media_type": "image",
-      "grid": {"gridded": true, "type": "square", "width": 30, "height": 30, "source": "user"},
-      "tags": [{"category": "season", "value": "summer", "source": "manual", "confidence": 1.0}]
-    }
-  ]
-}
+```json
+{"format": "scene-atlas", "version": "2.0", "kind": "export", "app_version": "0.2.0",
+ "library_id": "…", "created_at": "2026-10-30T12:00:00Z",
+ "model": {"name": "large", "encoder_sha256": "…", "dim": 1024},
+ "tag_categories": [{"name": "season", "description": "…", "color": "sky", "icon": "snowflake", "common_values": ["winter"]}]}
 ```
 
-- **Files keep today's readable layout** (`Author/Group/[Subgroup/]Group - [Subgroup - ]Name - Grid WxH.ext`, `unique_export_path`), so an export is still useful outside Scene Atlas.
-- **Matching is by `sha256`, not by path** ([§6.3](#63-applying-the-manifest)). A user who renames folders inside an export loses nothing.
-- **Not exported:** embeddings (the importing library re-embeds with its own model), thumbnails, colours, hashes other than `sha256`, grouping features, import history, ids other than group keys. All of these are rebuilt on import.
-- **Linked-library images are left out by default.** The user already has those files. A checkbox includes them, for moving to a library that doesn't have the folder.
-- **Written first.** In a zip it is the first entry; in a folder it is written before any image and rewritten at the end ([§5](#5-desktop-folder-export)).
+`kind` is `export` (files alongside) or `backup` (no files). `version` is `major.minor`. A reader refuses an unknown major and ignores fields it doesn't know.
 
-## 3. The download endpoint
+**Every other line is one group with its files:**
+
+```json
+{"group": {"uid": "8f1c…", "base_name": "Golden Forest", "author": "Czepeku"},
+ "files": [
+   {"path": "Czepeku/Golden Forest/Golden Forest - Day - Grid 30x30.webp",
+    "sha256": "…", "size": 41234567,
+    "name": "Day", "subgroup": null, "image_type": "battlemap", "media_type": "image",
+    "grid": {"gridded": true, "type": "square", "width": 30, "height": 30, "source": "user"},
+    "tags": [{"category": "season", "value": "summer", "source": "manual", "confidence": 1.0}],
+    "vector": "<base64 float32>",
+    "storage_key": "3f9a….webp", "thumbnail_key": "…", "linked_path": null}
+ ]}
+```
+
+- **`group.uid`** is a new random UUID column on image groups (migration; backfilled for existing groups). Import keeps it, so a group stays the same group across libraries and parts. Ungrouped images are lines with `"group": null`.
+- **`sha256`** is the hash of the bytes written: `stored_hash`, computed while copying when the column is NULL. That's the stored file, which may differ from the original upload when stored-format conversion is on.
+- **`vector`** is the active model's embedding. An importer whose encoder matches `encoder_sha256` uses it and skips embedding; otherwise it re-embeds. About 5.5 KB per image for the large model.
+- **Backup-only fields:** `storage_key`, `thumbnail_key` and `linked_path` (the file's path in the linked library). Exports leave them out.
+- **Exports leave out linked-library images** by default. The user already has those files; a checkbox includes them.
+- **Files keep the readable layout** (`Author/Group/[Subgroup/]Group - [Subgroup - ]Name - Grid WxH.ext`), so an export is useful outside Scene Atlas. `unique_export_path` is changed to de-duplicate case-insensitively, and `sanitize_segment` to avoid Windows reserved names and trailing dots.
+- **One group can span several lines.** A group too big for one part ([§4](#4-full-export)) appears in each part with the same `uid`, carrying only that part's files.
+
+Streaming: the writer emits a line per group from a keyset query, and the reader applies a line at a time. Nothing holds the whole file in memory. At 200k images the file is about 1.1 GB (mostly vectors).
+
+## 3. Downloads
 
 ```
-POST /api/v1/downloads   {image_ids?, group_ids?, include_metadata: bool, include_linked: bool}
-  → 201 {token, image_count, total_bytes, filename}
-GET  /api/v1/downloads/{token}
+POST /api/v1/downloads   (form fields: image_ids, group_ids, include_metadata)
   → 200 application/zip, Content-Disposition: attachment, Content-Length
 ```
 
-- **Two steps, because native downloads need a GET.** A selection of 10,000 ids doesn't fit a query string. The POST resolves the selection (groups expand to their listed images), checks it against the limits and stores the resolved id list under a random token. The GET streams it. The frontend then sets `location.href` (or clicks an `<a download>`), and the browser streams to disk with its own progress and its own pause.
-- **Tokens** are 128-bit random, held in memory, expire after 1 hour, and can be fetched more than once (a failed download can be retried). They aren't a security boundary: server mode has no authentication of its own ([security.md](security.md)). Memory is bounded by a cap on live tokens (e.g. 64) and on ids per token (`max_import_items`, 50k).
-- **Streaming** uses `zipstream-ng` as today (`ZIP_STORED`, sized, zip64). The manifest is built from the resolved rows before streaming and placed first. For a part (≤ 1000-ish images) that is small; the per-request size cap is what keeps memory bounded, not the streaming.
-- **Limits:** one POST may resolve at most `download_max_bytes` (default 8 GB) and 50k images. A larger selection gets 413 with the advice to use Export. The limit exists because a single HTTP download has no resume: a dropped connection at 7.9 GB starts again.
-- **Missing originals** (a linked file gone, a store file lost) are left out and listed in the manifest's `missing` array, rather than failing the download mid-stream.
-- **Rate limit:** `rate_limit_expensive` on the POST. The GET isn't limited, so a retry is never refused.
-- **Electron:** there's no `will-download` handler today. With none, Electron shows a save dialog, which is the behaviour wanted. This needs checking against the window's navigation guards, and a test in `e2e/packaged`. A handler is added only if the default misbehaves.
+- **A form POST is a native download.** The frontend submits a hidden `<form method="post">`, and the browser writes the response straight to disk with its own progress. There are no tokens and nothing kept server-side. A form also means an error page can't replace the app: the form targets a hidden iframe.
+- **The zip** is `ZIP_STORED` and streamed with `zipstream-ng` (sized, zip64). `scene-atlas.jsonl` comes first when `include_metadata` is set, then the files.
+- **Limit:** one request covers at most 50k images and `download_max_bytes` (default 8 GB). A larger one is refused before streaming starts, with advice to use Export. A single HTTP download can't resume, so a cap keeps failures cheap.
+- **Missing originals** are left out and logged; the zip still completes.
+- `X-Accel-Buffering: no` is set, so nginx doesn't spool the stream to disk.
+- **Electron** gets a `will-download` handler that saves where the user picks and reports progress to the activity dock. Without one there's a save dialog and then no progress at all.
+- **Replaced:** `GET /api/v1/export/library`, the group zip endpoint (`api/groups.py`) and `frontend/src/lib/download.ts:downloadFile`, which downloads into a `Blob`. The image viewer's single-file download becomes a plain link to the original.
 
-UI: multi-select in the gallery and the group view gets **Download** (n images, size shown first). The image viewer's single download stays as it is.
-
-`GET /api/v1/export/library` and `frontend/src/lib/download.ts:downloadFile` (the `Blob` path) are removed.
+UI: multi-select in the gallery and group view gets **Download** (count and size shown first). The group card menu's Download uses the same endpoint.
 
 ## 4. Full export
 
-Server mode can only hand files to the user through the browser, so a full export is a series of downloads.
+Settings → Library → **Export library** lists parts. Each part is a form POST like a download, carrying a range instead of ids:
 
 ```
-POST /api/v1/export/plan  {part_bytes?: int, include_linked: bool}
-  → {export_id, parts: [{index, image_count, total_bytes, token}], total_bytes, image_count}
+GET  /api/v1/export/parts?part_bytes=2000000000  → [{index, start, end, image_count, bytes}]
+POST /api/v1/export/part  (start, end)            → zip
 ```
 
-- **Parts are cut by group, never through one.** Groups are visited in id order and packed into parts up to `part_bytes` (default 4 GB). Ungrouped images fill parts of their own. A group larger than `part_bytes` gets a part to itself. So a group's manifest entry and all its images are in one part, and parts re-import in any order.
-- **Each part is a download token** ([§3](#3-the-download-endpoint)), with `part` filled in its manifest. Plan tokens live 24 hours rather than 1, because a 1 TB export takes many hours to download.
-- **The plan is a snapshot of ids.** Images added afterwards aren't in it, deleted ones are left out of their part (and listed in `missing`), and edits made meanwhile are exported as they are when the part is fetched.
-- **UI (Settings → Library → Export library):** the plan's size and part count; a list of parts, each with a Download link and a tick once fetched (kept in `localStorage`, since it's only a convenience). There's no "download all": browsers block or prompt for many automatic downloads.
+- **A part is a range in `(group id, image id)` order**, packed up to `part_bytes`. Ungrouped images sort last. A group bigger than a part is split between parts at a file boundary ([§2](#2-the-format)).
+- **Stateless.** Ranges are recomputed on each visit; a part is defined only by its range, so it survives restarts. Images added later fall into later ranges. A part fetched twice may differ if the library changed in between, which is harmless: re-import skips duplicates.
+- **Default 2 GB, 999 files per part**, under the default zip import limits (1000 files including the manifest, 2 GB). The part's `scene-atlas.jsonl` and zip overhead are counted.
+- **On desktop** Export library writes a folder instead ([§5](#5-desktop-folder-export)). Zip parts remain available there.
 
-At 1 TB with 4 GB parts that is about 250 clicks. That is acceptable for a rare server-mode operation. The alternative, a 1 TB single stream, can't resume. Users with shell access are pointed at copying the store folder plus a metadata backup, which is faster.
+1 TB at 2 GB is about 500 parts, so it isn't a practical way to move a whole large library through a browser. The server docs say so, and give the alternative: copy the store folder and take a metadata backup.
 
 ## 5. Desktop folder export
 
-On desktop the backend can write to the user's disk, so Export library writes a folder:
+A background job (JobRunner, shown in the activity dock) writes the export into a folder the user picks:
 
-- **A background job** (JobRunner, shown in the activity dock) runs `export_library(output_dir)` on the transfer engine ([§9](#9-the-transfer-engine)). The user picks an empty folder, or the folder of an earlier unfinished export.
-- **Resumable.** The job writes `scene-atlas-export.json` at the start, with `"complete": false` and the entries it plans. Each file is copied to `<path>.part`, verified and renamed. A restart, or a run into the same folder, skips files already present with the right size and hash, so it carries on. The manifest is rewritten with `"complete": true` at the end.
-- **Free space** for the remaining bytes (plus 512 MB) is checked before starting and again every 1 GB. A full disk pauses the job rather than failing it.
-- **Shutdown** stops the job between files (`raise_if_shutting_down`). Nothing stays half-written except a `.part` file, which the next run replaces.
-- **Throughput:** copy with `shutil.copyfile` (no hashing on the read side); verification hashes the written file once, against `content_hash`, which costs a second read. On one HDD expect about 2–4 hours per TB. A **Skip verification** option is not offered: an export that silently has a bad file is worse than a slow one.
+- `scene-atlas.jsonl` is written as the job goes, a line per group after that group's files are written, so it is never ahead of the files.
+- **Resume:** a run into the folder of an unfinished export reads its `scene-atlas.jsonl`, skips the groups already listed and carries on. It continues with the same file names, because suffixes like ` (2)` are planned per group, not across the export.
+- **Copying** uses the transfer engine ([§9](#9-the-transfer-engine)).
+- **Refused targets:** inside the linked folder, or inside the library's own folders.
 
 The CLI (`python -m backend.pipeline.export_library`) runs the same function.
 
-## 6. Re-import
+## 6. Restore
 
-### 6.1 Recognising an export
+### 6.1 Backup
 
-The import pipeline sees files in three ways, and each must find the manifest:
+**Backup metadata** writes `scene-atlas-backup-<timestamp>.jsonl` (`kind: backup`), gzipped. At 200k images that's about 1 GB.
 
-| Source | Where the manifest is | How |
-|---|---|---|
-| Zip (web upload or local) | A root member `scene-atlas-export.json` | `expand_archive` reads it before placing members |
-| Local folder (desktop) | `scene-atlas-export.json` in a picked root | `ingest_local` reads it while listing |
-| Browser folder upload | A manifest entry with that file name at a root | Today the manifest marks it `skipped` (unsupported). It becomes an item of kind `export_manifest`, uploaded like any file (it's small), and read at seal |
+- **Desktop:** to a folder the user picks, as a background job. Settings warns if the folder is on the store's disk.
+- **Server:** a form POST download (`POST /api/v1/backup`), so it can't be triggered cross-site by an `<img>`. It is rate-limited as expensive.
+- **The daily backup** writes the same file into `{SCENE_ATLAS_DATA_DIR}/backups/` and keeps the last 7. It replaces today's SQLite-plus-LanceDB copies in the store. Those sit on the same disk as the originals, keep up to 11 full copies of every model's vectors, and hold the LanceDB lock while copying.
+- **Consistency:** the writer reads in one SQLite read transaction (a snapshot), and reads vectors by id for each group as it goes. A vector missing at that moment is left out, and restore re-embeds that image.
+- **Pre-migration snapshots** (SQLite, before an upgrade) are unchanged. They roll back an update, which is a different job.
 
-A manifest is accepted only if it parses, has `format` `scene-atlas-export` and a `version` this build reads, and passes size limits (manifest ≤ 64 MB). Anything else is logged and ignored, and the import proceeds as a normal import. **A bad or unknown manifest never fails the import.** A manifest from a newer version than the build reads is ignored, with a warning in the import report ("This export is from a newer version of Scene Atlas; imported without its metadata").
+### 6.2 Restore
 
-The manifest is **untrusted input**, like any uploaded file. Strings are length-limited, tag categories are validated as the tag API validates them, grid values are range-checked, and nothing in it is ever used as a filesystem path.
+Restoring makes the library exactly what the backup describes. Nothing in the current library survives except originals, which are kept but set aside.
 
-### 6.2 Limits for exports
+1. **Stage.** The user picks or uploads a backup. The backend checks the header (format, a `major` it reads, the same `library_id` as this store's marker; another library's backup is refused) and writes it to `{data_dir}/restore/pending.jsonl.gz`. Then it restarts:
+   - desktop: the in-window backend restart;
+   - server: the process exits and the Compose `restart: unless-stopped` policy brings it back.
+2. **At startup** ([§8](#8-the-startup-step)):
+   1. Write a backup of the current library to `restore/before-restore.jsonl.gz`, unless there is no database.
+   2. Delete the database (with its `-wal` and `-shm` files) and drop every LanceDB table.
+   3. Create an empty database at the current schema. The library ID comes from the store marker.
+   4. Queue a **restore job** from the file.
+3. **The restore job** is an ordinary import job with one new item kind, **adopt**: a file already in the store, committed with its `storage_key` rather than copied, like a linked item is read in place.
+   - Each file's name, type, grid, tags and group come from its line. No Auto classification, grid detection or grouping phase runs.
+   - Its vector is written from the line when the encoder matches; otherwise it is embedded as usual.
+   - Its thumbnail is reused if the file at `thumbnail_key` exists; otherwise it is made from the original. Colours, hashes and grouping features are recomputed. That costs a decode per image: minutes when app data survived, hours for 1 TB when it didn't.
+   - Linked files are matched by `linked_path` in the linked library.
+   - A file whose original is missing fails with "Original not found".
+   - A crash is resumed as any import is.
+4. **Store files not in the backup** (imported after it) are moved to `{store}/not-in-backup/` before the orphan sweep can see them. The import report lists the count, and they can be imported like any folder. They return without their metadata, which the backup didn't have.
 
-Uploaded zips are limited to `max_import_files` (1000) and `max_import_total_size` (2 GB) per archive (`validation.check_zip_safety`). A 4 GB export part would be refused. Options:
+**Entry points.** Settings → Library → **Restore metadata…**. When the app refuses to open a store because its app data is missing ([library-setup.md](library-setup.md), `APP_DATA_NOT_HERE`), the loading page and wizard offer **Restore from a metadata backup…**. In server mode the refusal message says to place the backup at `{data_dir}/restore/pending.jsonl.gz` and restart.
 
-- **(a)** Size export parts to the import limits by default (2 GB, 1000 files). That doubles the part count, but nothing about import changes.
-- **(b)** Raise the limits for a zip whose manifest validates. The zip-bomb check is about uncompressed size; exports are `ZIP_STORED`, so compressed and uncompressed sizes match, and seal's free-space check still applies. But a 4 GB zip is one upload PUT with no resume.
+**Security.** Server mode has no authentication, so anyone who can reach it can already purge the library. Restore is no worse: the file is data, not a database, and it's validated line by line (string lengths, tag rules, grid ranges, `storage_key` matching the store's key pattern, `linked_path` contained by the linked folder).
 
-**Proposal: (a).** The part size follows the importing side's limits, so any part re-imports into a default library. Users who raise their import limits can choose bigger parts.
+## 7. Re-import
 
-### 6.3 Applying the manifest
+An export (`kind: export`) is recognised wherever files reach the importer:
 
-- **At seal**, each item whose received `source_hash` matches an entry's `sha256` gets `parsed.export`, holding the entry. Files the client hashed early (`POST /hashes`) can be matched before upload. The rest are matched at seal; items that arrive later are matched when their bytes are received. Matching is by hash, so paths don't matter. An entry with no matching file is reported as "In the export's list but not found" (a count in the report, not an error). A file in the export with no entry is imported as a normal file.
-- **Type:** the entry's `image_type` is the item's fixed type: no Auto classification.
-- **Grid:** the entry's grid is written as is, with its `source`. Detection is skipped unless the entry has no grid.
-- **Tags:** the entry's tags are written as they were, with their `source` and `confidence`. Missing tag categories are created from `tag_categories`; existing categories are never changed.
-- **Name, author, subgroup:** from the entry, not the parser.
-- **Groups.** This is the one exception to "groups are minted once, by the grouping phase" ([ingestion.md §5.8](ingestion.md#58-identifying-groups)). Images with an export entry don't go through the tree walk:
-  - A new table `export_group_links (source_library_id, source_group_key, image_group_id)` maps each exported group to the gallery group made for it. The first image of a group mints the gallery group (with the manifest's `base_name` and `author`) and records the link; later images of that group, from this part or another, join it through the link. So parts can be imported in any order, or again after a failure.
-  - A link whose gallery group has since been deleted is replaced.
-  - Images without an entry in the same job go through the grouping phase as usual.
-  - **Exporting and re-importing into the same library** (`library_id` equal) doesn't need the link table for existing images: they are byte duplicates ([§6.4](#64-duplicates)).
-- **Undo import** removes the images as for any import. A gallery group the job minted from a manifest is removed with them unless another job's images joined it through the link.
+| Source | How |
+|---|---|
+| Zip (web upload or local) | `expand_archive` finds a root `scene-atlas.jsonl` member |
+| Local folder (desktop) | `ingest_local` finds it in a picked root |
+| Browser folder upload | The client finds it in the picked folder and sends it (`PUT /imports/{id}/export-manifest`) before the manifest and seal |
 
-### 6.4 Duplicates
+For server mode the browser-folder route is the one to document: a large zip upload is one request, and proxies limit request bodies (nginx 1 MB, Cloudflare 100 MB by default).
 
-An exported image that is already in the library is a byte duplicate and is skipped, as today ([ingestion.md §6](ingestion.md#6-duplicate-detection)). **Its metadata is not applied to the existing image.** Re-importing an export into the library it came from is a no-op, not a restore. Restoring metadata is what [§7](#7-backup-and-restore-metadata) is for. "Import as new copy" works as it does for any duplicate, and the copy gets the manifest's metadata.
+The manifest is stored per job (in the job's staging folder) and indexed by `(path, sha256)` in a small table. A manifest that fails validation is ignored, with a note in the report. **It never fails the import.**
 
-## 7. Backup and restore metadata
+- **Matching** happens when an item's authoritative hash is known: on receipt for uploads, after hashing in prepare for local imports, at expansion for zips. A match is by path and hash, then by hash alone (so renamed folders still match). Several files with one hash take their entries in path order; the extras are imported as copies.
+- **A matched item** gets its entry's fixed type, grid, name, subgroup and tags. The parser's filename tags and grid are not applied. Auto classification and grid detection are skipped.
+- **Groups** are placed in the grouping phase, as for any import ([ingestion.md §5.8](ingestion.md#58-identifying-groups)): matched images are grouped by `uid`, joining the library's group with that `uid` if one exists, else a new one. Unmatched images go through the tree walk. Both create `ImportGroup` rows as today, so the report, review and Undo work unchanged.
+- **Vectors** from the export are used when the encoder matches.
+- **Duplicates** are skipped as usual, so re-importing an export into its own library is a no-op. Their metadata is not applied.
 
-### 7.1 What a backup holds
+## 8. The startup step
 
-`scene-atlas-backup-<library>-<timestamp>.zip`:
+`backend/app/library_ops.py`: a pending operation recorded as a file in `{data_dir}/pending-op.json`, run in the lifespan after the storage locks and **before** `check_library`, with no database session or LanceDB connection open:
 
-- `battlemap.db`: a SQLite snapshot (the backup API, as today).
-- `vectors/<table>.lance`: the **active model's table only**, compacted first ([§7.4](#74-lancedb-compaction)). Other models' tables are left out: a model switch re-embeds anyway. Without vectors a restore would re-embed the whole library, which takes hours on CPU at 200k images; the active table is about 0.8 GB there for the large model.
-- `backup.json`: format, `app_version`, Alembic revision, `library_id`, image count, store file count, created time.
-
-Not held: originals (decision 1), thumbnails, models, logs, staging. Thumbnails are rebuilt from the originals on restore ([§7.3](#73-restore)).
-
-Estimated size at 200k images: SQLite a few hundred MB, vectors 0.4–0.8 GB. A zip that size streams fine as one download.
-
-### 7.2 Making a backup
-
-- **Desktop:** Settings → Library → **Backup metadata** asks for a folder, then a background job writes the zip there. A **schedule** (off / daily / weekly, keep N) writes into a chosen folder. That folder should be on another disk, and Settings says so when it isn't.
-- **Server:** the same button streams the zip as a native download (`GET /api/v1/backup/metadata`). Scheduled backups write to `SCENE_ATLAS_BACKUP_DIR` (default `{SCENE_ATLAS_DATA_DIR}/backups`), which the docs suggest mounting on another volume.
-- **Today's daily backups move.** They are written into the store (`{SCENE_ATLAS_IMAGES_DIR}/backups/`), on the same disk as what they protect, and keep up to 11 full, uncompacted LanceDB copies of every model. They become this scheduled backup: the backup folder, the active table only, compacted, the same rotation. Pre-migration snapshots stay where they are: they are for rolling back an update, not for disasters.
-- **Consistency:** the SQLite snapshot is taken first, then the vector table is copied at a pinned LanceDB version (`checkout(version)`), so ingest isn't blocked for the length of the copy (today `backup_storage` holds the LanceDB lock for the whole `copytree`). A vector written after the snapshot is extra; one missing is repaired by `vector_reconcile` after restore. Both are harmless.
-
-### 7.3 Restore
-
-Restore replaces the database and the active vector table of the open library. It runs at startup, never under a running worker:
-
-1. **Upload or pick** the backup (`POST /api/v1/backup/restore`, streamed; desktop picks a file). The server checks `backup.json`: a revision newer than the build is refused ("made by a newer version"); a different `library_id` needs confirmation ("This backup is from another library"). The zip is staged as `{data_dir}/restore/pending.zip`.
-2. **Restart.** Desktop uses the in-window backend restart. Server mode exits with a message; the Compose file's `restart: unless-stopped` brings it back. The docs cover `docker run` without a restart policy.
-3. **At startup**, before `init_db`: the current database and table are kept as `restore/previous/` (one generation), the backup's are moved in, then migrations run as for any upgrade.
-4. **After opening:**
-   - **The orphan sweep is suspended** until the user deals with the result. Files imported after the backup are in the store but in no row, which is exactly what the sweep deletes. (Its 25% guard only helps if they're a quarter of the store.)
-   - **Store files no row references** are offered as an import ("312 files in your library aren't in this backup. Import them?"). This is an ordinary local import of those paths, which the store's own folders normally refuse; the importer gets an explicit exception for this job.
-   - **Rows whose original is missing** are listed as missing, like a missing linked file, with "Remove missing maps".
-   - **Thumbnails** a row references but that aren't on disk are rebuilt from the originals (the "Regenerate thumbnails" backlog job, which this makes a dependency).
-   - Vector reconciliation runs as at any startup.
-
-If startup fails after the swap, the next startup puts `restore/previous/` back and reports the failure.
-
-The two disasters this covers:
-
-- **App data lost** (a laptop reinstall, a dead SSD): restore the metadata backup. The originals are still in the store, thumbnails are rebuilt, and nothing is re-embedded.
-- **Store lost:** restore the store folder from the user's own backup. It is content-addressed, so a file-level copy restores it exactly, and the metadata needs nothing. The user docs say this in plain words.
-
-### 7.4 LanceDB compaction
-
-Nothing compacts LanceDB today. Every write batch adds a fragment and a version, so search slows and every copy carries the history. The daily maintenance runs `table.optimize()` (compaction plus `cleanup_old_versions` older than 1 day) on each table, after the ingest queue has been idle for 10 minutes, and before every backup. This is independent of the rest and can land first.
-
-## 8. Move library
-
-**Desktop only.** In server mode the folders are mounts and env vars, which the app doesn't own; the server docs say how to move them (stop, move the folders, update the mounts, start), and Settings shows that text.
-
-Settings → Storage locations → **Move…** for app data, the store, or both, to a new folder:
-
-1. **Check.** The target must be empty (or a previous unfinished move of this library, from its marker) and must satisfy the storage rules ([library-setup.md §1](library-setup.md#1-storage-model)). Free space must cover the bytes to move plus 1 GB, unless source and target are on one volume.
-2. **Same volume:** a directory rename, which is instant. Then switch (step 5).
-3. **Different volume:** the ingest worker pauses, linked scans and maintenance (the orphan sweep, backups) stop, and the gallery stays usable, read-only. Imports, edits and deletes are refused with "Moving your library…". The transfer engine ([§9](#9-the-transfer-engine)) copies:
-   - **Store:** every file, verified against `stored_hash`. This is the terabyte, and it is resumable.
-   - **App data:** SQLite via the backup API, LanceDB at a pinned version, thumbnails and models as files. Logs and staging are not moved: staging is empty with the worker paused.
-4. **Verify.** Every database row's store file and thumbnail exists in the target with the right size; the store's hash verification already ran file by file.
-5. **Switch.** Electron writes the new paths to its config and restarts the backend, which opens the library at the new place (the library identity check confirms it's the same library).
-6. **Remove the old copy**, only after a successful start at the new place and only when the user confirms ("Delete the old copy (812 GB)?"). Until then the old folders are left untouched. If the new place fails to open, Electron switches back.
-
-Progress (bytes, files, time left) shows in the activity dock. Cancel stops between files and leaves the library where it was; the partial target stays for a later resume. A move survives an app restart: on start, an unfinished move is offered to resume or discard.
-
-Moving **into the linked folder** (the desktop default puts the store at `<linked>/Scene Atlas`) is allowed. Moving the store **to be or contain** the linked folder is refused, as in setup.
+- **restore** ([§6.2](#62-restore)), and the **finish** stage of Move library ([§10](#10-move-library)).
+- It writes `in-progress` before changing anything. If that marker is found at the next start, the step is run again: both operations are written to be re-runnable.
+- Electron and the loading page show "Restoring your library…" or "Finishing the move…" while it runs.
 
 ## 9. The transfer engine
 
-`backend/pipeline/file_transfer.py`, used by the folder export ([§5](#5-desktop-folder-export)) and Move library ([§8](#8-move-library)):
+`backend/pipeline/file_transfer.py`, used by the folder export and Move library:
 
-```python
-@dataclass
-class TransferItem:
-    source: Path
-    target_relative: str
-    size: int
-    sha256: str | None     # verify against this when given
+- Copies each file to `<target>.part` while hashing what it reads, compares the hash with the expected one where there is one, `fsync`s, then renames. Hashing on the read side catches a bad source and costs nothing next to disk speed.
+- **Resume:** a target that exists with the expected size and hash is skipped.
+- **Free space** is checked before starting and every 1 GB. Too little fails the job with its progress kept, and running it again resumes.
+- **Per-file errors** (unreadable source, name too long, a name or size the target filesystem refuses) are recorded and skipped, and reported at the end. A full or failing disk stops the job.
+- **Stop** is checked between files.
 
-def transfer(items: Iterable[TransferItem], target_root: Path, *, progress, stop) -> TransferResult
-```
+## 10. Move library
 
-- Copies to `<target>.part`, `fsync`s, verifies size and (if given) SHA-256, then renames.
-- **Resume:** a target that already exists with the right size is verified by hash and skipped if it matches. A crash costs one file.
-- **Free space:** checked up front for the remaining bytes, and every 1 GB. Too little pauses, with a reason.
-- **Errors:** a source that can't be read is recorded and skipped (reported at the end). A target write failure stops the transfer (a full or failing disk), since every following file would fail too.
-- **Stop:** checked between files (shutdown or cancel).
-- One file at a time per destination volume: parallel copies to one HDD are slower, not faster.
+**Desktop only.** In server mode the folders are mounts; the server docs explain how to move them (stop, move, update the mounts, start).
 
-Unit-tested with fault injection (a failing read, a full disk, a crash mid-file).
+Settings → Storage locations → **Move…**, for the store, app data, or both:
 
-## 10. Testing at scale
+1. **Check** the target: empty, not the linked folder or inside it, not containing it, enough free space. Write a **move marker** into the target first, so linked scans skip it ([library-setup.md §1](library-setup.md#1-storage-model)).
+2. **Copy the store while the app runs.** Store files are only ever added and deleted, never changed (uuid names), so a live copy is safe. This is the terabyte; it's a resumable background job on the transfer engine, verified against `stored_hash` (size only when NULL).
+3. **Finish at restart** (a startup step, [§8](#8-the-startup-step)), with the backend's files closed:
+   - copy store files added since step 2, and delete from the target any that were deleted since;
+   - copy app data (database with `-wal`/`-shm`, LanceDB, thumbnails, models; not logs or staging);
+   - verify that every row's store file and thumbnail exists in the target;
+   - Electron writes the new paths to its config and the backend opens there. If it refuses, Electron reverts to the old paths.
+4. **The old copy's marker** becomes a tombstone (`moved_to`), so it can't be reopened as the same library. Settings offers to delete the old copy ("Delete the old copy (812 GB)?") once the new place has opened.
 
-A **synthetic large library** fixture, `scripts/dev/make_large_library.py`. It generates N image rows with groups and tags straight into SQLite, LanceDB vectors with random values, and store files. Files can be **sparse** (`truncate`, real size, no disk use), so a 1 TB library fits on a laptop for the metadata, plan and space-check paths. Byte verification needs real bytes, so those tests use 10–50 GB of real files.
+Imports with staged bytes block a move of app data ("Finish or cancel open imports first"), as purge does.
 
-Measured and recorded in this doc, at 200k images:
+## 11. LanceDB compaction
 
-| Measure | Target |
-|---|---|
-| Export plan time | < 5 s |
-| Download POST time, 1000 images | < 1 s |
-| Download stream throughput, server memory | disk-bound, < 200 MB RSS |
-| Folder export throughput, resume after a kill | disk-bound; resume skips work done |
-| Backup time and size, ingest stall during it | < 2 min, < 1.5 GB; no stall |
-| Restore end to end (app data lost) | thumbnails dominate; record it |
-| Move across volumes, resume after a kill | disk-bound; resume skips work done |
-| LanceDB compaction time, search latency before/after | record it |
+Nothing compacts LanceDB today, so every write batch adds a fragment and a version. Daily maintenance runs `optimize()` (compaction, then `cleanup_old_versions` older than a day) on each table once the ingest queue has been idle for 10 minutes. It doesn't run at the same time as a backup.
 
-Round-trip tests: export a fixture library (parts and a folder), import into an empty one, and compare names, authors, groups, subgroups, types, grids and tags image by image. Parts are imported in shuffled order, and one part twice.
+## 12. Testing
 
-## 11. Order of work
+- **Round trip:** export a fixture library (parts and folder), import into an empty library, and compare every image's name, author, group, subgroup, type, grid, tags and vector. Parts are imported in shuffled order, and one part twice.
+- **Restore:** back up, change the library (edits, deletes, a new import), restore, and compare with the backup. Then do the same again with app data deleted.
+- **Fault injection** in the transfer engine and the startup step (a kill mid-file, mid-restore, mid-finish, then a restart).
+- **Scale** (`scripts/dev/make_large_library.py`, 200k rows with vectors and small real files): backup time and size, restore time with thumbnails kept, export part listing, download memory, compaction time. These numbers are recorded here.
 
-Each step is its own PR:
+## 13. Order of work
 
-1. **LanceDB compaction** ([§7.4](#74-lancedb-compaction)) and the scale fixture ([§10](#10-testing-at-scale)). Measure today's backup and export first, so the rest is compared against numbers.
-2. **The transfer engine.**
-3. **Export format v2, the download endpoint, the gallery Download action, full export parts.** The old export endpoint and the `Blob` download go.
-4. **Re-import:** manifest recognition, `export_group_links`, the round-trip tests.
-5. **Desktop folder export** on the engine.
-6. **Backup and restore metadata**, including moving the daily backups out of the store and Regenerate thumbnails.
-7. **Move library.**
+One PR each:
 
-Steps 1–4 and 7 are the release-0.2.0 scope as agreed (Move library before launch). Step 6 is needed to call backups a feature; it could be 0.3.0 if the release shouldn't wait, but today's backups stay on the same disk as the store until it lands.
+1. LanceDB compaction, and the scale fixture.
+2. The format (writer and reader) and group `uid`.
+3. Downloads and export parts. The old endpoints and the `Blob` download go.
+4. Re-import.
+5. Backup and restore, with the startup step and the adopt item kind.
+6. The transfer engine, desktop folder export and Move library.
 
-## 12. Open questions
+## 14. Open questions
 
-- **Apply metadata to duplicates?** [§6.4](#64-duplicates) skips them. A "merge" option would let a re-import update existing images' tags and groups. It isn't needed for any flow above, and silently overwriting user edits is the risk.
-- **Part size default.** 2 GB / 1000 files to match the default import limits ([§6.2](#62-limits-for-exports)), or larger with raised limits.
-- **Server restore without a restart policy.** Exiting to restart is simple but relies on Compose. The alternative is an in-process close and reopen of the database and LanceDB, which nothing does today.
-- **Include linked images in exports by default?** Proposed: off.
+- **Release scope.** All six steps before 0.2.0, or 0.2.0 with Move library only (needing steps 6 and the startup step) and the rest in 0.3.0?
