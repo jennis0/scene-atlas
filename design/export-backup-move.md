@@ -1,6 +1,6 @@
 # Export, import and rebuild of library metadata
 
-**Status:** Design, third draft (2026-10-31). Not started. Two reviews shaped it; earlier drafts were bigger and are superseded.
+**Status:** Design, fourth draft (2026-10-31). Not started. Two reviews shaped it; earlier drafts were bigger and are superseded.
 **Target:** 0.2.0.
 
 ## 1. Scope
@@ -14,7 +14,7 @@ User decision (2026-10-31): four capabilities, nothing more.
 
 Out of scope:
 
-- **Scheduled or rotated backups.** The existing daily SQLite/LanceDB copies are left as they are; their problems stay a backlog row.
+- **Scheduled backups.** None, and the old daily SQLite/LanceDB copy has been removed (user decision 2026-10-31). Pre-migration snapshots stay: they roll back an app update.
 - **Originals.** They are never in a metadata export. They belong to the user's own backup of the store folder, which is plain files.
 - **Full-library zip export.** Settings → **Export library** is removed: it downloads into a browser `Blob` and fails beyond a few GB. Moving a whole library is Move library, or copying the folders.
 - **Applying metadata to images already in the library** on import, and LanceDB compaction.
@@ -130,46 +130,55 @@ The file is untrusted input: string lengths, tag rules and grid ranges are valid
 
 ## 6. Rebuild
 
-Rebuilds the library's metadata from a `library` file, at startup, by bulk load. It is not an import job, so nothing else runs while it does: no worker, no scans, no sweeps. The result is exactly what the file describes. Nothing is merged.
+Replaces the library's metadata with a `library` file. The user decided the flow (2026-10-31): **Settings → Library → Rebuild from export**, upload, see what will change, confirm, and the app restarts into the rebuilt library. Nothing is merged.
 
-### 6.1 Starting one
+### 6.1 Upload
 
-The trigger is the file `{data_dir}/rebuild/pending.jsonl.gz`.
+- **Server:** the file is uploaded in 8 MB chunks (`PUT /api/v1/library/rebuild/upload?offset=…`) to `{data_dir}/rebuild/staged.jsonl.gz`, so it passes proxy body limits (nginx's 1 MB default still needs raising to 8 MB; the server docs say so). A new upload replaces the staged one.
+- **Desktop:** the file is picked and read in place; nothing is uploaded.
 
-| Where | How |
-|---|---|
-| Settings → Library → **Rebuild from metadata…** (desktop) | Pick the file. The backend checks the header and copies it into place, then the in-window restart. |
-| The library refusal page when app data is missing (`APP_DATA_NOT_HERE`, desktop) | **Rebuild from a metadata export…**. The backend has already exited, so Electron checks the header and copies the file, then starts the backend. |
-| Server mode | Place the file and restart. Settings and the refusal message say how. There's no upload: a 1 GB upload fails behind default proxy limits, and a rebuild is rare. |
+### 6.2 Check before anything changes
 
-### 6.2 The startup step
+`POST /api/v1/library/rebuild/check` reads the staged file once, streaming, and changes nothing:
 
-`backend/app/library_rebuild.py`, run in the lifespan after the storage locks and **before** `check_library`, with no session or LanceDB connection open:
+- **Refused** if the header doesn't validate, the major version is unknown, or `library_id` isn't this library's ("This export is from a different library").
+- **Missing:** images in the file whose original isn't there (the store key, or the linked file, by `stat`). They won't be in the rebuilt library.
+- **Will be lost:** images in the current library that aren't in the file, matched by `storage_key`, or by `source_files` key for linked images. Their metadata goes; their original files are kept (step 3 of [§6.3](#63-at-restart)).
 
-1. **Check** the header: a known major version, and a `library_id` equal to the store marker's. A file from another library is refused, and the pending file renamed `refused-…`.
-2. **Keep the way back.** Export the current library's metadata to `rebuild/before-rebuild.jsonl.gz` via a temp file and rename. Skip this if that file exists (a re-run after a crash), or if there's no database.
-3. **Wipe:** delete `battlemap.db` with its `-wal` and `-shm`, and drop every LanceDB table.
-4. **Create** the database with the normal `init_db`, then write `settings` (including `library_id` and the setup flag) and the tag categories.
-5. **Load** in batches of about 1,000 per transaction: `source_files`, groups, images, tags and colours as recorded. Each image's original is checked with a `stat` (store key, or linked file). One that's missing is left out and counted. Vectors are added to the active model's table. The table is named from `settings.active_model`, which the file restored.
-6. **Set aside** store files the file doesn't reference: move them to `{store}/not-in-backup/`, so the orphan sweep never sees them. They're files imported after the export; they can be imported like any folder, without metadata.
-7. **Finish:** delete `pending.jsonl.gz` and write a summary (loaded, missing originals, set aside) that Settings shows once. Then normal startup continues: `check_library` passes against the rebuilt database.
+The dialog shows: "**7 images in 3 groups are missing.** 3 images in 1 group in your current library will be lost." Each sentence has a disclosure listing groups, each expandable to its image names. Lists are capped at 500 groups in the response (with "and 12 more"), which keeps the response small for a badly mismatched file. With nothing missing or lost, it says so. **Rebuild** and **Cancel**; Cancel deletes the staged file.
 
-**A crash** leaves `pending.jsonl.gz` in place, so the next start runs the step again from stage 3. The way back from stage 2 is kept.
+### 6.3 At restart
 
-**Progress:** the backend prints `SCENE_ATLAS_STATUS rebuild <done>/<total>` lines, and Electron's loading page shows "Rebuilding your library… 41%". Expect a few minutes at 200k images: there's no decoding and no embedding.
+On **Rebuild**, the backend writes `{data_dir}/rebuild/pending.json` (the staged file's path and the check's counts) and restarts: the in-window backend restart on desktop; on a server it exits and the Compose `restart: unless-stopped` policy brings it back (the docs cover `docker run` without one). The swap needs the database and LanceDB closed, which is why it happens at startup.
+
+`backend/app/library_rebuild.py` runs in the lifespan after the storage locks and **before** `check_library`, with no session or LanceDB connection open:
+
+1. **Move the current metadata to `.old`:** `battlemap.db` with its `-wal` and `-shm`, and the LanceDB folder, go to `{data_dir}/rebuild/old/`, replacing an older one. Thumbnails stay where they are. The way back is to move them back; the docs say how.
+2. **Load the file:** `init_db` creates an empty database; then `settings` (including `library_id`), the tag categories, `source_files`, groups, images, tags and colours are inserted in batches of about 1,000 per transaction, and vectors are added to the active model's table. Images whose original is missing are left out, as the check said.
+3. **Set aside** store files the file doesn't reference: they move to `{store}/not-in-backup/`, so the orphan sweep never deletes them. They can be imported like any folder, without metadata.
+4. **Finish:** delete `pending.json` and the staged file, and record a summary that Settings shows once. Normal startup continues, and `check_library` passes against the rebuilt database.
+
+**A crash** leaves `pending.json`, so the next start runs the step again. Stage 1 is skipped if `old/` was written by this run (recorded in `pending.json`), and the partial database from stage 2 is deleted first.
+
+**Progress:** the backend prints `SCENE_ATLAS_STATUS rebuild <done>/<total>` lines; Electron's loading page shows "Rebuilding your library… 41%". A few minutes at 200k images: nothing is decoded or embedded. In server mode the UI polls `/health` until the backend is back and shows the same text.
 
 **After startup:**
-- Thumbnails that are missing (app data was lost) are rebuilt from the originals by a backfill job in the activity dock. This is the slow part, and only in that case. The gallery shows placeholders until it's done.
-- The usual vector reconciliation embeds any image without a vector. It runs after the thumbnail backfill, because it embeds from thumbnails.
+- Thumbnails that are missing (app data was lost) are rebuilt from the originals by a backfill job in the activity dock. This is the slow part, and only in that case.
+- The usual vector reconciliation, after that backfill, embeds any image without a vector.
+
+### 6.4 When app data is lost
+
+This is the main reason to rebuild. In this case the app refuses to open the store (`APP_DATA_NOT_HERE`, [library-setup.md](library-setup.md)), so Settings can't be reached. The refusal page offers **Rebuild from export…**. Electron writes the picked file's path as `pending.json` and starts the backend. There is no check step there: the current library is empty, so nothing will be lost, and the summary afterwards reports what was missing. In server mode the refusal message says to place the file at `{data_dir}/rebuild/pending.jsonl.gz` and restart.
 
 ## 7. Testing
 
 - **Round trip:** download fixture groups and import into an empty library, then compare name, author, group, subgroup, type, grid, tags and vector image by image. Also: two downloads of one group imported concurrently, and the same download imported twice.
 - **Rebuild:**
-  - Export metadata, change the library (edits, deletes, a new import, a linked file removed), rebuild, and compare with the export.
-  - Again with app data deleted.
-  - A kill at each stage of §6.2, then a restart.
+  - Export metadata, change the library (edits, deletes, a new import, a linked file removed), check that the counts and lists match, rebuild, and compare with the export.
+  - Again with app data deleted ([§6.4](#64-when-app-data-is-lost)).
+  - A kill at each stage of §6.3, then a restart.
   - Another library's file is refused.
+  - A chunked upload with a gap or an overlap is rejected.
 - **Security:** a cross-site form POST is refused, and a manifest with oversized or hostile values is rejected without failing the import.
 - **Scale:** 200k synthetic rows with vectors (`scripts/dev/make_large_library.py`): export time, size and memory; rebuild time. Record the numbers here.
 
