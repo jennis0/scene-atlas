@@ -5,7 +5,7 @@ A Scene Atlas library is stored in up to three folders:
 | Place | Holds | Desktop default | Server setting |
 |-------|-------|-----------------|----------------|
 | **Search data** | Database, thumbnails, search index, AI models, logs | `%LOCALAPPDATA%\Scene Atlas\data` (Windows), `Documents/Scene Atlas/data` (macOS, Linux) | `SCENE_ATLAS_DATA_DIR` |
-| **Imported images** | Full-size copies of images you import, and backups | `…\Scene Atlas\images`, or `<linked library>\Scene Atlas` when you link one | `SCENE_ATLAS_IMAGES_DIR` |
+| **Imported images** | Full-size copies of images you import | `…\Scene Atlas\images`, or `<linked library>\Scene Atlas` when you link one | `SCENE_ATLAS_IMAGES_DIR` |
 | **Linked library** (optional) | A folder of images you already have, read where they are | none | `SCENE_ATLAS_LINKED_LIBRARY_DIR` |
 
 Search data is best on a fast drive. Imported images can go on any large drive.
@@ -56,20 +56,9 @@ If the folder is on a drive or network share that isn't connected, a banner says
 
 ## Backups
 
-Scene Atlas backs up its database and search index once a day to `backups/` inside *Imported images*. It keeps the 7 most recent and up to 4 older ones, one a week. It also saves a copy of the database before an update changes its structure, in `backups/pre-migration/`.
+Scene Atlas doesn't back up your library by itself. Back up both *Imported images* and *Search data* with your usual backup tool, ideally while Scene Atlas is closed. A linked library is yours to back up.
 
-Backups don't include your images. Back up *Imported images* (which holds both the images and the backups) with your usual backup tool. A linked library is yours to back up.
-
-### Restoring a backup
-
-1. Close Scene Atlas (or stop the server).
-2. In *Search data*, rename `battlemap.db` to keep it, for example `battlemap.db.old`.
-3. Copy `battlemap.db` from the backup folder you want into *Search data*.
-4. Start Scene Atlas.
-
-::: warning
-Images imported after the backup was taken aren't in the restored database, and the daily cleanup deletes their files from *Imported images*. Import them again afterwards if you still have the originals.
-:::
+Before an update changes the structure of its database, Scene Atlas saves a copy of it in `backups/pre-migration/` inside *Imported images*.
 
 To go back to an older version of Scene Atlas after an update, install the older version and restore the newest backup from `backups/pre-migration/`. A database upgraded by a newer version can't be opened by an older one.
 

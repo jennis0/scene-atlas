@@ -13,7 +13,7 @@ from pathlib import Path
 
 from backend.app.models import Color, Image, ImageGroup, Tag
 from backend.app.models.database import get_engine, get_session_local, seed_tag_categories
-from backend.pipeline.maintenance import backup_sqlite, rotate_backups
+from backend.pipeline.maintenance import backup_sqlite
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,43 +184,3 @@ def test_restore_from_backup_preserves_all_data(tmp_path, tmp_db):
     assert expected["img2_hash"] in restored_hashes
 
     restored_engine.dispose()
-
-
-def test_rotate_backups_keeps_recent(tmp_path):
-    """rotate_backups() retains the newest N backups and prunes the rest."""
-    backups_root = tmp_path / "backups"
-    backups_root.mkdir()
-
-    from datetime import datetime, timedelta
-
-    # 11 consecutive daily backups + 1 extra (12 total).
-    # With keep_daily=7 the last 7 are always kept.
-    # From the remaining 5 consecutive-daily backups the rotation keeps one per
-    # 7-day window: since they are all within 7 days of each other, only the
-    # first (oldest among the 5) qualifies as a "weekly" anchor.
-    # Result: 7 daily + 1 weekly kept = 8 kept, 4 deleted.
-    dirs = []
-    for i in range(12):
-        ts = datetime(2026, 1, 1) - timedelta(days=i)
-        d = backups_root / ts.strftime("%Y%m%d_%H%M%S")
-        d.mkdir()
-        dirs.append(d)
-
-    deleted = rotate_backups(backups_root, keep_daily=7, keep_weekly=4)
-
-    remaining = list(backups_root.iterdir())
-    # 7 daily + 1 weekly kept = 8 kept, 4 deleted
-    assert deleted == 4, f"Expected 4 deleted, got {deleted}"
-    assert len(remaining) == 8, f"Expected 8 remaining, got {len(remaining)}"
-    # The 7 most recent (daily) must always be kept
-    for d in dirs[:7]:
-        assert d.exists(), f"Recent backup {d.name} was incorrectly deleted"
-
-
-def test_rotate_backups_noop_when_empty(tmp_path):
-    """rotate_backups() returns 0 on an empty or nonexistent directory."""
-    assert rotate_backups(tmp_path / "nonexistent") == 0
-
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    assert rotate_backups(empty) == 0

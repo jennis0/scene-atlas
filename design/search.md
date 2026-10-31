@@ -202,7 +202,6 @@ LanceDB is the **semantic search index, not the source of truth** — SQLite is 
 - Until October 2026 it re-encoded the original files and wrote 100-row batches; a model switch on a 4,761-image library saved nothing (every LanceDB merge failed with "Spill has sent an error") while showing 50%.
 
 **Backup:**
-- `lancedb_service.backup_storage(target_dir)` — copies the LanceDB storage directory (called by `maintenance.backup_database()`, scheduled every 24 h)
 
 ## Reciprocal Rank Fusion (RRF)
 

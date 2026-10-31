@@ -8,7 +8,6 @@ RuntimeError if called after close().
 """
 
 import logging
-import shutil
 import threading
 from pathlib import Path
 
@@ -306,14 +305,6 @@ class LanceDBService:
         if not self.table_exists(collection_name):
             return None
         return self._conn.open_table(collection_name).count_rows()
-
-    def backup_storage(self, target_dir: Path) -> Path:
-        """Copy the LanceDB storage directory for backup."""
-        with self._lock:
-            dest = target_dir / "lancedb"
-            shutil.copytree(str(self._path), str(dest))
-            logger.info("LanceDB storage backed up to %s", dest)
-            return dest
 
     def delete_collection_by_name(self, collection_name: str) -> None:
         """Delete a LanceDB table by name.

@@ -361,7 +361,6 @@ Asyncio scheduler; each task runs in the default executor. A task stopped by shu
 
 | Task | Interval | Function |
 |------|----------|----------|
-| `backup_database` | 24 h | `pipeline/maintenance.py` |
 | `ingest_maintenance` | 6 h | `pipeline/ingest_maintenance.py:run_ingest_maintenance` |
 | `sweep_orphaned_store_files` | 24 h | `pipeline/maintenance.py` |
 | `reconcile_vectors` | 24 h | `pipeline/vector_reconcile.py` |

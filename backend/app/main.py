@@ -263,10 +263,9 @@ async def lifespan(app: FastAPI):
     scheduler = Scheduler(settings.data_dir / "scheduler")
     if app_config.scheduler_enabled:
         from ..pipeline.ingest_maintenance import run_ingest_maintenance
-        from ..pipeline.maintenance import backup_database, sweep_orphaned_store_files
+        from ..pipeline.maintenance import sweep_orphaned_store_files
         from ..pipeline.vector_reconcile import reconcile_vectors
 
-        scheduler.register(backup_database, hours=24, name="backup_database")
         scheduler.register(run_ingest_maintenance, hours=1, name="ingest_maintenance")
         scheduler.register(sweep_orphaned_store_files, hours=24, name="sweep_orphaned_store_files")
         scheduler.register(reconcile_vectors, hours=24, name="reconcile_vectors")

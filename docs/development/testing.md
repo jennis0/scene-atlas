@@ -138,7 +138,7 @@ backend/tests/
 │   ├── test_grid_pipeline_rules.py # Grid memory estimates, backfill selection
 │   ├── test_grid_regression_local.py # Opt-in regression on a local map library
 │   ├── test_image_store.py        # Hash-sharded filesystem storage
-│   ├── test_maintenance.py        # Backups + orphan sweep
+│   ├── test_maintenance.py        # Orphan sweep
 │   ├── test_scheduler.py          # Periodic task scheduler
 │   ├── test_lancedb_service.py    # LanceDBService against a real tmp LanceDB
 │   ├── test_clip_service.py       # CLIPService module helpers
@@ -167,7 +167,7 @@ backend/tests/
 │   ├── test_system_admin.py       # Library purge, tag reset
 │   ├── test_system_endpoint.py    # GET /api/v1/system/info
 │   ├── test_health_endpoint.py    # GET /health deep health check
-│   ├── test_backup_restore.py     # Backup + restore pipeline
+│   ├── test_backup_restore.py     # SQLite snapshot + restore
 │   ├── test_migration_022.py      # Migration 022 (grid source labelling)
 │   ├── test_migration_024.py      # Migration 024 (colour LAB backfill, threshold units)
 │   └── test_clip_heavy.py         # Real CLIP model tests (marked @heavy, excluded by default)

@@ -94,10 +94,10 @@ In Docker, use `SCENE_ATLAS_IMAGES_DIR` in your `.env` to set the host-side bind
 | Volume | Type | Path in container | Purpose |
 |--------|------|-------------------|---------|
 | `scene-atlas-data` | Named | `/app/data` | Database, vector index, thumbnails, logs |
-| `SCENE_ATLAS_IMAGES_DIR` | Bind mount | `/app/images` | Managed image storage and backups |
+| `SCENE_ATLAS_IMAGES_DIR` | Bind mount | `/app/images` | Managed image storage, and pre-migration database copies |
 
 ::: warning
-The named volume `scene-atlas-data` contains your database and search index. The built-in backups are written to the image bind mount, so back up `SCENE_ATLAS_IMAGES_DIR` (or both) with your normal backup tooling.
+The named volume `scene-atlas-data` contains your database and search index. Back up both with your normal backup tooling ([Backups](#backups)).
 :::
 
 ## Linked library
@@ -196,13 +196,9 @@ Scene Atlas has no built-in authentication or user accounts. All access control 
 
 ## Backups
 
-When the scheduler is enabled (the default), Scene Atlas backs up every 24 hours:
-- The 7 most recent snapshots are kept
-- Up to 4 older snapshots are kept, one per week
+Scene Atlas doesn't make backups of its own. Back up the `scene-atlas-data` volume and `SCENE_ATLAS_IMAGES_DIR` with your usual tooling, ideally with the container stopped.
 
-Each backup contains the SQLite database (`battlemap.db`) and a LanceDB vector index snapshot. They are written to `/app/images/backups/<timestamp>/`, i.e. `SCENE_ATLAS_IMAGES_DIR/backups/` on the host.
-
-To restore: stop the container, copy `battlemap.db` from a backup into the data volume as `/app/data/battlemap.db`, and restart. Schema migrations are applied automatically on startup. Images imported after that backup are lost; see [Restoring a backup](/guide/library#restoring-a-backup).
+Before an update migrates the database, Scene Atlas writes a copy of it to `SCENE_ATLAS_IMAGES_DIR/backups/pre-migration/`. To go back to the previous version, stop the container, copy that `battlemap.db` into the data volume as `/app/data/battlemap.db`, and start the previous image.
 
 ## Updating
 

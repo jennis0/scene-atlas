@@ -1,7 +1,6 @@
-"""Maintenance tasks: database backup and orphaned store file sweep.
+"""Maintenance tasks: the pre-migration snapshot and the orphaned store file sweep.
 
 Functions:
-    backup_database            — Snapshot SQLite + LanceDB, rotate old backups. Runs daily.
     backup_before_migration    — Snapshot SQLite before init_db() applies pending migrations.
     sweep_orphaned_store_files — Delete store files no image refers to. Runs daily.
 
@@ -14,17 +13,17 @@ import logging
 import shutil
 import sqlite3
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.app.config import settings
 
-# Backup tasks
+# Pre-migration snapshot
 
-# Backup directories are named with this timestamp, so name order is chronological.
+# Snapshot directories are named with this timestamp, so name order is chronological.
 BACKUP_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 _TIMESTAMP_LEN = len("YYYYmmdd_HHMMSS")
-# Inside backups/; rotate_backups() leaves it alone because its name isn't a timestamp.
+# Inside backups/.
 PRE_MIGRATION_DIRNAME = "pre-migration"
 PRE_MIGRATION_KEEP = 5
 
@@ -56,99 +55,6 @@ def backup_sqlite(backup_dir: Path, db_path: Path | None = None) -> Path:
     size_kb = backup_path.stat().st_size // 1024
     logger.info("SQLite backed up to %s (%s KB)", backup_path, size_kb)
     return backup_path
-
-
-def backup_vector_db(backup_dir: Path) -> Path | None:
-    """Copy the LanceDB storage directory for backup.
-
-    Returns the backup path on success, or None if LanceDB is not initialised.
-    Non-fatal: the overall backup still succeeds if only SQLite was backed up.
-    """
-    logger = logging.getLogger(__name__)
-    try:
-        from backend.app.services.lancedb_service import get_lancedb_service
-
-        svc = get_lancedb_service()
-        return svc.backup_storage(backup_dir)
-    except Exception as e:
-        logger.warning("LanceDB backup failed: %s", e)
-        return None
-
-
-def rotate_backups(backups_root: Path, keep_daily: int = 7, keep_weekly: int = 4) -> int:
-    """Rotate backup directories: keep the most recent N daily plus M weekly.
-
-    Backup directories are named ``YYYYMMDD_HHMMSS`` so lexicographic sort
-    is chronological. Anything else in *backups_root* (``pre-migration/``, files,
-    directories someone else put there) is neither counted nor deleted.
-
-    Strategy:
-    - Keep the last ``keep_daily`` backups unconditionally (daily retention).
-    - From older backups, keep one per 7-day window up to ``keep_weekly`` total.
-    - Delete every other timestamp-named backup.
-
-    Returns the number of directories deleted.
-    """
-    logger = logging.getLogger(__name__)
-    if not backups_root.exists():
-        return 0
-
-    dated = sorted(
-        (
-            (ts, d)
-            for d in backups_root.iterdir()
-            if d.is_dir() and (ts := _backup_timestamp(d.name)) is not None
-        ),
-        reverse=True,  # most recent first
-    )
-    dirs = [d for _, d in dated]
-
-    to_keep: set[Path] = set()
-
-    # Always keep the most recent N
-    for d in dirs[:keep_daily]:
-        to_keep.add(d)
-
-    # From the remainder, keep one per week up to keep_weekly
-    last_kept_ts: datetime | None = None
-    weekly_count = 0
-    for ts, d in dated[keep_daily:]:
-        if weekly_count >= keep_weekly:
-            break
-        if last_kept_ts is None or (last_kept_ts - ts) >= timedelta(days=7):
-            to_keep.add(d)
-            last_kept_ts = ts
-            weekly_count += 1
-
-    deleted = 0
-    for d in dirs:
-        if d not in to_keep:
-            shutil.rmtree(d, ignore_errors=True)
-            logger.info("Rotated old backup: %s", d.name)
-            deleted += 1
-
-    return deleted
-
-
-def backup_database() -> dict:
-    """Full backup: SQLite snapshot + LanceDB snapshot + rotation."""
-    logger = logging.getLogger(__name__)
-    timestamp = datetime.now(UTC).strftime(BACKUP_TIMESTAMP_FORMAT)
-    backups_root = settings.backups_dir
-    backup_dir = backups_root / timestamp
-
-    db_backup = backup_sqlite(backup_dir)
-    vector_backup = backup_vector_db(backup_dir)
-    deleted = rotate_backups(backups_root)
-
-    result = {
-        "timestamp": timestamp,
-        "db_backup": str(db_backup),
-        "vector_backup": str(vector_backup) if vector_backup else None,
-        "rotated": deleted,
-    }
-    logger.info("Backup complete: %s", result)
-    return result
 
 
 def backup_before_migration(
