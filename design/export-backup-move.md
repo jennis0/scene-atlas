@@ -1,6 +1,6 @@
 # Export, import and rebuild
 
-**Status:** Design, fifth draft (2026-10-31). Not started. Two reviews shaped it; earlier drafts were bigger and are superseded.
+**Status:** Design, sixth draft (2026-10-31). Not started. Three reviews shaped it; earlier drafts were bigger and are superseded.
 **Target:** 0.2.0.
 
 ## 1. Scope
@@ -47,34 +47,37 @@ Out of scope:
 **Group lines**, one per group, with its images:
 
 ```json
-{"group": {"uid": "8f1c…", "base_name": "Golden Forest", "author": "Czepeku", "created_at": "…", "primary": 0},
+{"group": {"id": 812, "uid": "8f1c…", "base_name": "Golden Forest", "author": "Czepeku", "created_at": "…", "primary": 0},
  "images": [
-   {"filename": "Golden Forest Day 30x30.webp", "name": "Day", "author": "Czepeku", "subgroup": null,
+   {"id": 40321, "filename": "Golden Forest Day 30x30.webp", "name": "Day", "author": "Czepeku", "subgroup": null,
     "image_type": "battlemap", "media_type": "image", "created_at": "…",
     "width": 3000, "height": 3000, "file_size": 41234567,
     "grid": {"gridded": true, "type": "square", "width": 30, "height": 30, "confidence": 0.97, "source": "user"},
     "tags": [{"category": "season", "value": "summer", "source": "manual", "confidence": 1.0}],
+    "missing_since": null,
     "stored_hash": "…", "content_hash": "…", "pixel_hash": "…", "phash": 123, "colors": [["#2f4a1c", 0.31]],
     "vector": "<base64 float32>",
     "path": "Czepeku_Golden Forest/Czepeku_Golden Forest_Day_G30x30[summer].webp",
-    "storage_key": "3f9a….webp", "thumbnail_key": "…", "source_file": null}
+    "storage_key": "3f9a….webp", "thumbnail_key": "…", "source_file_id": null}
  ]}
 ```
 
-Ungrouped images are lines with `"group": null`.
+Ungrouped images are lines with `"group": null`. Images still awaiting grouping (mid-import, not listed anywhere) are left out.
 
 | Field | In | Notes |
 |---|---|---|
+| `id` (image and group) | `library` | The ids in the source database. A rebuild inserts with the same ids, so `source_files.image_id` (which can point at another image for a duplicate row), `primary_image_id` and the LanceDB ids line up with no remapping. A `groups` import ignores them. |
 | `group.uid` | both | New column on image groups: a random UUID, backfilled by migration, with a unique index. Import keeps it, so a group stays the same group across downloads and libraries. |
 | `primary` | both | Index of the group's primary image in `images`. |
 | `path` | `groups` | The file's path, relative to the `scene-atlas.jsonl` beside it. |
 | `stored_hash` | both | SHA-256 of the stored file, which is the file a download contains. It differs from `content_hash` when stored-format conversion is on. Computed while reading when NULL. |
 | `vector` | both | The active model's embedding. Used by an importer whose encoder matches the header's `encoder_sha256`; otherwise ignored. |
-| `storage_key`, `thumbnail_key`, `source_file` | `library` | Where the original and thumbnail are; `source_file` is the linked file's `source_files` row (key, size, mtime, hash). |
+| `storage_key`, `thumbnail_key`, `source_file_id`, `missing_since` | `library` | Where the original and thumbnail are, and the linked file's `source_files` row. |
+| `colors` | both | Hex and share only. The `lab_*` columns (NOT NULL) are computed from the hex on load. |
 
-**Other lines, `library` files only:** `{"source_files": [...]}` in batches, holding every row of the linked library, so removed and sorted-out files stay that way after a rebuild.
+**Other lines, `library` files only:** `{"source_files": [...]}` in batches, holding every row of the linked library with its `id`, `image_id`, state, size, mtime and hash, so removed, duplicate and sorted-out files stay that way after a rebuild.
 
-**Reading vectors** is batched (1,000 ids) on a new BTREE scalar index on the LanceDB `id` column. `get_embeddings` today runs `id IN (…)` with no index, a full scan per call. A read error fails the export rather than silently leaving vectors out.
+**Reading vectors:** the metadata export and full export stream the LanceDB table once, in id order, alongside the image query; downloads (≤ 999 images) read their ids in one `id IN (…)` query. Neither uses `get_embeddings` as it is, because it swallows errors and returns `{}`: a read error fails the export rather than silently leaving vectors out. No scalar index is needed.
 
 ## 3. The readable layout
 
@@ -98,9 +101,9 @@ scene-atlas.jsonl
   - `G<w>x<h>` for a square grid and `HG<w>x<h>` for a hex grid; just `G` or `HG` when the size isn't known.
   - `GL` for gridless.
   - Nothing when it isn't known whether there is a grid (most scenes).
-- **Tags:** values only, comma-separated with no spaces, in category order. Dropped from the end until the file name is at most 150 characters, so paths stay under Windows' 260.
+- **Length:** folder names are capped at 80 characters. Tags are values only, comma-separated with no spaces, in category order; they are dropped from the end until the file name is at most 150 characters, and then the name segments are shortened (name first, then group). The desktop folder export also counts the chosen folder's own path length, so the whole path stays under Windows' 260.
 - **Characters:** `sanitize_segment` replaces `/\:*?"<>|` and `_` inside a segment (with a space, so the separators stay unambiguous). It also avoids Windows reserved names (`CON`, `NUL`…) and trailing dots and spaces.
-- **Collisions:** compared case-insensitively. A second group with the same folder name gets ` (2)`, in group-id order, so a resumed export names things the same way. A second file with the same name in a folder gets ` (2)` in image-id order.
+- **Collisions:** compared case-insensitively. A second group with the same folder name gets ` (2)`, in group-id order, and a second file with the same name in a folder gets ` (2)` in image-id order. A resumed export also checks the folder names already on disk, since groups can be deleted or renamed between runs.
 
 The names are for people. The metadata lives in `scene-atlas.jsonl`, so nothing is parsed back out of them.
 
@@ -108,9 +111,10 @@ The names are for people. The metadata lives in `scene-atlas.jsonl`, so nothing 
 
 Settings → Library → **Export metadata**.
 
-- `POST /api/v1/library/metadata-export` writes the file to `{data_dir}/exports/<timestamp>.jsonl.gz` in one SQLite read transaction, then streams it as an attachment and deletes it. Writing it first keeps the read transaction short, whatever the download speed.
+- **Desktop** writes straight to a path the user picks, as a background job.
+- **Server:** `POST /api/v1/library/metadata-export` writes the file to `{data_dir}/exports/<timestamp>.jsonl.gz` in one SQLite read transaction, then streams it as an attachment and deletes it. Writing it first keeps the read transaction short, whatever the download speed. Stale files there (an aborted download) are deleted at startup.
 - About 1 GB at 200k images (mostly vectors), and a few minutes.
-- **The download** works the same in both modes ([§5.2](#52-the-download-mechanism)): a browser save in server mode, a save dialog on desktop.
+- The server download uses the mechanism in [§5.2](#52-the-download-mechanism).
 - The UI says what it is: names, groups, tags, grids and search data, **not the image files**, and that rebuilding needs the store folder too.
 
 ## 5. Export groups
@@ -122,9 +126,9 @@ POST /api/v1/downloads/check  JSON {group_ids, image_ids}  → {image_count, byt
 POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → zip attachment
 ```
 
-- **One endpoint** for every download of files: multi-select in the gallery and group view, the group card's Download (replacing `api/groups.py`'s zip), and the image viewer's single file. The old `GET /export/library` and `download.ts:downloadFile` go.
+- **One endpoint** for every download of files: multi-select in the gallery and group view, the group card's Download (replacing `api/groups.py`'s zip), and the image viewer's single file. The old `GET /export/library`, `download.ts:downloadFile`, and `naming.download_filename` with its frontend mirror `buildDownloadFilename` go.
 - **The zip** is `ZIP_STORED`, streamed with `zipstream-ng` (sized, zip64): `scene-atlas.jsonl` (`kind: groups`) first, then the files in the readable layout ([§3](#3-the-readable-layout)).
-- **Limits:** at most 999 files and 2 GB of files per download, so any download re-imports as a zip under the default import limits. `check` refuses larger selections with the reason; the UI shows count and size first. A single file over 2 GB is downloaded alone as a plain file, without metadata.
+- **Limits:** at most 999 files, and 2 GiB minus the size of `scene-atlas.jsonl` (`check_zip_safety` counts it against `max_import_total_size`), so any download re-imports as a zip under the default import limits. `check` refuses larger selections with the reason; the UI shows count and size first. A single file over 2 GB is downloaded alone as a plain file, without metadata.
 - **Linked-library images** are included: the user asked for those files.
 - **Missing originals** are left out, logged, and absent from the metadata.
 
@@ -143,10 +147,11 @@ POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → 
 |---|---|
 | Zip (web upload or local) | A root `scene-atlas.jsonl` member, read by `expand_archive` |
 | Local folder (desktop) | `scene-atlas.jsonl` in a picked root, read by `ingest_local` |
-| Browser folder upload | The client reads `scene-atlas.jsonl` from the picked folder and attaches each image's entry to its row in the existing manifest chunks. Chunks are sized by bytes (≤ 512 KB), and vectors are left out on this route to keep requests under proxy body limits. |
+| Browser folder upload | The client uploads `scene-atlas.jsonl` as the job's first item; prepare holds the job's other items until it has arrived. This is the zip and local code path, with no parsing in the browser. |
 
 - The entries are stored with the job (a table keyed by job and `stored_hash`).
-- `scene-atlas.jsonl` itself is never listed as a skipped file.
+- `scene-atlas.jsonl` itself is never listed as a skipped file (`kind_for_path` would call it unsupported).
+- 0.1.x `metadata.json` exports are not recognised.
 - A file that doesn't validate, or has an unknown major version, is ignored with a note in the import report; the files import normally. **Metadata never fails an import.**
 - A `library` file dropped into an import is not a rebuild. Its entries are used like a `groups` file's, matched against whatever files are imported.
 
@@ -154,8 +159,8 @@ The file is untrusted input: string lengths, tag rules and grid ranges are valid
 
 ### 6.2 Applying it
 
-- **Matching happens once, in prepare**, when the item's hash is known (uploads and zip members already carry `source_hash`; local imports hash there). Matching is by hash. A hash with several entries takes the one whose path matches, else the first.
-- **A matched item** takes its entry's type, name, author, subgroup, grid and tags. The parser's filename tags and grid are not applied, and Auto classification and grid detection are skipped. The vector is used if the encoder matches, so the image isn't embedded. Thumbnails, colours and hashes are made as usual: the file is new to this library.
+- **Matching happens once, in prepare**, when the item's hash is known (uploads and zip members already carry `source_hash`; local imports hash there). Matching is by hash. A hash with several entries takes the one whose path matches (for a zip, the member's raw path inside the zip, before `place_members` rewrites it), else the first.
+- **A matched item** takes its entry's type, name, author, subgroup, grid and tags. The parser's filename tags and grid are not applied, and Auto classification and grid detection are skipped. The vector is used if the encoder matches, so the image isn't embedded. Thumbnails, colours and hashes are made as usual: the file is new to this library. Stored-format conversion is skipped when the file is already in the target format, so lossy files don't lose quality on each round trip.
 - **Groups** are placed in the grouping phase, as for every import ([ingestion.md §5.8](ingestion.md#58-identifying-groups)). Matched images are grouped by `uid`, joining the library's group with that `uid` if there is one (`merged_into_existing`), else a new group with the entry's name and author. The lookup runs inside the grouping write session, so two imports of the same group can't both mint it. Unmatched images go through the tree walk. `ImportGroup` rows are created as today, so the report, review and Undo are unchanged.
 - **Duplicates** are skipped as usual, and their metadata is not applied. Re-importing a download into the library it came from changes nothing.
 
@@ -181,44 +186,73 @@ The CLI (`python -m backend.pipeline.export_library <dir>`) runs the same job.
 
 Replaces the library's metadata with a `library` file. The user decided the flow (2026-10-31): **Settings → Library → Rebuild from export**, upload, see what will change, confirm, and the app restarts into the rebuilt library. Nothing is merged.
 
+The rule throughout: **nothing is changed until everything that can be checked has been, and any failure puts the library back as it was.**
+
 ### 8.1 Upload
 
-- **Server:** the file is uploaded in 8 MB chunks (`PUT /api/v1/library/rebuild/upload?offset=…`) to `{data_dir}/rebuild/staged.jsonl.gz`, so it passes proxy body limits (nginx's 1 MB default still needs raising to 8 MB; the server docs say so). A new upload replaces the staged one.
-- **Desktop:** the file is picked and read in place; nothing is uploaded.
+The file is staged at `{data_dir}/rebuild/staged.jsonl.gz` in both modes, so the rebuild never depends on a drive that can be unplugged.
+
+- **Server:** uploaded in 8 MB chunks (`PUT /api/v1/library/rebuild/upload?offset=…`), so it passes proxy body limits; nginx's 1 MB default still needs raising to 8 MB, which the server docs say. A gap or overlap is rejected.
+- **Desktop:** the picked file is copied there.
+
+A new upload replaces the staged one.
 
 ### 8.2 Check before anything changes
 
 `POST /api/v1/library/rebuild/check` reads the staged file once, streaming, and changes nothing:
 
-- **Refused** if the header doesn't validate or the major version is unknown.
-- **From another library** is allowed (user decision 2026-10-31), with a warning: "This export is from a different library." The rebuilt library keeps this store's `library_id`, whatever the file's, so `check_library` still passes. The counts below are what protect against the wrong file: one from elsewhere shows nearly everything missing.
-- **Missing:** images in the file whose original isn't there (the store key, or the linked file, by `stat`). They won't be in the rebuilt library.
-- **Will be lost:** images in the current library that aren't in the file, matched by `storage_key`, or by `source_files` key for linked images. Their metadata goes; their original files are kept (step 3 of [§8.3](#83-at-restart)).
+- **Every line is validated**, not just the header, so loading at restart can't fail on content. A file that doesn't validate, or has an unknown major version, is refused with the line it failed on.
+- **From another library** is allowed (user decision 2026-10-31), with a warning: "This export is from a different library." The rebuilt library keeps this store's `library_id`. The counts below are what protect against the wrong file: one from elsewhere shows nearly everything missing.
+- **Missing:** images in the file whose original isn't there (`stat` of the store key; linked files are only checked when the linked folder is online). Stored images that are missing won't be in the rebuilt library. Missing linked images are kept, marked missing, as a scan would mark them.
+- **Will be lost:** images in the current library that aren't in the file, matched by `storage_key`, or by `source_files` key for linked images. Their metadata goes. Their files are kept in a readable folder ([§8.3](#83-at-restart), stage 3). Linked ones are imported again by the next scan, with fresh metadata; the dialog says so.
+- **Refused while an import is running**, since its images would be set aside without being counted.
+- **Vectors:** if the file's `encoder_sha256` doesn't match the installed model, the dialog says the library will be re-embedded after the rebuild (hours for a large library).
 
-The dialog shows: "**7 images in 3 groups are missing.** 3 images in 1 group in your current library will be lost." Each sentence has a disclosure listing groups, each expandable to its image names. Lists are capped at 500 groups in the response (with "and 12 more"), which keeps the response small for a badly mismatched file. With nothing missing or lost, it says so. **Rebuild** and **Cancel**; Cancel deletes the staged file.
+The dialog shows: "**7 images in 3 groups are missing.** 3 images in 1 group in your current library will be lost." Each sentence has a disclosure listing groups, each expandable to its image names. Lists are capped at 500 groups in the response (with "and 12 more"). With nothing missing or lost, it says so. **Rebuild** and **Cancel**; Cancel deletes the staged file.
 
 ### 8.3 At restart
 
-On **Rebuild**, the backend writes `{data_dir}/rebuild/pending.json` (the staged file's path and the check's counts) and restarts: the in-window backend restart on desktop; on a server it exits and the Compose `restart: unless-stopped` policy brings it back (the docs cover `docker run` without one). The swap needs the database and LanceDB closed, which is why it happens at startup.
+On **Rebuild**, the backend writes `{data_dir}/rebuild/pending.json` (a rebuild id, the staged file's SHA-256, the check's missing count, `attempts: 0`) and restarts: the in-window backend restart on desktop; on a server it exits and the Compose `restart: unless-stopped` policy brings it back (the docs cover `docker run` without one). The swap needs the database and LanceDB closed, which is why it happens at startup.
 
-`backend/app/library_rebuild.py` runs in the lifespan after the storage locks and **before** `check_library`, with no session or LanceDB connection open:
+`backend/app/library_rebuild.py` runs in the lifespan after the storage locks and after `check_library`, before `init_db`. It goes ahead only when the library check opened the library (or found app data missing, [§8.4](#84-when-app-data-is-lost)).
 
-1. **Move the current metadata to `.old`:** `battlemap.db` with its `-wal` and `-shm`, and the LanceDB folder, go to `{data_dir}/rebuild/old/`, replacing an older one. Thumbnails stay where they are. The way back is to move them back; the docs say how.
-2. **Load the file:** `init_db` creates an empty database; then `settings` (with this store's `library_id`, not the file's), the tag categories, `source_files`, groups, images, tags and colours are inserted in batches of about 1,000 per transaction, and vectors are added to the active model's table. Images whose original is missing are left out, as the check said.
-3. **Set aside** store files the file doesn't reference, into `{store}/not-in-backup/<timestamp>/`, so the orphan sweep never deletes them. This uses the folder writer ([§7](#7-full-library-export)) in move mode, which is a rename on the same volume, with the metadata read from the database in `old/`. They land in the readable layout with a `scene-atlas.jsonl`, so the user can see what they are, and importing the folder brings them back with their groups, tags and grids. Store files the old database didn't know either (orphans) go to `unknown/` inside it, under their store names.
-4. **Finish:** delete `pending.json` and the staged file, and record a summary that Settings shows once. Normal startup continues, and `check_library` passes against the rebuilt database.
+0. **Pre-flight**, changing nothing. The staged file's SHA-256 must match `pending.json`. The store, and the linked folder if one is configured, must be reachable. If any check fails, the rebuild is cancelled: `pending.json` is removed, and the reason is recorded for Settings to show. `attempts` is incremented; after two crashed attempts, the rebuild is rolled back instead of tried again.
+1. **Move the current metadata aside** to `rebuild/old-<id>/`: `battlemap.db` with its `-wal` and `-shm`, then the LanceDB folder. Each item is moved only if it is still at the source and not yet at the destination, so a re-run after a crash continues rather than overwrites.
+2. **Load the file** into a fresh database (`init_db`):
+   - Settings come from the file, except `library_id`, `active_model` and the setup flag, which stay this install's.
+   - Then the tag categories, a `library_sources` row for this install's linked folder (`detached` if none is configured), `source_files`, groups, images, tags and colours, inserted with their ids in batches of about 1,000 per transaction.
+   - `pending` `source_files` rows are written as `pending`, so the next scan queues them again.
+   - Vectors are loaded into the active model's table only when `encoder_sha256` matches the installed encoder.
+   - Missing stored originals are left out. If more are missing than the check counted, the rebuild rolls back, because a folder has probably gone offline.
+3. **Set aside** store files (shard layout only, so `backups/` and `exports/` are untouched) that the file doesn't reference. They go to `{store}/not-in-backup/<timestamp>/` in the readable layout, named from the database in `old-<id>/`:
+   - The folder's `scene-atlas.jsonl` is written **first**, including each file's `storage_key`. It is the move log: re-running continues from it, and a rollback reverses it exactly. It also means importing the folder brings the images back with their groups, tags and grids.
+   - Each file is moved by rename, on the same volume, with no hashing. A file counts as moved when it is at the destination and gone from the source.
+   - Their thumbnails move into `old-<id>/thumbnails/`, so the orphan sweep doesn't delete them.
+   - Store files the old database didn't know either go to `unknown/` under their store names.
+4. **Finish:** delete `pending.json`, the staged file and any earlier `old-*` folders, and record a summary (loaded, missing, set aside) that Settings shows once. Startup continues with `init_db`, which finds the database at head.
 
-**A crash** leaves `pending.json`, so the next start runs the step again. Stage 1 is skipped if `old/` was written by this run (recorded in `pending.json`), and the partial database from stage 2 is deleted first.
+**Rollback** is automatic. If stage 1, 2 or 3 raises, or after two crashed attempts:
+- stage 3's moves are reversed from the move log;
+- the new database and LanceDB are deleted;
+- `old-<id>/` is moved back;
+- `pending.json` is removed, and the error is recorded for Settings to show.
 
-**Progress:** the backend prints `SCENE_ATLAS_STATUS rebuild <done>/<total>` lines; Electron's loading page shows "Rebuilding your library… 41%". A few minutes at 200k images: nothing is decoded or embedded. In server mode the UI polls `/health` until the backend is back and shows the same text.
+The library is then exactly as it was.
+
+**Progress:** the backend prints `SCENE_ATLAS_STATUS rebuild <done>/<total>` lines (a new protocol). Electron's loading page shows "Rebuilding your library… 41%", and Electron's start-up wait (`waitForHealth`, 120 s today) is extended while status lines keep arriving. In server mode `/health` doesn't answer until the step is done, so the UI shows "Rebuilding your library…" with no percentage. A few minutes at 200k images: nothing is decoded, and nothing is embedded when the encoder matches.
 
 **After startup:**
-- Thumbnails that are missing (app data was lost) are rebuilt from the originals by a backfill job in the activity dock. This is the slow part, and only in that case.
-- The usual vector reconciliation, after that backfill, embeds any image without a vector.
+- **Missing thumbnails** (app data was lost) are rebuilt from the originals by a new backfill job (`write_thumbnails` runs only in ingest today). This is the slow part, and it only happens in that case.
+- **Vector reconciliation**, after that backfill, embeds images without a vector: all of them when the encoder didn't match.
 
 ### 8.4 When app data is lost
 
-This is the main reason to rebuild. In this case the app refuses to open the store (`APP_DATA_NOT_HERE`, [library-setup.md](library-setup.md)), so Settings can't be reached. The refusal page offers **Rebuild from export…**. Electron writes the picked file's path as `pending.json` and starts the backend. There is no check step there: the current library is empty, so nothing will be lost, and the summary afterwards reports what was missing. Store files the export doesn't list have no metadata to name them by, so they go to `not-in-backup/<timestamp>/unknown/`. In server mode the refusal message says to place the file at `{data_dir}/rebuild/pending.jsonl.gz` and restart.
+This is the main reason to rebuild. In this case the app refuses to open the store (`APP_DATA_NOT_HERE`, [library-setup.md](library-setup.md)), so Settings can't be reached.
+
+- **Desktop:** the refusal page offers **Rebuild from export…**. The backend exits with a code of its own for this refusal (today every refusal is 4), so Electron can tell it apart. Electron copies the picked file to `rebuild/staged.jsonl.gz`, writes `pending.json`, and starts the backend.
+- **Server:** the refusal message says to place the file at `{data_dir}/rebuild/pending.jsonl.gz` and restart. That file is honoured only when there is no database, so a stray copy can never replace a working library.
+
+There is no check step in this case: there's no current library to lose. Pre-flight, rollback and the summary still apply. Store files the export doesn't list have no metadata to name them by, so they go to `not-in-backup/<timestamp>/unknown/`.
 
 ## 9. Testing
 
@@ -228,10 +262,14 @@ This is the main reason to rebuild. In this case the app refuses to open the sto
 - **Rebuild:**
   - Export metadata, change the library (edits, deletes, a new import, a linked file removed), check that the counts and lists match, rebuild, and compare with the export.
   - Again with app data deleted ([§8.4](#84-when-app-data-is-lost)).
-  - A kill at each stage of §8.3, then a restart.
+  - A kill at each stage of §8.3, then a restart (continues); two kills (rolls back).
+  - A failure at each stage rolls back to exactly the previous library, set-aside files included.
+  - The store or linked folder offline at restart cancels the rebuild without changes.
+  - A staged file changed after the check is refused.
   - Another library's file rebuilds, with the warning, and keeps the store's `library_id`.
   - The set-aside folder re-imports with its metadata.
   - A chunked upload with a gap or an overlap is rejected.
+  - The vectors are kept when the encoder matches, and re-embedded when it doesn't.
 - **Security:** a cross-site form POST is refused, and a manifest with oversized or hostile values is rejected without failing the import.
 - **Scale:** 200k synthetic rows with vectors (`scripts/dev/make_large_library.py`): export time, size and memory; rebuild time. Record the numbers here.
 
@@ -248,7 +286,7 @@ Desktop only: in server mode the folders are mounts, and the docs say how to mov
 
 ## 11. Order of work
 
-1. The format (writer, reader, validation), the readable layout, group `uid`, the LanceDB `id` index.
+1. The format (writer, reader, validation), the readable layout, group `uid`.
 2. Export metadata.
 3. Export groups: the endpoint, `check`, the download mechanism and the Electron handler. The old endpoints go.
 4. Import recognition.
