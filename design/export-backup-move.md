@@ -23,7 +23,7 @@ Out of scope:
 - **Hard links** in exports (rejected 2026-10-31): an editor that saves in place would silently change the original. Exports copy.
 - **Applying metadata to images already in the library** on import, and LanceDB compaction.
 
-Move library is separate and its scope is open ([§10](#10-move-library-open)).
+**Move library** is also in 0.2.0 (user decision 2026-10-31, confirming 2026-10-19), and shares the copy step with the folder writer ([§10](#10-move-library)).
 
 ## 2. The format
 
@@ -235,11 +235,11 @@ This is the main reason to rebuild. In this case the app refuses to open the sto
 - **Security:** a cross-site form POST is refused, and a manifest with oversized or hostile values is rejected without failing the import.
 - **Scale:** 200k synthetic rows with vectors (`scripts/dev/make_large_library.py`): export time, size and memory; rebuild time. Record the numbers here.
 
-## 10. Move library (open)
+## 10. Move library
 
-Not one of the four capabilities. Earlier user decision (2026-10-19): due before launch. If it stays in 0.2.0, the minimal design:
+In 0.2.0 (user decision 2026-10-31). The minimal design:
 
-1. **Copy while the app runs:** the store, thumbnails and models. All three are add-and-delete only, never rewritten in place. This is a background job: copy with an inline hash checked against `stored_hash`, resumable, and with a marker written into the target first so linked scans skip it.
+1. **Copy while the app runs:** the store, thumbnails and models. All three are add-and-delete only, never rewritten in place. This is a background job, using the folder writer's copy step ([§7](#7-full-library-export)): an inline hash checked against `stored_hash`, resumable, and with a marker written into the target first so linked scans skip it.
 2. **On confirm**, Electron saves the new paths plus `pendingMove: {from}` and restarts.
 3. **At startup**, the backend (before `check_library`) copies what changed since step 1 and the database (with `-wal`/`-shm`) and LanceDB from the old folders, then verifies that every row's files exist. On failure it exits with a distinct code, and Electron reverts to the old paths.
 4. The old folder's marker becomes a tombstone (`moved_to`), and Settings offers to delete the old copy.
@@ -254,3 +254,4 @@ Desktop only: in server mode the folders are mounts, and the docs say how to mov
 4. Import recognition.
 5. The folder writer and full library export.
 6. Rebuild, with set-aside on the folder writer.
+7. Move library.
