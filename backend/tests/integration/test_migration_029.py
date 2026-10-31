@@ -170,7 +170,9 @@ def test_imports_sealed_before_029_are_already_grouped(tmp_path, monkeypatch):
     engine = sa.create_engine(url)
     with engine.begin() as conn:
         _seed_imports(conn)
-    command.upgrade(cfg, "029")
+    # To head, not 029: the code under test uses today's models. Later migrations don't
+    # touch import jobs.
+    command.upgrade(cfg, "head")
 
     with Session(engine) as db:
         jobs = {j.id: j for j in db.query(ImportJob)}

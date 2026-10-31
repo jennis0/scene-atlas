@@ -1,6 +1,6 @@
 # Export, import and rebuild
 
-**Status:** Design, seventh draft (2026-10-31). Not started. Three reviews shaped it; earlier drafts were bigger and are superseded.
+**Status:** Design, seventh draft (2026-10-31). In progress: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) is built. Three reviews shaped it; earlier drafts were bigger and are superseded.
 **Target:** 0.2.0.
 
 ## 1. Scope

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -273,6 +274,11 @@ class ImageGroup(Base):
     __tablename__ = "variant_groups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Stable across libraries: exports carry it and import keeps it (migration 030).
+    # Nullable in SQLite only because the column was added later; always set here.
+    uid: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, unique=True, index=True, default=lambda: uuid.uuid4().hex
+    )
     base_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     author: Mapped[str | None] = mapped_column(String, index=True)
     primary_image_id: Mapped[int | None] = mapped_column(

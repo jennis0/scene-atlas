@@ -54,6 +54,7 @@ images
 
 variant_groups                         -- ORM: ImageGroup
   id               INTEGER PK
+  uid              TEXT UNIQUE                   -- Random UUID hex; kept by export and import (migration 030)
   base_name        TEXT NOT NULL
   author           TEXT
   primary_image_id INTEGER FK → images.id
