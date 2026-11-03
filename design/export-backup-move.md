@@ -305,7 +305,28 @@ There is no check step in this case: there's no current library to lose. Set-asi
   - The set-aside folder re-imports with its metadata.
   - The vectors are kept when the encoder matches, and re-embedded when it doesn't.
 - **Security:** a cross-site form POST is refused, and a manifest with oversized or hostile values is rejected without failing the import.
-- **Scale:** 200k synthetic rows with vectors (`scripts/dev/make_large_library.py`): export time, size and memory; rebuild time. Record the numbers here.
+- **Scale:** `stress_tests/export_scale.py` builds a synthetic library and runs Export metadata and every rebuild stage on it, each stage in its own process for its own peak memory, then checks the rebuilt library has every image, tag and vector:
+
+  ```
+  uv run python -m stress_tests.export_scale --dir /tmp/scale --images 200000
+  ```
+
+  The library: groups of about 7, 4 tags and 5 colours per image, a 1,024-dimension vector per image (the large model, the worst case), and a placeholder file per image. The files are a few bytes, so it measures the metadata and vectors, not copying images: the full library export and Move are bound by the disk. Results at 200k images (2026-11-03, a 4-CPU cloud VM with 15 GB RAM; a desktop's disk differs, a USB drive or HDD more so):
+
+  | Stage | Time | Peak memory | Result |
+  |---|---|---|---|
+  | The library (database 443 MB, vectors 822 MB) | 112 s to make | | 200,000 images, 28,571 groups |
+  | Export metadata | 153 s | 914 MB (474 MB on a table in smaller pieces) | 846 MB file |
+  | Rebuild: check | 31 s | 457 MB | nothing missing or lost |
+  | Rebuild: build | 301 s | 612 MB | 200,000 images, none left out |
+  | Rebuild: swap (at the restart) | 3 s | 231 MB | |
+  | Rebuild: set aside | 3 s | 282 MB | nothing to set aside |
+
+  Peak disk was 4.0 GB: the library, the export and its staged copy, and the rebuilt library beside the kept previous one. A process that only imports the backend peaks at about 230 MB, so the stages add 0 to 700 MB.
+
+  The export's memory doesn't grow with the number of lines: it is flat at about 420 MB while the lines are written, and about 150 MB with no vectors. The peak comes from reading the vectors (`LanceDBService.iter_vectors`), and depends on how the table is stored. It was 914 MB on a table written in 40 batches of 5,000 rows, and 474 MB on the rebuilt one, in 200 smaller pieces.
+
+  Found by it: with no model installed, the check said images wouldn't be processed again while the build dropped their vectors (fixed: the check decides as the build does).
 
 ## 10. Move library
 
