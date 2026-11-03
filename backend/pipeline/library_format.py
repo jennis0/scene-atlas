@@ -384,7 +384,11 @@ def tag_category_order(db: Session) -> dict[str, int]:
 def _image_query(condition: ColumnElement[bool] | None):
     query = (
         select(Image)
-        .options(selectinload(Image.tags), selectinload(Image.colors))
+        .options(
+            selectinload(Image.tags),
+            selectinload(Image.colors),
+            selectinload(Image.source_file),  # where a linked image's file is
+        )
         .where(listed_images())
         .order_by(Image.id)
     )
@@ -508,11 +512,17 @@ def group_lines(
     vectors: VectorLookup | None = None,
     condition: ColumnElement[bool] | None = None,
     place: Callable[[ImageGroup | None, Sequence[Image]], Sequence[str]] | None = None,
+    keep: Callable[[ImageGroup | None, list[Image]], list[Image]] | None = None,
 ) -> Iterator[GroupLine]:
     """The group lines (``iter_groups``), each validated: an image the reader would refuse
     fails here instead, naming it. *place* gives each image's path in ``groups`` files;
-    *vectors* fills in embeddings."""
+    *vectors* fills in embeddings. *keep* chooses which of a group's images to write (a
+    resumed export leaves out what it wrote already); a group left with none has no line."""
     for group, images in iter_groups(db, condition):
+        if keep is not None:
+            images = keep(group, images)
+            if not images:
+                continue
         found = vectors([img.id for img in images]) if vectors else {}
         paths = place(group, images) if place else [None] * len(images)
         for start in range(0, len(images), MAX_IMAGES_PER_LINE):

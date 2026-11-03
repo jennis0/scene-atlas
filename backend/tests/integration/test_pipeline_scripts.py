@@ -1,7 +1,5 @@
 """The maintenance and CLI pipeline scripts against a real SQLite DB and image store."""
 
-import json
-
 import pytest
 
 from backend.app.models.database import Image, ImageGroup, Tag
@@ -164,14 +162,12 @@ def test_fix_orphaned_images(library):
         assert db.query(ImageGroup).filter_by(base_name=UNCATEGORISED_NAME).count() == 1
 
 
-def test_export_library(library, tmp_path):
+def test_export_library_cli_runs(library, tmp_path, lancedb_service):
+    """The CLI's function; the export itself is tested in test_full_export.py."""
     from backend.pipeline.export_library import export_library
 
-    result = export_library(str(tmp_path / "out"))
-    assert (result["exported"], result["skipped"]) == (2, 0)
-    metadata = json.loads((tmp_path / "out" / "metadata.json").read_text())
-    assert len(metadata["images"]) == 2
-    assert all((tmp_path / "out" / arc).is_file() for arc in metadata["images"])
+    result = export_library(tmp_path / "out")
+    assert (result["images"], result["skipped"]) == (2, 0)
 
 
 def test_backfill_grid_detection_runs(library):
@@ -239,10 +235,9 @@ def test_grid_backfill_stops_mid_batch_and_keeps_detected_images(library, monkey
     assert backfill.backfill_grid_detection()["total"] == 1
 
 
-def test_export_stops_before_writing_metadata(library, tmp_path):
+def test_export_stops_on_shutdown(library, tmp_path, lancedb_service):
     from backend.pipeline.export_library import export_library
 
     shutdown.request_shutdown()
     with pytest.raises(ShutdownRequested):
-        export_library(str(tmp_path / "out"))
-    assert not (tmp_path / "out" / "metadata.json").exists()
+        export_library(tmp_path / "out")

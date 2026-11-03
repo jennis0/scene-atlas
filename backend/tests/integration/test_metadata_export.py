@@ -142,7 +142,7 @@ def test_vectors_are_packed_however_sparse_the_ids(tmp_path):
             yield np.array([42]), np.full((1, 4), 2.0, dtype=np.float32)
 
     scratch = tmp_path / "v.vectors"
-    with me._vector_lookup(Table(), 1_000_000, scratch) as lookup:  # type: ignore[arg-type]
+    with me.vector_lookup(Table(), 1_000_000, scratch) as lookup:  # type: ignore[arg-type]
         assert scratch.stat().st_size == 3 * 4 * 4
         found = lookup([3, 42, 900_000, 7, 5_000_000])
     assert sorted(found) == [3, 42, 900_000]

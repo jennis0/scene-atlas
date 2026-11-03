@@ -126,7 +126,7 @@ def model_info(svc: LanceDBService) -> dict:
 
 
 @contextmanager
-def _vector_lookup(svc: LanceDBService, max_id: int, scratch: Path) -> Iterator[lf.VectorLookup]:
+def vector_lookup(svc: LanceDBService, max_id: int, scratch: Path) -> Iterator[lf.VectorLookup]:
     """Read every vector once into *scratch*, then look them up by id. The file holds
     only the vectors there are (packed), plus 8 bytes per id in memory for their offsets.
     It is closed before it is deleted (Windows requires it)."""
@@ -184,7 +184,7 @@ def export_metadata(target: Path, progress_fn: ProgressFn | None = None) -> dict
                 select(func.count(Image.id), func.max(Image.id)).where(listed_images())
             ).one()
             with (
-                _vector_lookup(svc, max_id or 0, scratch) as vectors,
+                vector_lookup(svc, max_id or 0, scratch) as vectors,
                 gzip.open(part, "wt", encoding="utf-8", compresslevel=6) as out,
             ):
                 for text in lf.library_lines(
