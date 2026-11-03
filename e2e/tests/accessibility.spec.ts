@@ -70,7 +70,7 @@ for (const { palette, theme, contrast } of VARIANTS) {
     });
 
     test("image viewer", async ({ page }) => {
-      await page.getByTestId("scene-tile").first().getByRole("button").click();
+      await page.getByTestId("scene-tile-open").first().click();
       await expect(page.getByTestId("image-viewer")).toBeVisible();
       await expectNoViolations(page);
     });
@@ -110,10 +110,7 @@ test.describe("keyboard", () => {
     await page.goto("/");
     await waitForGalleryLoad(page);
 
-    const firstTile = page
-      .getByTestId("scene-tile")
-      .first()
-      .getByRole("button");
+    const firstTile = page.getByTestId("scene-tile-open").first();
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press("Tab");
       if (await firstTile.evaluate((el) => el === document.activeElement))

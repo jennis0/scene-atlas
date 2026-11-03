@@ -118,6 +118,7 @@ export function SceneTile({
         aria-label={label}
         aria-current={isActive || undefined}
         onClick={onClick}
+        data-testid="scene-tile-open"
         className="absolute inset-0 z-[1] cursor-pointer rounded-lg focus-visible:outline-none"
       />
 
