@@ -670,6 +670,18 @@ class RebuildApplied(BaseModel):
     restart: Literal["app", "server"]  # who restarts the backend
 
 
+class MoveRequest(BaseModel):
+    """Where to move the library's folders (desktop app; design/export-backup-move.md §10)."""
+
+    app_data: str | None = Field(default=None, max_length=4096)
+    store: str | None = Field(default=None, max_length=4096)
+
+
+class MoveStatus(BaseModel):
+    job_id: str | None  # the copy running now
+    moved_from: dict[str, str] | None  # the last move's old folders, still there
+
+
 class LibraryScanStarted(BaseModel):
     started: bool
 

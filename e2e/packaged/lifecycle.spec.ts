@@ -52,27 +52,46 @@ test("first launch opens the wizard on the default folders, in the system locale
   const [sidecar, ...extra] = await sidecars(defaults.appData);
   expect(extra).toHaveLength(0);
   expect(sidecar.command).not.toContain("--linked-library-dir");
-  await expect(page.getByRole("heading", { name: "Welcome to Scene Atlas" })).toBeVisible({
+  await expect(
+    page.getByRole("heading", { name: "Welcome to Scene Atlas" }),
+  ).toBeVisible({
     timeout: 60_000,
   });
   const api = await page.evaluate(async () => {
     const electronAPI = (window as any).electronAPI;
-    return { libraryChosen: electronAPI.libraryChosen, dirs: await electronAPI.getStorageDirs() };
+    return {
+      libraryChosen: electronAPI.libraryChosen,
+      dirs: await electronAPI.getStorageDirs(),
+    };
   });
   expect(api).toEqual({
     libraryChosen: false,
-    dirs: { appData: defaults.appData, store: defaults.store, linked: null, defaults },
+    dirs: {
+      appData: defaults.appData,
+      store: defaults.store,
+      linked: null,
+      defaults,
+    },
   });
   // en-GB ships in electronLanguages; without its .pak Chromium falls back to en-US.
   expect(await page.evaluate(() => navigator.language)).toBe("en-GB");
 
   // Keeping the defaults: recorded, with no restart.
-  const result = await applyLibrary(page, { appData: defaults.appData, store: defaults.store, linked: null });
+  const result = await applyLibrary(page, {
+    appData: defaults.appData,
+    store: defaults.store,
+    linked: null,
+  });
   expect(result).toEqual({ error: null, restarted: false });
   expect(isAlive(sidecar.pid)).toBe(true);
-  expect(readConfig(profile)).toMatchObject({ provisional: false, libraryChosen: true });
+  expect(readConfig(profile)).toMatchObject({
+    provisional: false,
+    libraryChosen: true,
+  });
   await page.reload();
-  expect(await page.evaluate(() => (window as any).electronAPI.libraryChosen)).toBe(true);
+  expect(
+    await page.evaluate(() => (window as any).electronAPI.libraryChosen),
+  ).toBe(true);
 });
 
 test("an unusable storage folder is reported on the loading page, in the app's fonts", async () => {
@@ -80,14 +99,21 @@ test("an unusable storage folder is reported on the loading page, in the app's f
   // A folder can't be created inside a file, on any OS.
   const blocker = path.join(profile.root, "not-a-folder");
   fs.writeFileSync(blocker, "");
-  writeConfig(profile, { appDataDir: path.join(blocker, "data"), imageLibraryDir: profile.images });
+  writeConfig(profile, {
+    appDataDir: path.join(blocker, "data"),
+    imageLibraryDir: profile.images,
+  });
   const app = await launch(profile);
   const loading = await waitForLoadingPage(app.browser);
 
-  await expect(loading.locator("body")).toContainText("can't be used", { timeout: 30_000 });
+  await expect(loading.locator("body")).toContainText("can't be used", {
+    timeout: 30_000,
+  });
   const loaded = await loading.evaluate(async () => {
     await document.fonts.ready;
-    return [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family);
+    return [...document.fonts]
+      .filter((f) => f.status === "loaded")
+      .map((f) => f.family);
   });
   expect(loaded.map((f) => f.replace(/['"]/g, ""))).toEqual(
     expect.arrayContaining(["Figtree", "Cinzel"]),
@@ -102,17 +128,26 @@ test("folders the backend refuses can be chosen again from the loading page", as
   const marker = path.join(profile.images, "scene-atlas-library.json");
   fs.writeFileSync(
     marker,
-    JSON.stringify({ format: 1, library_id: "4f1c0000-0000-4000-8000-000000000000", role: "store", hints: {} }),
+    JSON.stringify({
+      format: 1,
+      library_id: "4f1c0000-0000-4000-8000-000000000000",
+      role: "store",
+      hints: {},
+    }),
   );
   const app = await launch(profile);
   const loading = await waitForLoadingPage(app.browser);
 
-  await expect(loading.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 60_000 });
+  await expect(loading.getByRole("button", { name: "Try again" })).toBeVisible({
+    timeout: 60_000,
+  });
   await loading.getByRole("button", { name: "Choose folders…" }).click();
 
   // Back on the default folders, in the same window, with the library step to show again.
   const page = await waitForBackendUi(app.browser);
-  expect(await page.evaluate(() => (window as any).electronAPI.libraryChosen)).toBe(false);
+  expect(
+    await page.evaluate(() => (window as any).electronAPI.libraryChosen),
+  ).toBe(false);
   expect(readConfig(profile)).toMatchObject({
     appDataDir: profile.defaults.appData,
     imageLibraryDir: profile.defaults.store,
@@ -130,7 +165,9 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   const app = await launch(profile);
   const page = await waitForBackendUi(app.browser);
   await expect(page.locator("h1").first()).toBeVisible({ timeout: 60_000 });
-  expect((await page.request.get(new URL("/health", page.url()).href)).ok()).toBe(true);
+  expect(
+    (await page.request.get(new URL("/health", page.url()).href)).ok(),
+  ).toBe(true);
 
   const [sidecar, ...extra] = await sidecars(profile.appData);
   expect(extra).toHaveLength(0);
@@ -160,9 +197,13 @@ test("zoom applies at once, follows the shortcuts and comes back at the next lau
   await expect.poll(dpr).toBeCloseTo(base * 1.5);
 
   // The page handles the zoom shortcuts (lib/zoom.ts).
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+0" : "Control+0");
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+0" : "Control+0",
+  );
   await expect.poll(dpr).toBeCloseTo(base);
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+=" : "Control+=");
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+=" : "Control+=",
+  );
   await expect.poll(dpr).toBeCloseTo(base * 1.1);
 
   await page.evaluate(() => window.close());
@@ -171,7 +212,9 @@ test("zoom applies at once, follows the shortcuts and comes back at the next lau
   // The preload applies the saved zoom before the page paints.
   const again = await launch(profile);
   const relaunched = await waitForBackendUi(again.browser);
-  expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(base * 1.1);
+  expect(await relaunched.evaluate(() => window.devicePixelRatio)).toBeCloseTo(
+    base * 1.1,
+  );
 });
 
 test("the window opens at its saved size and saves it again on close", async () => {
@@ -181,7 +224,13 @@ test("the window opens at its saved size and saves it again on close", async () 
   // screen, or the app shrinks it: CI's Windows runners have a work area of 1040x728.
   const configPath = path.join(profile.userData, "scene-atlas-config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  const windowState = { x: 40, y: 40, width: 960, height: 640, maximized: false };
+  const windowState = {
+    x: 40,
+    y: 40,
+    width: 960,
+    height: 640,
+    maximized: false,
+  };
   fs.writeFileSync(configPath, JSON.stringify({ ...config, windowState }));
 
   const app = await launch(profile);
@@ -189,7 +238,10 @@ test("the window opens at its saved size and saves it again on close", async () 
   // On Windows the page's outer size includes the invisible resize borders (8 px left,
   // right and bottom at 100% scaling, as on CI), which the window's bounds don't.
   const border = process.platform === "win32" ? [16, 8] : [0, 0];
-  const [outerWidth, outerHeight] = await page.evaluate(() => [window.outerWidth, window.outerHeight]);
+  const [outerWidth, outerHeight] = await page.evaluate(() => [
+    window.outerWidth,
+    window.outerHeight,
+  ]);
   expect([outerWidth - border[0], outerHeight - border[1]]).toEqual([960, 640]);
 
   await page.evaluate(() => window.close());
@@ -206,7 +258,9 @@ test("the updater reports its version and checks the feed it is given", async ()
     fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8"),
   ).version;
 
-  const state = await page.evaluate(() => (window as any).electronAPI.getUpdateState());
+  const state = await page.evaluate(() =>
+    (window as any).electronAPI.getUpdateState(),
+  );
   // A new profile hasn't chosen how to update: the default is Ask first.
   expect(state).toMatchObject({ currentVersion: version, choice: "ask" });
   // The unpacked build isn't an AppImage, so only Windows installs.
@@ -215,13 +269,16 @@ test("the updater reports its version and checks the feed it is given", async ()
   // launch() points the updater at a closed port: the check fails, and says so.
   await page.evaluate(() => (window as any).electronAPI.checkForUpdates());
   await expect
-    .poll(() => page.evaluate(() => (window as any).electronAPI.getUpdateState()), {
-      timeout: 30_000,
-    })
+    .poll(
+      () => page.evaluate(() => (window as any).electronAPI.getUpdateState()),
+      {
+        timeout: 30_000,
+      },
+    )
     .toMatchObject({ status: "error", error: "Couldn't check for updates." });
-  expect(fs.readFileSync(path.join(profile.userData, "updater.log"), "utf8")).toContain(
-    "Using the update feed http://127.0.0.1:9/",
-  );
+  expect(
+    fs.readFileSync(path.join(profile.userData, "updater.log"), "utf8"),
+  ).toContain("Using the update feed http://127.0.0.1:9/");
 });
 
 test("the backend doesn't outlive a killed app", async () => {
@@ -254,7 +311,11 @@ test("a second launch exits and leaves the first running", async () => {
   const second = await launch(profile).catch(() => null);
   // The second instance hands over to the first and quits before serving DevTools,
   // or shortly after; either way it must not start another backend.
-  if (second) await waitUntil("second instance to quit", () => !isAlive(second.child.pid!));
+  if (second)
+    await waitUntil(
+      "second instance to quit",
+      () => !isAlive(second.child.pid!),
+    );
   expect(isAlive(first.child.pid!)).toBe(true);
   expect(await sidecars(profile.appData)).toHaveLength(1);
 });
@@ -274,13 +335,23 @@ test("choosing other folders in setup restarts the backend in the window and del
   const store = path.join(maps, "Scene Atlas");
 
   // Refused before anything happens: the store can't be the linked folder.
-  expect(await applyLibrary(page, { appData: newAppData, store: maps, linked: maps })).toMatchObject({
+  expect(
+    await applyLibrary(page, {
+      appData: newAppData,
+      store: maps,
+      linked: maps,
+    }),
+  ).toMatchObject({
     error: expect.stringContaining("Imported images"),
     restarted: false,
   });
   expect(isAlive(oldSidecar.pid)).toBe(true);
 
-  await applyLibraryAndRestart(page, { appData: newAppData, store, linked: maps }, oldSidecar.pid);
+  await applyLibraryAndRestart(
+    page,
+    { appData: newAppData, store, linked: maps },
+    oldSidecar.pid,
+  );
 
   // Same app process and window; a new backend on the new folders, with the linked one.
   expect(isAlive(app.child.pid!)).toBe(true);
@@ -311,7 +382,11 @@ test("changing folders later restarts the backend in the window and keeps the ol
 
   const newAppData = path.join(profile.root, "moved-app-data");
   const newImages = path.join(profile.root, "moved-images");
-  await applyLibraryAndRestart(page, { appData: newAppData, store: newImages, linked: null }, oldSidecar.pid);
+  await applyLibraryAndRestart(
+    page,
+    { appData: newAppData, store: newImages, linked: null },
+    oldSidecar.pid,
+  );
   expect(isAlive(app.child.pid!)).toBe(true);
   const [newSidecar] = await sidecars(newAppData);
   expect(newSidecar).toBeDefined();
@@ -319,5 +394,8 @@ test("changing folders later restarts the backend in the window and keeps the ol
   expect(fs.existsSync(path.join(newAppData, "battlemap.db"))).toBe(true);
   // Moving the files is the user's job (Settings says so): the old folders stay.
   expect(fs.existsSync(path.join(profile.appData, "battlemap.db"))).toBe(true);
-  expect(readConfig(profile)).toMatchObject({ appDataDir: newAppData, imageLibraryDir: newImages });
+  expect(readConfig(profile)).toMatchObject({
+    appDataDir: newAppData,
+    imageLibraryDir: newImages,
+  });
 });

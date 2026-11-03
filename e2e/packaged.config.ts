@@ -15,6 +15,9 @@ export default defineConfig({
   timeout: 5 * 60_000,
   outputDir: "test-results-packaged",
   reporter: isCI
-    ? [["html", { open: "never", outputFolder: "playwright-report-packaged" }], ["github"]]
+    ? [
+        ["html", { open: "never", outputFolder: "playwright-report-packaged" }],
+        ["github"],
+      ]
     : [["list"]],
 });

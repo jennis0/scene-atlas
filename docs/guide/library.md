@@ -78,12 +78,14 @@ To go back to an older version of Scene Atlas after an update, install the older
 
 ## Moving the library
 
-Scene Atlas doesn't move its files for you yet.
+**Desktop app:** in **Settings → Storage locations**, choose **Move…** next to *Search data* or *Imported images*, and pick an empty folder (on another drive, say). Scene Atlas copies the folder there while you keep using it, checking each image as it's copied; a large library takes as long as copying its files. Then it restarts, copies anything that changed meanwhile and the database, checks every image is there, and opens the library from its new place. If anything goes wrong it goes back to the old folder, which a move never changes.
 
-**Desktop app:**
+The old folder stays until you choose **Delete old copy** in the same place. It no longer opens as your library (a note in it says where it went).
+
+**Change** next to a folder doesn't move anything: it opens the library in the folder you choose. Use it after copying the folders yourself:
 
 1. Close Scene Atlas, then copy the folder to its new place.
-2. Start Scene Atlas. In **Settings → Storage locations**, choose the new folder. It should say *Scene Atlas library found.*
+2. Start Scene Atlas. In **Settings → Storage locations**, choose **Change** and the new folder. It should say *Scene Atlas library found.*
 3. Choose **Restart to apply** under the folder you changed.
 4. Once your library opens from the new place, delete the old folder.
 

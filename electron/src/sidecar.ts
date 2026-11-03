@@ -68,6 +68,8 @@ export interface SidecarOptions {
   /** The user's own maps folder, passed only when one is configured. It may be missing
    * (a drive that isn't plugged in): the backend reports it as offline. */
   linkedLibraryDir?: string | null
+  /** A library move to finish before starting: the folders it moves from (§10) */
+  moveFrom?: { appData?: string; store?: string }
   /** Called when the backend prints SCENE_ATLAS_READY on stdout. */
   onReady: (port: number) => void
   onLog: (line: string) => void
@@ -77,7 +79,8 @@ export interface SidecarOptions {
 
 /** Spawn the backend sidecar; calls onReady(port) when it prints SCENE_ATLAS_READY. */
 export function spawnSidecar(options: SidecarOptions): ChildProcess {
-  const { port, appDataDir, imageLibraryDir, linkedLibraryDir, onReady, onLog, onError } = options
+  const { port, appDataDir, imageLibraryDir, linkedLibraryDir, moveFrom, onReady, onLog, onError } =
+    options
   const child = spawn(
     getSidecarPath(),
     [
@@ -88,6 +91,8 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       '--image-library-dir',
       imageLibraryDir,
       ...(linkedLibraryDir ? ['--linked-library-dir', linkedLibraryDir] : []),
+      ...(moveFrom?.appData ? ['--move-from-app-data-dir', moveFrom.appData] : []),
+      ...(moveFrom?.store ? ['--move-from-image-library-dir', moveFrom.store] : []),
       '--parent-pid',
       String(process.pid),
     ],

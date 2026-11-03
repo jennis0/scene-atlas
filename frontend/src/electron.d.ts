@@ -92,6 +92,10 @@ export interface ElectronAPI {
    * false when it can't (dev, where the developer runs the backend); otherwise it never
    * resolves: the loading page, then the UI reloads. */
   restartBackend(): Promise<boolean>
+  /** Move library (design/export-backup-move.md §10): restart on the folders the backend
+   * copied to (POST /library/move's result), finishing the move first. Resolves with an
+   * error only when it can't; otherwise it never resolves (the UI reloads). */
+  applyMove(moved: { app_data?: string; store?: string }): Promise<ApplyLibraryResult>
 
   // Local imports (design/local-ingest.md)
   /** The file's path on disk, or '' if it has none. */

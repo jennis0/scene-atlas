@@ -315,6 +315,14 @@ In 0.2.0 (user decision 2026-10-31). The minimal design:
 
 Desktop only: in server mode the folders are mounts, and the docs say how to move them.
 
+**As built** (`backend/pipeline/library_move.py`, `POST/GET /library/move`, `DELETE /library/move/old`, Electron `library:apply-move`, `MoveLibrary.tsx`):
+
+- **Checks** (`plan`): a target is absolute, empty (or an unfinished copy of the same source, recorded in its `scene-atlas-move.json`), outside every library folder and not containing one, the two targets apart, and on a disk with the source's size plus 1 GB free. Search data can't move alone when Imported images is inside it.
+- **Copy** (`copy_job`, "Moving library"): every file but the live database (`battlemap.db` and `-wal`/`-shm`), `lancedb/`, the lock and `.part` files, through `export_library.copy_verified` (synced, times kept); originals checked against `stored_hash`. Files already there with the same size and time are skipped, so a second try carries on. Any mismatch fails the job before anything switches. Thumbnails, models, logs, exports and rebuild folders go with Search data.
+- **Restart:** Electron saves the new folders with `pendingMove` (the old ones) and restarts; the sidecar gets `--move-from-…` arguments for as long as `pendingMove` is set, and clears it once the backend is ready. **Finish** (`finish_move`, in `pyinstaller/entry.py` before the app is imported): sync each folder (copy what's new or changed, delete what was deleted), copy the database files and `lancedb/`, then check every `storage_key` is a file in the new store. Then the target's `scene-atlas-move.json` goes, each old folder's marker is renamed to `…json.moved` with a `scene-atlas-moved.txt` note, and `moved_from` is recorded in `app_settings`. A failure exits with `MOVE_FAILED` (5); Electron reverts to `pendingMove`'s folders (`revertMove`), says so in a dialog, and restarts on them.
+- **The old copy:** Settings shows it while its note is there; **Delete old copy** removes only folders with the note that aren't (and don't contain) a folder in use.
+- **Not covered:** the developer setup (Electron can't restart a backend it didn't start); a crash between the finish and Electron clearing `pendingMove` makes the next start finish again, which is harmless (a sync of nothing, the database copied again from the old folder, which is unchanged since the old backend stopped) except that changes made in the new folder before that crash would be overwritten. Electron clears it at ready, before the UI can make changes.
+
 ## 11. Reuse
 
 Most of this extends code that exists:

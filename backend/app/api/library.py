@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ...pipeline import export_library, library_rebuild, metadata_export
+from ...pipeline import export_library, library_move, library_rebuild, metadata_export
 from ...pipeline import ingest_queue as q
 from ...pipeline.db import pipeline_db
 from ...pipeline.ingest_worker import get_ingest_worker
@@ -33,6 +33,8 @@ from ..models.schemas import (
     MetadataExportRequest,
     MetadataExportStarted,
     MetadataExportStatus,
+    MoveRequest,
+    MoveStatus,
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
@@ -365,3 +367,46 @@ def start_full_export(request: Request, body: FullExportRequest):
             name=export_library.JOB_NAME,
         )
     return FullExportStarted(job_id=job_id, path=str(target))
+
+
+# Move library (design/export-backup-move.md §10): desktop app only
+
+
+def _desktop_only() -> None:
+    if settings.app_mode != "app":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+@router.get("/move", response_model=MoveStatus)
+def move_status(db: Session = Depends(get_db)):
+    _desktop_only()
+    return MoveStatus(
+        job_id=get_job_runner().get_active_job_id(library_move.JOB_NAME),
+        moved_from=library_move.moved_from(db),
+    )
+
+
+@router.post("/move", status_code=202)
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def start_move(request: Request, body: MoveRequest):
+    """Copy the folders to their new places while the app runs. Its result is the new
+    folders, which the app then restarts on (Electron's library:apply-move)."""
+    _desktop_only()
+    runner = get_job_runner()
+    with metadata_export.export_lock:
+        for job in (library_move.JOB_NAME, PURGE_JOB_NAME, library_rebuild.JOB_NAME):
+            if runner.has_active_job(job):
+                raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
+        try:
+            moves = library_move.plan(body.app_data, body.store)
+        except library_move.MoveError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        job_id = runner.submit(library_move.copy_job, moves, name=library_move.JOB_NAME)
+    return {"job_id": job_id}
+
+
+@router.delete("/move/old")
+def delete_old_folders(db: Session = Depends(get_db)):
+    """Delete the folders the library was moved from."""
+    _desktop_only()
+    return {"deleted": library_move.delete_old(db)}

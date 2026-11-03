@@ -79,6 +79,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Restart the backend on the same folders, for settings that apply only then. Resolves
   // false when it can't (dev); otherwise this page is replaced.
   restartBackend: (): Promise<boolean> => ipcRenderer.invoke('app:restart-backend'),
+  // Move library: restart on the folders the backend copied to, finishing the move first.
+  // Resolves only when it can't; otherwise this page is replaced.
+  applyMove: (moved: {
+    app_data?: string
+    store?: string
+  }): Promise<{ error: string | null; restarted: boolean }> =>
+    ipcRenderer.invoke('library:apply-move', moved),
 
   // Local imports (design/local-ingest.md): the backend reads these paths itself.
   // '' for a File with no path on disk.

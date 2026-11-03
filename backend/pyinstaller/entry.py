@@ -15,6 +15,7 @@ With --parent-pid, shuts down when Electron is gone (see parent_watchdog.py).
 import argparse
 import logging
 import os
+import sqlite3
 import sys
 import time
 
@@ -24,6 +25,8 @@ MAX_BACKOFF = 30
 STARTUP_FAILURE = 3  # uvicorn's exit code when startup fails
 # The library check refused the folders; Electron offers to choose others (library-setup.md).
 LIBRARY_REFUSED = 4
+# Finishing a library move failed; Electron goes back to the old folders (§10)
+MOVE_FAILED = 5
 
 # Bundled modules the app never imports, which may fail outside their intended use.
 SELF_CHECK_SKIP: set[str] = set()
@@ -85,6 +88,18 @@ def main():
         help="The user's own maps folder, read in place (optional; need not exist)",
     )
     parser.add_argument(
+        "--move-from-app-data-dir",
+        type=str,
+        default=None,
+        help="Finish moving the app data from here before starting",
+    )
+    parser.add_argument(
+        "--move-from-image-library-dir",
+        type=str,
+        default=None,
+        help="Finish moving the image library from here before starting",
+    )
+    parser.add_argument(
         "--parent-pid",
         type=int,
         default=None,
@@ -122,6 +137,23 @@ def main():
     setup_logging(Path(args.app_data_dir))
 
     logger = logging.getLogger(__name__)
+
+    if args.move_from_app_data_dir or args.move_from_image_library_dir:
+        # Before the app opens anything in the new folders (design/export-backup-move.md §10)
+        from backend.pipeline.library_move import MoveError, finish_move
+
+        def pair(old: str | None, new: str) -> tuple[Path, Path] | None:
+            return (Path(old), Path(new)) if old else None
+
+        try:
+            finish_move(
+                app_data=pair(args.move_from_app_data_dir, args.app_data_dir),
+                store=pair(args.move_from_image_library_dir, args.image_library_dir),
+            )
+        except (MoveError, OSError, sqlite3.Error) as exc:
+            print(f"ERROR: Moving the library failed: {exc}", file=sys.stderr, flush=True)
+            logger.exception("Moving the library failed")
+            sys.exit(MOVE_FAILED)
 
     import uvicorn
 

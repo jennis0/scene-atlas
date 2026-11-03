@@ -161,6 +161,10 @@ A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-mo
 
 `/library/rebuild` ([export-backup-move.md §8](export-backup-move.md#8-rebuild)) replaces the library's metadata, and `POST /apply` stops a server. Controls: every step is a separate request (upload, check, build, apply), the upload is a raw body (a cross-origin page can't send one without a CORS preflight) under the import size limit, check and build are rate-limited as expensive and apply as destructive, and nothing changes the live library until apply. The file is untrusted: it's read by the lenient reader, and nothing in it is used as a path (storage keys are looked up through `ImageStore`, linked paths only checked with `is_file` under the configured folder). The previous database is kept in `rebuild/old-<id>/`. As for every endpoint, server mode has no authentication: anyone who can reach it can rebuild, as they can already purge.
 
+### 6b-5. LOW: Move library
+
+`/library/move` is desktop-only (404 on servers). Its targets are checked like the library folders (absolute, outside and not containing them); the copy writes only under the target. `DELETE /library/move/old` deletes only the folders recorded in `app_settings.moved_from` that hold the note a finished move wrote and are not, and don't contain, a folder in use.
+
 ### 6c. MEDIUM: Reading the linked folder
 
 **Status**: Mitigated.

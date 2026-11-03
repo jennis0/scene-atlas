@@ -147,6 +147,26 @@ export const libraryApi = {
     return data
   },
 
+  /** Move library (desktop app; design/export-backup-move.md §10) */
+  moveStatus: async (): Promise<{
+    job_id: string | null
+    moved_from: Record<string, string> | null
+  }> => {
+    const { data } = await api.get('/library/move')
+    return data
+  },
+
+  /** Copy the folders while the app runs; the job's result is the new folders */
+  startMove: async (moved: { app_data?: string; store?: string }): Promise<{ job_id: string }> => {
+    const { data } = await api.post<{ job_id: string }>('/library/move', moved)
+    return data
+  },
+
+  deleteMovedFrom: async (): Promise<{ deleted: number }> => {
+    const { data } = await api.delete<{ deleted: number }>('/library/move/old')
+    return data
+  },
+
   /** Rebuild from a metadata export (design/export-backup-move.md §8) */
   rebuildStatus: async (): Promise<RebuildStatus> => {
     const { data } = await api.get<RebuildStatus>('/library/rebuild')

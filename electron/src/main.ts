@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   IpcMainInvokeEvent,
   nativeTheme,
@@ -21,8 +22,11 @@ import {
 import {
   firstLaunchConfig,
   libraryDirsOf,
+  revertMove,
   withChosenLibrary,
   withDefaultLibrary,
+  withMove,
+  withoutMove,
   type AppConfig,
 } from './appConfig'
 import {
@@ -68,6 +72,8 @@ const MAX_LOG_BYTES = 5 * 1024 * 1024
 const QUIT_GRACE_MS = 15_000
 // The backend's exit code when its library check refused the folders (pyinstaller/entry.py)
 const LIBRARY_REFUSED = 4
+// Finishing a library move failed (backend/pyinstaller/entry.py MOVE_FAILED)
+const MOVE_FAILED = 5
 
 let mainWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
@@ -258,6 +264,33 @@ handleTrusted('library:apply', (_event, raw) => {
   }
 
   restartBackend(next, replaced)
+  return new Promise(() => {})
+})
+
+// Move library (design/export-backup-move.md §10): the backend has copied the folders
+// (POST /library/move); restart on them, finishing the move first. Resolves only when it
+// can't (dev, or nothing to move); otherwise the page is replaced.
+handleTrusted('library:apply-move', (_event, raw) => {
+  if (restarting) return new Promise(() => {})
+  const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const moved = {
+    ...(isAbsolutePath(value.app_data) ? { appData: value.app_data } : {}),
+    ...(isAbsolutePath(value.store) ? { store: value.store } : {}),
+  }
+  const config = loadConfig()
+  if (!config) return { error: "Couldn't read the app's settings file.", restarted: false }
+  if (!moved.appData && !moved.store) return { error: 'Nothing to move.', restarted: false }
+  if (isDev) {
+    return {
+      error:
+        'In development, restart the backend yourself with the new folders, after finishing ' +
+        'the copy by hand.',
+      restarted: false,
+    }
+  }
+  const next = withMove(config, moved)
+  saveConfig(next)
+  restartBackend(libraryDirsOf(next))
   return new Promise(() => {})
 })
 
@@ -467,13 +500,21 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
   }
 
   let ready = false
+  const moveFrom = loadConfig()?.pendingMove
+  if (moveFrom) logLine(`[electron] Finishing the library move from ${JSON.stringify(moveFrom)}`)
   const child = spawnSidecar({
     port,
     appDataDir,
     imageLibraryDir,
     linkedLibraryDir,
+    moveFrom,
     onReady: (readyPort) => {
       ready = true
+      if (moveFrom) {
+        // Finished: the backend only reports ready once the move is in place
+        const config = loadConfig()
+        if (config) saveConfig(withoutMove(config))
+      }
       console.log(`[electron] Backend ready on port ${readyPort}`)
       void showBackendUi(readyPort, child)
     },
@@ -498,6 +539,21 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     // non-zero code is a crash.
     if (ready && (code === 0 || code === null)) return
     const tail = recentLines.slice(-10).join('\n')
+    if (!ready && code === MOVE_FAILED) {
+      // Back to the folders it moved from, which the move never changed
+      const config = loadConfig()
+      if (config?.pendingMove) {
+        const back = revertMove(config)
+        saveConfig(back)
+        void dialog.showMessageBox({
+          type: 'error',
+          message: "Scene Atlas couldn't finish moving the library",
+          detail: `It's using the folders it was in before, which are as they were.\n\n${tail}\n\nFull log: ${logPath}`,
+        })
+        restartBackend(libraryDirsOf(back))
+        return
+      }
+    }
     const what = ready ? 'Backend crashed' : 'Backend exited during startup'
     signalBackendError(
       `${what} (exit code ${code ?? signal}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,

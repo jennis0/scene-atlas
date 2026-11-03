@@ -30,6 +30,14 @@ export interface AppConfig {
   windowState?: WindowState
   /** How the app updates itself (updatePolicy.ts); absent until the user chooses */
   updateChoice?: UpdateChoice
+  /** A library move not yet finished (design/export-backup-move.md §10): the folders it
+   * moves from. The backend finishes it at its next start; a failure goes back to them. */
+  pendingMove?: PendingMove
+}
+
+export interface PendingMove {
+  appData?: string
+  store?: string
 }
 
 /**
@@ -70,6 +78,7 @@ export function parseConfig(
   const windowState = sanitizeWindowState(parsed.windowState)
   // 0.1.x saved checkForUpdates instead; it is dropped the next time the config is saved.
   const updateChoice = savedUpdateChoice(parsed)
+  const pendingMove = sanitizePendingMove(parsed.pendingMove, platform)
   return {
     config: {
       appDataDir,
@@ -82,6 +91,7 @@ export function parseConfig(
       ...(windowColors ? { windowColors } : {}),
       ...(windowState ? { windowState } : {}),
       ...(updateChoice ? { updateChoice } : {}),
+      ...(pendingMove ? { pendingMove } : {}),
     },
     migrated: false,
   }
@@ -130,4 +140,45 @@ export function withChosenLibrary(config: AppConfig, dirs: LibraryDirs): AppConf
     provisional: false,
     libraryChosen: true,
   }
+}
+
+function sanitizePendingMove(raw: unknown, platform: NodeJS.Platform): PendingMove | null {
+  if (!raw || typeof raw !== 'object') return null
+  const { appData, store } = raw as Record<string, unknown>
+  const move: PendingMove = {
+    ...(isAbsolutePath(appData, platform) ? { appData } : {}),
+    ...(isAbsolutePath(store, platform) ? { store } : {}),
+  }
+  return move.appData || move.store ? move : null
+}
+
+/** *config* on the folders a move goes to, remembering where from (§10). *moved* holds the
+ * new place of each folder that moves. */
+export function withMove(config: AppConfig, moved: PendingMove): AppConfig {
+  const from: PendingMove = {
+    ...(moved.appData ? { appData: config.appDataDir } : {}),
+    ...(moved.store ? { store: config.imageLibraryDir } : {}),
+  }
+  return {
+    ...config,
+    appDataDir: moved.appData ?? config.appDataDir,
+    imageLibraryDir: moved.store ?? config.imageLibraryDir,
+    pendingMove: from,
+  }
+}
+
+/** The move finished: forget where from. */
+export function withoutMove(config: AppConfig): AppConfig {
+  const { pendingMove: _done, ...rest } = config
+  return rest
+}
+
+/** The move failed: back on the folders it moved from, which it never changed. */
+export function revertMove(config: AppConfig): AppConfig {
+  const from = config.pendingMove ?? {}
+  return withoutMove({
+    ...config,
+    appDataDir: from.appData ?? config.appDataDir,
+    imageLibraryDir: from.store ?? config.imageLibraryDir,
+  })
 }
