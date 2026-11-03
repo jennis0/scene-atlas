@@ -42,7 +42,7 @@ def test_the_folder_holds_every_image_and_metadata_that_reimports_it(
 
     assert result == {"path": str(out), "images": 3, "skipped": 0, "problems": []}
     assert progress[-1] == (3, 3)
-    files = sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file())
+    files = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
     lines = _lines(out)
     paths = sorted(img.path for ln in lines[1:] for img in ln.images)
     assert files == sorted([*paths, lf.FILENAME])  # every file has its entry, and no more
