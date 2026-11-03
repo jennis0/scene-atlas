@@ -43,13 +43,18 @@ describe('postForDownload', () => {
     const onError = vi.fn()
     postForDownload('/api/v1/downloads', {}, onError)
     const frame = document.querySelector('iframe')!
+    // A cross-origin document: the browser gives no document at all
+    Object.defineProperty(frame, 'contentDocument', { get: () => null, configurable: true })
+    frame.dispatchEvent(new Event('load'))
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("didn't start"))
+    // Some browsers throw instead
     Object.defineProperty(frame, 'contentDocument', {
       get: () => {
         throw new DOMException('Blocked a frame from accessing a cross-origin frame')
       },
     })
     frame.dispatchEvent(new Event('load'))
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining("didn't start"))
+    expect(onError).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -38,15 +38,16 @@ export function postForDownload(
 ): void {
   const frame = downloadFrame()
   frame.onload = () => {
+    // A page the app can't read (the browser's own error page, a proxy's: contentDocument
+    // is null for those, or reading it throws) means the request never reached the endpoint
+    const unread = "The download didn't start. Check the connection and try again."
     let message: string
     try {
       const body = frame.contentDocument?.body
-      message = body?.textContent?.trim() ?? ''
+      message = body ? (body.textContent?.trim() ?? '') : unread
       if (body) body.textContent = '' // so a later load can't show it again
     } catch {
-      // A page the app can't read (the browser's own error page, a proxy's): the request
-      // never reached the endpoint
-      message = "The download didn't start. Check the connection and try again."
+      message = unread
     }
     if (message) onError?.(message)
   }

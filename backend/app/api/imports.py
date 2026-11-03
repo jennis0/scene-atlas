@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
 from ...pipeline.group_jobs import schedule_grouping
-from ...pipeline.import_metadata import load_export
+from ...pipeline.import_metadata import file_opener, load_export, load_exports
 from ...pipeline.ingest_archive import expand_archive
 from ...pipeline.ingest_local import (
     ArchiveLimits,
@@ -631,14 +631,27 @@ async def upload_archive(
             )
             job.last_upload_at = q.utcnow()
             db.commit()
-            return ArchiveResult(name=name, **vars(counts))
         finally:
             tmp.unlink(missing_ok=True)
             db.close()
+        _load_metadata(job_id, counts.metadata, delete=[p for p, _ in counts.metadata])
+        return ArchiveResult(
+            name=name, created=counts.created, skipped=counts.skipped, failed=counts.failed
+        )
 
     result = await asyncio.to_thread(_expand)
     _changed()
     return result
+
+
+def _load_metadata(job_id: str, files: list[tuple[Path, str]], *, delete: list[Path]) -> None:
+    """Load an import's metadata files, after the transaction that found them: each load
+    takes short write transactions of its own (import_metadata.load_export)."""
+    try:
+        load_exports(job_id, [(file_opener(path), where) for path, where in files])
+    finally:
+        for path in delete:
+            path.unlink(missing_ok=True)
 
 
 @router.put("/{job_id}/export-metadata", response_model=ExportMetadataResult)
@@ -663,18 +676,13 @@ async def upload_export_metadata(
     await _stream_body(request, tmp, app_settings.max_import_file_size)
 
     def _load() -> ExportMetadataResult:
-        db = _open_session(request)
         try:
-            q.begin_immediate(db)
-            job = _job_or_404(db, job_id)
-            _require_unsealed(job)
-            with tmp.open(encoding="utf-8", errors="replace") as fp:
-                entries = load_export(db, job, fp)
-            db.commit()
-            return ExportMetadataResult(entries=entries, note=job.export_note)
+            entries = load_export(job_id, file_opener(tmp))
         finally:
             tmp.unlink(missing_ok=True)
-            db.close()
+        with _open_session(request) as db:
+            job = _job_or_404(db, job_id)
+            return ExportMetadataResult(entries=entries, note=job.export_note)
 
     return await asyncio.to_thread(_load)
 
@@ -733,7 +741,13 @@ async def add_local_sources(
                 ),
             )
             db.commit()
-            return LocalSourcesResult(**vars(counts))
+        _load_metadata(job_id, counts.metadata, delete=counts.extracted)
+        return LocalSourcesResult(
+            created=counts.created,
+            skipped=counts.skipped,
+            failed=counts.failed,
+            ignored=counts.ignored,
+        )
 
     result = await asyncio.to_thread(_add)
     _changed()

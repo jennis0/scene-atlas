@@ -78,6 +78,7 @@ from backend.app.services.variant_grouping import (
 )
 
 from .grouping_features import load_grouping_features
+from .import_metadata import delete_entries
 from .ingest_queue import (
     BATTLEMAP,
     SCENE,
@@ -878,6 +879,9 @@ def group_job(
             minted = _write(db, job, read.files, plan, tags)
             job.grouped_at = utcnow()
             recompute_job_status(db, job_id)
+            # Its metadata has done its job (and is ~6 KB an image). A file retried or
+            # included later imports without it.
+            delete_entries(db, [job_id])
         get_ingest_worker().bump()
         if paths_only:
             content = "paths only"

@@ -646,7 +646,9 @@ def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> P
     """Grid detection (battlemaps) and the stored original: the steps that need the type."""
     item = decoded.item
     progress.stage = "grid_detection"
-    if decoded.export is not None:  # the grid as its metadata records it: nothing to detect
+    if decoded.export is not None and decoded.export.image.grid.gridded is not None:
+        # The grid as its metadata records it: nothing to detect. (Not known there: detected
+        # as for any file.)
         g = decoded.export.image.grid
         grid = {
             "gridded": g.gridded,
@@ -776,6 +778,9 @@ def embed(decoded: list[DecodedItem]) -> list[ItemFailure]:
 # Scene Atlas metadata (design/export-backup-move.md §6)
 
 
+_TAG_MAX = 100  # models/schemas.py TagText
+
+
 def _export_parsed(parsed: dict, match: ExportMatch, filename: str) -> dict:
     """The parse an item with an entry commits with: the entry's name and tags in place
     of what the file name said, and its group and subgroup for the grouping phase."""
@@ -784,9 +789,9 @@ def _export_parsed(parsed: dict, match: ExportMatch, filename: str) -> dict:
         **parsed,
         "name": image.name or Path(filename).stem,
         "tags": [
-            {
-                "category": t.category,
-                "value": t.value,
+            {  # cut to what the API takes, so they can be edited
+                "category": t.category[:_TAG_MAX],
+                "value": t.value[:_TAG_MAX],
                 "confidence": 1.0 if t.confidence is None else t.confidence,
                 "source": t.source or "manual",
             }
@@ -824,6 +829,8 @@ def apply_exports(decoded: list[DecodedItem]) -> None:
                 d.item = replace(
                     d.item,
                     image_type=match.image.image_type,
+                    # Its name in the library it came from, not the export's readable one
+                    filename=match.image.filename or d.item.filename,
                     parsed=_export_parsed(d.item.parsed, match, d.item.filename),
                 )
                 d.export = match

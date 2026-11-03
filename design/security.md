@@ -153,6 +153,10 @@ There is no restriction on which absolute paths are accepted, so code running in
 - **Served back by name only**: `GET /library/metadata-export/{name}` serves a file from that folder only if the name matches the pattern the server writes (`scene-atlas-metadata-<date>-<time>.jsonl.gz`), so no other file can be named. The name is matched in full (`fullmatch`, ASCII digits). Exports are deleted after 24 hours (an hourly task), and partial files at startup.
 - The export holds the library's metadata and settings, not secrets: there are none in `app_settings`. Server mode's lack of authentication applies as to every other endpoint.
 
+### 6b-3. LOW: Metadata in an import
+
+A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-move.md#6-import)) is untrusted: it goes through the lenient reader, its paths are only compared with file names (never opened), text is cut to the API's limits, and a file that fails validation is ignored. It is applied only to files whose bytes hash to one of its entries. **A file can name any group `uid`**: an image imported with it joins the library's group with that uid, if there is one. Uids are random and not shown in the UI, so naming one needs a copy of an export from this library; whoever can import can already edit groups through the API, so this grants nothing new.
+
 ### 6c. MEDIUM: Reading the linked folder
 
 **Status**: Mitigated.

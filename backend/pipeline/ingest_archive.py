@@ -9,11 +9,10 @@ claimed type, and becomes an item with its bytes already received.
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
@@ -27,7 +26,7 @@ from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.validation import check_zip_safety, verify_media_mime
 
 from .error_classifier import KIND_FILE
-from .import_metadata import is_metadata_file, load_export
+from .import_metadata import is_metadata_file
 from .ingest_queue import (
     ManifestSealedError,
     is_os_junk,
@@ -47,6 +46,10 @@ class ArchiveCounts:
     created: int = 0
     skipped: int = 0
     failed: int = 0
+    # Its Scene Atlas metadata files, extracted to staging, with their folder in the zip:
+    # the caller loads them after its transaction (import_metadata.load_export), then
+    # deletes them
+    metadata: list[tuple[Path, str]] = field(default_factory=list)
 
 
 def _new_item(job: ImportJob, relative_path: str, kind: str, size: int | None) -> ImportItem:
@@ -170,13 +173,13 @@ def expand_archive(
                 path = normalise_relative_path(member.filename)
                 if path and not is_os_junk(path):
                     members.append((member, path))
-            # The zip's metadata (at its root, or one folder down for a zipped export
-            # folder) is read, not imported (pipeline/import_metadata.py)
+            # The zip's metadata is extracted for the caller to load, not imported
+            # (pipeline/import_metadata.py)
             for member, path in members:
-                if is_metadata_file(path) and path.count("/") <= 1:
-                    with zf.open(member) as raw:
-                        text = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
-                        load_export(db, job, text, str(PurePosixPath(path).parent))
+                if is_metadata_file(path):
+                    dest = staging / f"metadata-{uuid.uuid4().hex}.jsonl"
+                    _extract(zf, member, dest)
+                    counts.metadata.append((dest, str(PurePosixPath(path).parent)))
             members = [(m, path) for m, path in members if not is_metadata_file(path)]
             placed = place_members([path for _, path in members], archive_name)
             for member, member_path in members:

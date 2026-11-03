@@ -330,6 +330,21 @@ describe('startImport', () => {
     expect(calls).not.toContain('manifest:2')
   })
 
+  it("imports the files without the metadata when it's refused", async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      uploadExportMetadata: vi.fn(async () => {
+        throw httpError(413, 'File is larger than the import size limit')
+      }),
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startImport([picked('F/scene-atlas.jsonl'), picked('F/a.png')])
+    await manager.whenSettled(jobId)
+    expect(calls).toContain('seal')
+    expect(calls.some((c) => c.startsWith('upload:'))).toBe(true)
+  })
+
   it('skips uploading files the server already has (client hash)', async () => {
     const calls: Calls = []
     const client = fakeClient(calls, {

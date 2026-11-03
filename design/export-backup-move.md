@@ -161,14 +161,17 @@ Built as `backend/pipeline/import_metadata.py` (load and match), `ingest_process
 
 | Source | Where the metadata is |
 |---|---|
-| Zip (web upload or local) | A `scene-atlas.jsonl` member at the zip's root, or one folder down (a zipped export folder), read by `expand_archive` |
-| Local folder (desktop) | A `scene-atlas.jsonl` among the listed files, read by `ingest_local.add_local_items` |
+| Zip (web upload or local) | A `scene-atlas.jsonl` member at any depth, extracted by `expand_archive` to the job's staging |
+| Local folder (desktop) | A `scene-atlas.jsonl` at any depth among the listed files (or in a zip among them), collected by `ingest_local.add_local_items` |
 | Browser folder upload | The client sends a picked `scene-atlas.jsonl` to `PUT /imports/{id}/export-metadata` before the manifest (`ImportManager.runImport`), and leaves it out of the manifest |
 
-The browser route differs from the earlier plan (the file as the job's first item, with prepare holding the rest): sending it before the seal needs no holding at all, since nothing is claimed until the seal. It is one request, like an archive upload, under the same proxy body limit.
+The browser route differs from the earlier plan (the file as the job's first item, with prepare holding the rest): sending it before the seal needs no holding at all, since nothing is claimed until the seal. It is one request, like an archive upload, under the same proxy body limit. A refused upload (too big, say) doesn't fail the import: the client logs it and sends the files without it.
 
-- **Stored per job:** `import_export_entries` (one row per image entry with a `stored_hash`, keyed by job and hash; migration 032), and `import_jobs.export_model` (the header's model and whether its vectors fit the installed one: the same encoder hash and vector size). Missing tag categories are created from the header; existing ones are never changed. Entries go with their job (prune, Undo, purge, a discarded scan).
-- **Loading holds the import's write lock** (it runs where the manifest or archive is written), so a very large file blocks the worker while it's read: a few seconds per 10k entries.
+Each file's entry paths are relative to its own folder (`where`), so several exports in one import each match their own files.
+
+- **Stored per job:** `import_export_entries` (one row per image entry with a `stored_hash`, keyed by job and hash, with the file it came from (`source`) and the encoder its vector is from; migration 032), and `import_jobs.export_model` (the first file's header model). Missing tag categories are created from the header (names cut to 100 characters, as the API's); existing ones are never changed. Entries are deleted once the job is grouped (they're ~6 KB each, vector included), and otherwise go with their job (prune, Undo, purge, a discarded scan).
+- **Loading runs outside the import's write transaction** (`load_export`), after the archive or listing is committed and before the seal, so nothing claims the job's items meanwhile. It reads the file twice: once to validate all of it, then to store it in batches of 1,000, each its own short write transaction. A bad file stores nothing and leaves the job's other metadata files alone.
+- **Vectors are checked when matching**, not loading: one is used only if its encoder hash and size are the installed model's at that moment, since the model can change between load and match.
 - `scene-atlas.jsonl` itself is never an item (`add_manifest_items` leaves it out), so it's not reported as skipped.
 - 0.1.x `metadata.json` exports are not recognised.
 - A file that doesn't validate, or has an unknown major version, stores nothing and leaves `import_jobs.export_note`, which the report shows; the files import normally. **Metadata never fails an import.** The report's status line says "with its Scene Atlas metadata" when there was some (`with_metadata`).
@@ -179,7 +182,7 @@ The file is untrusted input: it goes through the lenient reader (§2), and nothi
 ### 6.2 Applying it
 
 - **Items of a job with metadata stop after decoding**, as Auto items do (`ClaimedItem.export_job`). In the worker's thread, `apply_exports` then matches them by the hash of the bytes decoded (`match_exports`); several entries with one hash take the one whose path's file name matches, else the first.
-- **A matched item** takes its entry's type, name, tags and grid (as its metadata records them, source included). Auto classification, filename tags and grid detection are skipped. Its vector is used when it fits the installed model, and then it isn't embedded. Thumbnails, colours and hashes are made as usual. Stored-format conversion already skips a file in the target format (§10 of ingestion.md), so lossy files don't lose quality on each round trip.
+- **A matched item** takes its entry's type, name, filename, tags (cut to 100 characters) and grid (as its metadata records them, source included). Auto classification and filename tags are skipped; grid detection is skipped unless the entry doesn't know the grid (`gridded` null), and then it runs as usual. Its vector is used when it fits the installed model, and then it isn't embedded. Thumbnails, colours and hashes are made as usual. Stored-format conversion already skips a file in the target format (§10 of ingestion.md), so lossy files don't lose quality on each round trip.
 - **Its entry's group and subgroup** are kept on the item (`ImportItem.parsed["export"]`) for the grouping phase.
 - **Groups** are placed in the grouping phase, as for every import ([ingestion.md §5.8](ingestion.md#58-identifying-groups)). Matched images with a group become one proposal per `uid` (`_export_proposals`): it joins the library's gallery group with that `uid` (`JobState.by_uid`, read inside the write session) and is `merged_into_existing`, else a new gallery group is minted with the entry's name, author and `uid`. Images the metadata had ungrouped, and unmatched files, go through the tree walk. `ImportGroup` rows are created as for any import, so the report, review and Undo work unchanged. An image's author is its group's, as for any import.
 - **Duplicates** are skipped as usual, and their metadata is not applied. Re-importing a download into the library it came from changes nothing.

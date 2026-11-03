@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy.orm import Session
@@ -27,7 +27,7 @@ from backend.app.models import ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.storage_lock import LOCK_FILENAME
 
-from .import_metadata import is_metadata_file, load_export
+from .import_metadata import is_metadata_file
 from .ingest_archive import ArchiveCounts, expand_archive
 from .ingest_queue import (
     ManifestEntry,
@@ -71,6 +71,10 @@ class LocalCounts:
     skipped: int = 0
     failed: int = 0
     ignored: int = 0  # OS junk and paths already in the import
+    # Scene Atlas metadata files found (in place, or extracted from zips to staging), with
+    # their folder: the caller loads them after its transaction (import_metadata)
+    metadata: list[tuple[Path, str]] = field(default_factory=list)
+    extracted: list[Path] = field(default_factory=list)  # of those, the ones to delete
 
 
 def resolve_roots(paths: Iterable[str]) -> list[Path]:
@@ -203,13 +207,14 @@ def add_local_items(
     """
     if job.planned_at is not None:
         raise ManifestSealedError(job.id)
-    for f in files:
-        if is_metadata_file(f.relative_path):
-            with f.source_path.open(encoding="utf-8", errors="replace") as fp:
-                load_export(db, job, fp, str(PurePosixPath(f.relative_path).parent))
     archives = [f for f in files if kind_for_path(f.relative_path) == "archive"]
     others = [f for f in files if kind_for_path(f.relative_path) != "archive"]
     counts = _add_files(db, job, others, max_file_size)
+    counts.metadata += [
+        (f.source_path, str(PurePosixPath(f.relative_path).parent))
+        for f in files
+        if is_metadata_file(f.relative_path)
+    ]
     for archive in archives:
         result = expand_archive(
             db,
@@ -261,3 +266,5 @@ def _add_archive_counts(counts: LocalCounts, result: ArchiveCounts) -> None:
     counts.created += result.created
     counts.skipped += result.skipped
     counts.failed += result.failed
+    counts.metadata += result.metadata
+    counts.extracted += [path for path, _ in result.metadata]

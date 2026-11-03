@@ -388,11 +388,19 @@ export class ImportManager {
   }
 
   private async runImport(jobId: string, files: PickedFile[], run: UploadRun): Promise<void> {
-    // Metadata first: the server must have it before the files it describes are sealed
+    // Metadata first: the server must have it before the files it describes are sealed.
+    // It never fails the import: refused (too big, say), the files import without it.
     for (const metadata of files.filter((f) => isExportMetadata(f.relativePath))) {
-      await this.withRetries(run, () =>
-        this.client.uploadExportMetadata(jobId, metadata.file, { signal: run.controller.signal }),
-      )
+      try {
+        await this.withRetries(run, () =>
+          this.client.uploadExportMetadata(jobId, metadata.file, {
+            signal: run.controller.signal,
+          }),
+        )
+      } catch (err) {
+        if (run.controller.signal.aborted) throw err
+        console.warn('[import] Scene Atlas metadata not sent; importing without it', err)
+      }
     }
     const media = files.filter((f) => !isExportMetadata(f.relativePath))
     const archives = media.filter((f) => isArchive(f.relativePath))

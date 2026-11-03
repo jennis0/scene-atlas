@@ -436,8 +436,8 @@ class ImportJob(Base):
     # When the grouping phase last grouped the job's images (ADR-028). A sealed job with
     # nothing open and this unset is in the grouping phase; cleared when items re-open
     grouped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # Scene Atlas metadata it carried (design/export-backup-move.md §6): the header's model
-    # as JSON, with "vectors": whether they fit the installed model. Set iff it has some.
+    # Scene Atlas metadata it carried (design/export-backup-move.md §6): the first file's
+    # header model as JSON. Set iff it has some.
     export_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Why its metadata wasn't used (unreadable, a newer version), for the report
     export_note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -477,7 +477,9 @@ class ImportExportEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     job_id: Mapped[str] = mapped_column(String, ForeignKey("import_jobs.id"), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)  # the metadata file (a uuid)
     stored_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    encoder: Mapped[str | None] = mapped_column(String(64), nullable=True)  # of its vector
     path: Mapped[str | None] = mapped_column(Text, nullable=True)  # as the file named it
     image: Mapped[str] = mapped_column(Text, nullable=False)  # library_format.ImageEntry JSON
     group_entry: Mapped[str | None] = mapped_column(Text, nullable=True)  # GroupEntry JSON

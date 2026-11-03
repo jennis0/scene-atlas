@@ -216,3 +216,69 @@ def test_a_folder_on_this_computer_imports_with_its_metadata(api, library, tmp_p
     api.worker.drain()
 
     assert _snapshot(api) == before
+
+
+def test_groups_are_minted_with_their_uid_and_files_keep_their_names(api, library):
+    images, forest = library
+    with api.SessionLocal() as db:
+        uid = db.get_one(ImageGroup, forest).uid
+    body = _download(api, group_ids=[forest])
+    _delete_all(api)
+    with api.SessionLocal() as db:
+        db.query(ImageGroup).delete()  # nothing for the uid to join: it must be minted
+        db.commit()
+
+    _import_zip(api, body, "Forest.zip")
+
+    with api.SessionLocal() as db:
+        (group,) = db.query(ImageGroup).all()
+        assert group.uid == uid and group.base_name == "Golden Forest"
+        # The names they had, not the export's readable ones
+        assert sorted(i.filename for i in db.query(Image)) == [
+            "Golden Forest Day.png",
+            "Golden Forest Night.png",
+        ]
+
+
+def test_an_auto_import_takes_its_types_from_the_metadata(api, library):
+    images, _forest = library
+    body = _download(api, image_ids=[images["Harbour.png"]])
+    _delete_all(api)
+    job_id = api.create("Again", image_type="auto")
+    api.client.put(f"{BASE}/{job_id}/archives", params={"name": "H.zip"}, content=body)
+    api.client.post(f"{BASE}/{job_id}/seal")
+    api.worker.drain()
+    with api.SessionLocal() as db:
+        assert db.query(Image).one().image_type == "scene"  # as recorded, not classified
+
+
+def test_a_map_whose_grid_the_metadata_doesnt_know_is_detected(api, library, monkeypatch):
+    from backend.pipeline.pipeline_config import PipelineConfig
+
+    images, forest = library
+    body = _download(api, group_ids=[forest])  # Day has a grid; Night's is unknown
+    _delete_all(api)
+    detected = []
+    monkeypatch.setattr(
+        "backend.pipeline.tasks.grid_detection.detect_grid_from_image",
+        lambda path, width, height, **kw: detected.append(path),
+    )
+    api.worker._config_loader = lambda: PipelineConfig(
+        enable_image_grid_detection=True, ingestion_batch_size=8
+    )
+    _import_zip(api, body, "Forest.zip")
+    assert len(detected) == 1
+    with api.SessionLocal() as db:
+        day = db.query(Image).filter(Image.filename == "Golden Forest Day.png").one()
+        assert (day.grid_type, day.grid_width, day.grid_source) == ("hex", 20, "user")
+
+
+def test_entries_are_deleted_once_the_import_is_grouped(api, library):
+    from backend.app.models import ImportExportEntry
+
+    _images, forest = library
+    body = _download(api, group_ids=[forest])
+    _delete_all(api)
+    _import_zip(api, body, "Forest.zip")
+    with api.SessionLocal() as db:
+        assert db.query(ImportExportEntry).count() == 0
