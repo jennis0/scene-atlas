@@ -17,20 +17,23 @@ each in a short write transaction of its own. A full export's file is a gigabyte
 it inside the import's write transaction would hold SQLite's lock for minutes, and a
 request that waited for it would outlast a proxy's timeout.
 
-So callers hand their files to ``load_in_background`` after their own transaction. It
-marks the job as loading before it returns, and the worker claims none of a loading job's
-items (``loading_jobs``), so a seal can come at any time: the job's files wait for their
-metadata. A load that fails part way deletes what it stored (its rows share a ``source``).
-A restart mid-load loses the mark, and the files import with what had been stored.
+So callers record their files on the job (``add_pending``, in their own transaction, so
+the record and the items commit together), then ``kick`` the loader: one thread, loading
+one file at a time. The worker claims none of the items of a job with metadata pending
+(``ingest_queue._claimable_jobs``), so a seal can come at any time: its files wait. The
+record is in the database, so a restart carries on (``recover_pending``): a file's rows
+have a ``source`` made from the job and its path, and a load first deletes any left by an
+interrupted one. A load that fails part way deletes what it stored.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
+import time
 import uuid
-from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -126,54 +129,179 @@ def _note(job_id: str, note: str) -> None:
 
 
 class _JobGone(Exception):
-    """The job was deleted while its metadata loaded."""
+    """The job was deleted, or grouped, while its metadata loaded."""
 
 
-# Jobs whose metadata is loading, with how many loads each: the worker leaves them be
-_loading: Counter[str] = Counter()
-_loading_lock = threading.Lock()
-_idle = threading.Condition(_loading_lock)
+# The pending files: a JSON list on the job of {"path", "ready", "delete"}. A file that is
+# still arriving (the browser's upload) is not ready; "delete" for staging copies.
 
 
-def loading_jobs() -> set[str]:
-    with _loading_lock:
-        return set(_loading)
+def _pending(job: ImportJob) -> list[dict]:
+    return json.loads(job.metadata_pending) if job.metadata_pending else []
+
+
+def _set_pending(job: ImportJob, entries: list[dict]) -> None:
+    job.metadata_pending = json.dumps(entries) if entries else None
+
+
+def add_pending(
+    db: Session, job: ImportJob, paths: Sequence[Path], *, ready: bool = True, delete: bool = True
+) -> None:
+    """Record metadata files to load for the job, in the caller's transaction; ``kick``
+    the loader once it commits. *delete*: they're staging copies, deleted once loaded."""
+    if paths:
+        new = [{"path": str(p), "ready": ready, "delete": delete} for p in paths]
+        _set_pending(job, _pending(job) + new)
+
+
+def _change_pending(db: Session, job_id: str, path: str, *, ready: bool | None) -> None:
+    """Mark the file ready (``ready=True``), or forget it (``ready=None``)."""
+    job = db.get(ImportJob, job_id)
+    if job is None:
+        return
+    entries = _pending(job)
+    if ready is None:
+        entries = [e for e in entries if e["path"] != path]
+    else:
+        for e in entries:
+            if e["path"] == path:
+                e["ready"] = ready
+    _set_pending(job, entries)
+
+
+def set_ready(job_id: str, path: Path) -> None:
+    _write(lambda db: _change_pending(db, job_id, str(path), ready=True))
+
+
+def forget_pending(job_id: str, path: Path) -> None:
+    _write(lambda db: _change_pending(db, job_id, str(path), ready=None))
+
+
+def pending_paths(db: Session) -> set[tuple[str, str]]:
+    """(job id, file name) of every pending file (the stray-staging sweep spares them)."""
+    out = set()
+    for job_id, raw in db.execute(
+        select(ImportJob.id, ImportJob.metadata_pending).where(
+            ImportJob.metadata_pending.isnot(None)
+        )
+    ):
+        out |= {(job_id, Path(e["path"]).name) for e in json.loads(raw or "[]")}
+    return out
+
+
+def recover_pending() -> None:
+    """At startup: a file that was still arriving when the backend stopped is incomplete;
+    forget it (the browser sends it again). Loads that were interrupted are carried on."""
+
+    def recover(db: Session) -> None:
+        for job in db.scalars(select(ImportJob).where(ImportJob.metadata_pending.isnot(None))):
+            entries = _pending(job)
+            for e in entries:
+                if not e["ready"]:
+                    Path(e["path"]).unlink(missing_ok=True)
+            _set_pending(job, [e for e in entries if e["ready"]])
+
+    _write(recover)
+    kick()
+
+
+def _next_load() -> tuple[str, dict] | None:
+    from backend.pipeline.db import pipeline_db
+
+    with pipeline_db() as db:
+        rows = db.execute(
+            select(ImportJob.id, ImportJob.metadata_pending)
+            .where(ImportJob.metadata_pending.isnot(None))
+            .order_by(ImportJob.created_at, ImportJob.id)
+        ).all()
+    for job_id, raw in rows:
+        ready = [e for e in json.loads(raw or "[]") if e["ready"]]
+        if ready:
+            return job_id, ready[0]
+    return None
+
+
+def _source(job_id: str, path: str) -> str:
+    return hashlib.sha256(f"{job_id}\0{path}".encode()).hexdigest()[:32]
+
+
+def _load_pending(job_id: str, entry: dict) -> None:
+    path = Path(entry["path"])
+    try:
+        load_export(job_id, file_opener(path), source=_source(job_id, entry["path"]))
+    except Exception:
+        # Only the cleanup after a failure gets here (a busy database): the job must not
+        # wait on this file for ever
+        logger.exception("Import %s: loading its metadata failed", job_id)
+    finally:
+        try:
+            forget_pending(job_id, path)
+        finally:
+            if entry.get("delete"):
+                path.unlink(missing_ok=True)
+    from backend.pipeline.ingest_worker import get_ingest_worker
+
+    get_ingest_worker().wake()
+
+
+class _Loader:
+    """The one thread that loads metadata files, oldest job first."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.busy = False
+
+    def kick(self) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(
+                    target=self._run, name="metadata-loader", daemon=True
+                )
+                self._thread.start()
+        self._wake.set()
+
+    def _run(self) -> None:
+        while True:
+            self._wake.clear()
+            try:
+                work = _next_load()
+                if work is not None:
+                    self.busy = True
+                    _load_pending(*work)
+                    continue
+            except Exception:
+                logger.exception("Metadata loader failed; trying again shortly")
+                time.sleep(5)
+            finally:
+                self.busy = False
+            self._wake.wait(60)  # a fallback: callers kick it
+
+
+_loader = _Loader()
+
+
+def kick() -> None:
+    """Load the pending metadata files (after the transaction that recorded them)."""
+    _loader.kick()
 
 
 def wait_for_loads(timeout: float = 60.0) -> bool:
-    """Wait until no metadata is loading (tests, the worker's ``drain``)."""
-    with _idle:
-        return _idle.wait_for(lambda: not _loading, timeout)
+    """Wait until no metadata file is pending (tests, the worker's ``drain``)."""
+    from backend.pipeline.db import pipeline_db
 
-
-def load_in_background(job_id: str, files: Sequence[Path], *, delete: Sequence[Path] = ()) -> None:
-    """Load *files* for the job in a thread of their own, then delete *delete* (staging
-    copies). The job counts as loading from before this returns until the load is done."""
-    if not files:
-        for path in delete:
-            path.unlink(missing_ok=True)
-        return
-    with _loading_lock:
-        _loading[job_id] += 1
-
-    def run() -> None:
-        try:
-            load_exports(job_id, [file_opener(path) for path in files])
-        except Exception:
-            logger.exception("Import %s: loading its metadata failed", job_id)
-        finally:
-            for path in delete:
-                path.unlink(missing_ok=True)
-            with _idle:
-                _loading[job_id] -= 1
-                if _loading[job_id] <= 0:
-                    del _loading[job_id]
-                _idle.notify_all()
-            from backend.pipeline.ingest_worker import get_ingest_worker
-
-            get_ingest_worker().wake()
-
-    threading.Thread(target=run, name=f"metadata-{job_id[:8]}", daemon=True).start()
+    kick()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with pipeline_db() as db:
+            waiting = db.scalar(
+                select(ImportJob.id).where(ImportJob.metadata_pending.isnot(None)).limit(1)
+            )
+        if waiting is None:
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def _header(opener: Opener) -> lf.Header:
@@ -198,16 +326,20 @@ def _unusable(job_id: str, e: Exception) -> int:
     return 0
 
 
-def load_export(job_id: str, opener: Opener) -> int:
+def load_export(job_id: str, opener: Opener, *, source: str | None = None) -> int:
     """Store the entries of a ``scene-atlas.jsonl`` (``opener`` opens it, and is called
     twice) for the job, in transactions of its own. Returns how many entries were stored;
-    0, with a note on the job, when the file can't be used (nothing of it is kept)."""
+    0, with a note on the job, when the file can't be used (nothing of it is kept).
+    *source* names its rows; rows of that name already there (an interrupted load) go."""
     try:
         header = _header(opener)
     except Exception as e:  # a corrupt gzip raises zlib.error or EOFError, not OSError
         return _unusable(job_id, e)
 
-    source = uuid.uuid4().hex
+    source = source or uuid.uuid4().hex
+    _write(
+        lambda db: db.execute(delete(ImportExportEntry).where(ImportExportEntry.source == source))
+    )
     encoder = header.model.encoder_sha256 if header.model else None
     stored = 0
     rows: list[dict] = []
@@ -226,7 +358,7 @@ def load_export(job_id: str, opener: Opener) -> int:
 
     def finish(db: Session) -> None:
         job = db.get(ImportJob, job_id)
-        if job is None:
+        if job is None or job.grouped_at is not None:  # grouped: too late to be used
             raise _JobGone
         _add_categories(db, header.tag_categories)
         if job.export_model is None:
@@ -266,16 +398,11 @@ def load_export(job_id: str, opener: Opener) -> int:
             )
         )
         if isinstance(e, _JobGone):
-            logger.info("Import %s: deleted while its metadata loaded", job_id)
+            logger.info("Import %s: deleted or grouped while its metadata loaded", job_id)
             return 0
         return _unusable(job_id, e)
     logger.info("Import %s: %d metadata entries", job_id, stored)
     return stored
-
-
-def load_exports(job_id: str, openers: Iterable[Opener]) -> int:
-    """``load_export`` for each of an import's metadata files."""
-    return sum(load_export(job_id, opener) for opener in openers)
 
 
 def match_exports(

@@ -842,16 +842,14 @@ def _claimable_jobs(db: Session, now: datetime) -> dict[str, list[str]]:
     """Active, planned jobs with claimable items, oldest first, each with its folders.
 
     A local import whose folder is missing is left out: it waits, others carry on. So is
-    one whose Scene Atlas metadata is still loading (import_metadata.load_in_background).
+    one whose Scene Atlas metadata is still to load (import_metadata).
     """
-    from .import_metadata import loading_jobs
-
-    loading = loading_jobs()
     rows = (
         db.query(ImportJob.id, ImportJob.source_roots)
         .filter(
             ImportJob.status == st.JOB_ACTIVE,
             ImportJob.planned_at.isnot(None),
+            ImportJob.metadata_pending.is_(None),
             db.query(ImportItem.id)
             .filter(ImportItem.job_id == ImportJob.id, _claimable_filter(now))
             .exists(),
@@ -859,11 +857,7 @@ def _claimable_jobs(db: Session, now: datetime) -> dict[str, list[str]]:
         .order_by(ImportJob.created_at, ImportJob.id)
     )
     jobs = {job_id: _roots(source_roots) for job_id, source_roots in rows}
-    return {
-        job_id: roots
-        for job_id, roots in jobs.items()
-        if job_id not in loading and not missing_roots(roots)
-    }
+    return {job_id: roots for job_id, roots in jobs.items() if not missing_roots(roots)}
 
 
 def _roots(source_roots: str | None) -> list[str]:

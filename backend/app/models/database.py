@@ -441,6 +441,9 @@ class ImportJob(Base):
     export_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Why its metadata wasn't used (unreadable, a newer version), for the report
     export_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Its metadata files still to load, as JSON (pipeline/import_metadata.py): the worker
+    # claims none of its items until they are
+    metadata_pending: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True

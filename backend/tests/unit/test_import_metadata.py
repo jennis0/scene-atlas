@@ -5,8 +5,6 @@ import gzip
 import io
 import json
 
-from pathlib import Path
-
 import pytest
 
 from backend.app.config import settings
@@ -134,8 +132,8 @@ def test_a_file_that_cant_be_read_stores_nothing_and_leaves_a_note(db):
 
 def test_a_bad_file_leaves_the_jobs_other_metadata_alone(db):
     good = {"group": None, "images": [{"filename": "a", "stored_hash": H1}]}
-    files = [_opener(_file(lines=[good])), _opener("not json\n")]
-    assert im.load_exports("job1", files) == 1
+    assert im.load_export("job1", _opener(_file(lines=[good]))) == 1
+    assert im.load_export("job1", _opener("not json\n")) == 0
     db.expire_all()
     assert db.query(ImportExportEntry).count() == 1
     assert db.get(ImportJob, "job1").export_note is not None
@@ -182,18 +180,29 @@ def test_a_file_that_changes_after_validating_keeps_nothing(db, monkeypatch):
 
 def test_a_job_deleted_while_loading_keeps_nothing(db, monkeypatch):
     monkeypatch.setattr(im, "_BATCH", 1)
-    text = _file(lines=[GOOD, GOOD, GOOD])
-    calls = []
+    real = im._write
+    batches = []
 
-    def opener():
-        calls.append(1)
-        if len(calls) == 2:  # validated; now it goes
+    def write(fn):
+        real(fn)
+        batches.append(1)
+        if len(batches) == 3:  # the stale-row delete, then a batch stored: now it goes
             db.query(ImportJob).filter_by(id="job1").delete()
             db.commit()
-        return io.StringIO(text)
 
-    assert im.load_export("job1", opener) == 0
+    monkeypatch.setattr(im, "_write", write)
+    assert im.load_export("job1", _opener(_file(lines=[GOOD, GOOD, GOOD]))) == 0
+    db.expire_all()
     assert db.query(ImportExportEntry).count() == 0
+
+
+def test_an_interrupted_load_is_replaced_not_doubled(db):
+    """A restart loads the file again under the same source: what the first run stored
+    goes first."""
+    text = _file(lines=[GOOD])
+    im.load_export("job1", _opener(text), source="s" * 32)
+    im.load_export("job1", _opener(text), source="s" * 32)
+    assert db.query(ImportExportEntry).count() == 1
 
 
 def test_large_files_are_stored_in_batches(db, monkeypatch):
@@ -203,29 +212,50 @@ def test_large_files_are_stored_in_batches(db, monkeypatch):
     monkeypatch.setattr(im, "_write", lambda fn: writes.append(1) or real(fn))
     images = [{"filename": f"{i}.png", "stored_hash": f"{i:064x}"} for i in range(5)]
     assert im.load_export("job1", _opener(_file(lines=[{"group": None, "images": images}]))) == 5
-    assert len(writes) == 4  # three batches, then the categories and model
+    assert len(writes) == 5  # stale rows cleared, three batches, then categories and model
 
 
-def test_a_background_load_holds_the_job_until_it_is_done(db, monkeypatch):
-    import threading
+def test_pending_files_hold_the_job_and_load_one_at_a_time(db, tmp_path, monkeypatch):
+    from backend.pipeline import ingest_queue as q
 
-    release = threading.Event()
-    started = threading.Event()
-    real = im.load_exports
-
-    def slow(job_id, openers):
-        started.set()
-        release.wait(10)
-        return real(job_id, openers)
-
-    monkeypatch.setattr(im, "load_exports", slow)
     monkeypatch.setattr(
         "backend.pipeline.ingest_worker.get_ingest_worker",
         lambda: type("W", (), {"wake": lambda self: None})(),
     )
-    im.load_in_background("job1", [Path("missing.jsonl")])
-    started.wait(10)
-    assert im.loading_jobs() == {"job1"}
-    release.set()
+    files = [tmp_path / "one.jsonl", tmp_path / "two.jsonl"]
+    files[0].write_text(_file(lines=[GOOD]))
+    files[1].write_text(
+        _file(lines=[{"group": None, "images": [{"filename": "b", "stored_hash": H2}]}])
+    )
+    job = db.get(ImportJob, "job1")
+    im.add_pending(db, job, files[:1])
+    im.add_pending(db, job, files[1:], delete=False)
+    im.add_pending(db, job, [tmp_path / "arriving.jsonl"], ready=False)
+    job.planned_at = q.utcnow()
+    db.commit()
+
+    im.recover_pending()  # forgets the file still arriving, then loads the rest
     assert im.wait_for_loads(10)
-    assert im.loading_jobs() == set()
+    db.expire_all()
+    assert db.get(ImportJob, "job1").metadata_pending is None
+    assert db.query(ImportExportEntry).count() == 2
+    assert not files[0].exists() and files[1].exists()  # the staging copy goes
+
+
+def test_the_job_is_held_while_files_are_pending(db):
+    from backend.app.models import ImportItem
+    from backend.pipeline import ingest_queue as q
+
+    job = db.get(ImportJob, "job1")
+    job.planned_at = q.utcnow()
+    db.add(
+        ImportItem(
+            job_id="job1", relative_path="a.png", filename="a.png", kind="image", state="ready"
+        )
+    )
+    job.metadata_pending = json.dumps([{"path": "/x", "ready": False, "delete": True}])
+    db.commit()
+    assert "job1" not in q._claimable_jobs(db, q.utcnow())
+    job.metadata_pending = None
+    db.commit()
+    assert "job1" in q._claimable_jobs(db, q.utcnow())

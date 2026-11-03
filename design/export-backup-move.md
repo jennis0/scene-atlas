@@ -165,12 +165,12 @@ Built as `backend/pipeline/import_metadata.py` (load and match), `ingest_process
 | Local folder (desktop) | A `scene-atlas.jsonl` at any depth among the listed files (or in a zip among them), collected by `ingest_local.add_local_items` |
 | Browser folder upload | The client sends a picked `scene-atlas.jsonl` to `PUT /imports/{id}/export-metadata` before the manifest (`ImportManager.runImport`), and leaves it out of the manifest |
 
-The browser route differs from the earlier plan (the file as the job's first item, with prepare holding the rest): sending it before the seal needs no holding at all, since nothing is claimed until the seal. It is one request, like an archive upload, under the same proxy body limit. The PUT stores the body and returns at once (`{loading: true}`); the load runs in the background. A refused upload (too big, say) doesn't fail the import: the client logs it and sends the files without it. A 404 or 409 (the job deleted or sealed) does stop it.
+The browser route differs from the earlier plan (the file as the job's first item, with prepare holding the rest): it is one request, like an archive upload, under the same proxy body limit. The PUT stores the body and returns at once (`{loading: true}`); the load runs in the background. A refused upload (too big, say) doesn't fail the import: the client logs it and sends the files without it. A 404 or 409 (the job deleted or sealed) does stop it.
 
 Matching is by hash across the whole job, whichever file an entry came from; several entries with one hash prefer the one whose file name matches.
 
 - **Stored per job:** `import_export_entries` (one row per image entry with a `stored_hash`, keyed by job and hash, with the load it came from (`source`, so a failed load deletes its rows) and the encoder its vector is from; migration 032), and `import_jobs.export_model` (set once a file has loaded: it's what marks the job's items to stop for matching; the first file's header model, kept for diagnosis). Missing tag categories are created from the header (names cut to 100 characters, as the API's); existing ones are never changed. Entries are deleted once the job is grouped (they're ~6 KB each, vector included), and otherwise go with their job (prune, Undo, purge, a discarded scan).
-- **Loading runs in the background** (`load_in_background`), after the archive or listing is committed: a gigabyte file takes minutes, longer than a proxy waits for a reply, and inside the import's write transaction it would block the worker. The job is marked as loading (in memory) before the request returns, and the worker claims none of a loading job's items (`ingest_queue._claimable_jobs`), so a seal can arrive at any time and its files wait. `load_export` reads the file twice: once to validate all of it, then to store it in batches of 1,000, each its own short write transaction that checks the job still exists. Anything going wrong after validation (the file changed, the database busy, the job deleted) deletes what that load stored. A bad file stores nothing, leaves a note, and leaves the job's other metadata files alone. **A restart mid-load** loses the mark: the files then import with whatever had been stored (each matched file correctly; the rest without metadata).
+- **Loading runs in the background**, after the archive or listing is committed: a gigabyte file takes minutes, longer than a proxy waits for a reply, and inside the import's write transaction it would block the worker. Callers record the files on the job (`import_jobs.metadata_pending`, JSON) in their own transaction (`add_pending`); the browser's upload is recorded, not ready, before its body arrives. One loader thread (`import_metadata._Loader`) loads ready files one at a time, oldest job first. The worker claims none of the items of a job with files pending (`ingest_queue._claimable_jobs`), so a seal can arrive at any time and its files wait. `load_export` reads a file twice: once to validate all of it, then to store it in batches of 1,000, each its own short write transaction that checks the job still exists. Anything going wrong after validation (the file changed, the database busy, the job deleted or already grouped) deletes what that load stored. A bad file stores nothing, leaves a note, and leaves the job's other metadata files alone. **A restart** carries on (`recover_pending`, at startup): a file's rows are named by its job and path, so a reloaded file first deletes what an interrupted load stored; a file still arriving is forgotten, and the browser sends it again. The stray-staging sweep spares pending files.
 - **Vectors are checked when matching**, not loading: one is used only if its encoder hash and size are the installed model's at that moment, since the model can change between load and match.
 - `scene-atlas.jsonl` itself is never an item (`add_manifest_items` leaves it out), so it's not reported as skipped.
 - 0.1.x `metadata.json` exports are not recognised.
@@ -189,23 +189,22 @@ The file is untrusted input: it goes through the lenient reader (§2), and nothi
 
 ## 7. Full library export
 
-Settings → Library → **Export library**: a folder of readable files plus `scene-atlas.jsonl`. It works outside Scene Atlas, and it re-imports with everything.
+Built as `backend/pipeline/export_library.py` (the writer, and its CLI), `POST`/`GET /library/full-export` (`api/library.py`) and Settings → Library → **Export library** (`FullExportRow.tsx`; Electron's `export:choose-folder` picker). A folder of readable files plus `scene-atlas.jsonl` (kind `groups`): it works outside Scene Atlas, and it re-imports with everything (§6), through a folder import or a zip of it.
 
 - **Where it writes:**
-  - Desktop: a folder the user picks (refused if it's inside the linked library or the library's own folders).
-  - Server: `{SCENE_ATLAS_IMAGES_DIR}/exports/<timestamp>/`. That's the images mount, which the admin can already reach on the host, so there's nothing new to configure. Settings shows the path, and the free space against the export's size, before starting.
-- **A background job** in the activity dock: the **folder writer** (`pipeline/folder_writer.py`), which writes chosen images in the readable layout.
-  - Groups go in id order; each group's files are written, then its line is appended to `scene-atlas.jsonl`, so the metadata is never ahead of the files.
-  - Each file is copied to `<name>.part` with an inline SHA-256, checked against `stored_hash`, then renamed.
-  - **Resume:** a run into an unfinished export's folder reads its `scene-atlas.jsonl` and carries on after the last group listed. The group being written when it stopped has a folder but no line: the resumed run must reuse that folder (or empty it), not treat its name as taken, or it orphans it as `X (2)`. Ungrouped images have no group id, so the resume point is the last image id listed, not the last group.
-  - **Free space** is checked before each group. Too little fails the job with its progress kept; running it again resumes.
-  - **Per-file problems** (an unreadable original, a name the target refuses) are skipped and listed at the end. A full or failing disk stops the job.
-- **Linked-library images** are included, with a checkbox to leave them out: the user has those files already.
+  - Desktop: the folder the user picks. Refused if it's inside the library's own folders (app data, the store, the linked library), or not empty unless it holds a `scene-atlas.jsonl` (an export to carry on): another folder's files would be mixed in, and a re-import would take them too.
+  - Server: `{SCENE_ATLAS_IMAGES_DIR}/exports/scene-atlas-export-<timestamp>/`. That's the images mount, which the admin can already reach on the host. `GET /library/full-export` reports the folder and the newest export; `resume: true` carries that one on. No path is accepted from a server's client. The space check is the job's own (below), not a preflight in Settings.
+- **One export at a time** (409), under the metadata export's lock; refused while the vectors are being rebuilt, as §4.
+- **A background job** (`Exporting library`) in the activity dock. Not a snapshot: a read transaction lasting hours would keep the WAL from being checkpointed. Each group's line matches its files; a group edited meanwhile is written as it was when reached.
+  - Groups go in id order (`library_format.group_lines` with `keep` and `place` hooks). Each group's files are copied, then its line(s) are appended to `scene-atlas.jsonl` and synced, so the metadata is never ahead of the files.
+  - Each file is copied to `<name>.part` with an inline SHA-256, checked against `stored_hash`, synced, then renamed (`copy_verified`). A file whose bytes don't match is skipped.
+  - **Resume:** a run into an unfinished export's folder reads its `scene-atlas.jsonl`. Groups listed there are skipped by uid, ungrouped images by hash, and the top-level names they use are taken. The group that was being written has no line, so it's placed again, under the same name unless the library changed; its files already there with the right hash aren't copied again.
+  - **Free space** is checked before each group (its size plus 512 MB). Too little stops the job (`ExportStopped`) with what it wrote kept.
+  - **Per-file problems** (an unreadable original, a name the target refuses) are skipped and the first 50 listed in the result. A full, failing or read-only disk stops the job.
+- **Linked-library images** are included, with a checkbox to leave them out (shown only when there is a linked library): the user has those files already.
 - **Expect** disk speed: hours for 1 TB.
 
-The CLI (`python -m backend.pipeline.export_library <dir>`) runs the same job.
-
-**Purge must spare the user's folders.** `api/system.py:_empty_store` deletes everything in the store except its lock. It must also keep `exports/`, `not-in-backup/` and `backups/pre-migration/`.
+**Purge spares the user's folders.** `api/system.py:_empty_store` keeps `config.USER_FOLDERS` (`exports/`, `not-in-backup/`, `backups/`), and Settings' image size leaves them out.
 
 ## 8. Rebuild
 

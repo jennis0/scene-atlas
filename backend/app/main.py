@@ -254,7 +254,10 @@ async def lifespan(app: FastAPI):
 
     ingest_worker = get_ingest_worker()
     if settings.ingest_worker_enabled:
+        from backend.pipeline.import_metadata import recover_pending
+
         recovered = ingest_worker.recover()
+        recover_pending()  # metadata files an import was loading when it stopped
         if recovered["recovered"] or recovered["crashed"]:
             logger.warning("Ingest recovery on startup: %s", recovered)
         ingest_worker.start()

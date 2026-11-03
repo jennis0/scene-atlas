@@ -256,7 +256,8 @@ class IngestWorker:
         any metadata loading has finished."""
         from .import_metadata import wait_for_loads
 
-        wait_for_loads()
+        if not wait_for_loads():
+            raise RuntimeError("Metadata still loading after 60 s")
         batches = 0
         while batches < max_batches and self.run_once():
             batches += 1

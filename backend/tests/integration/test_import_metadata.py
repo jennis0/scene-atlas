@@ -297,9 +297,9 @@ def test_a_seal_while_the_metadata_loads_waits_for_it(api, library, monkeypatch)
         metadata = zf.read(FILENAME)
         files = {n: zf.read(n) for n in zf.namelist() if n != FILENAME}
     release = threading.Event()
-    real = import_metadata.load_exports
+    real = import_metadata.load_export
     monkeypatch.setattr(
-        import_metadata, "load_exports", lambda j, o: release.wait(10) and real(j, o)
+        import_metadata, "load_export", lambda *a, **kw: release.wait(10) and real(*a, **kw)
     )
 
     job_id = api.create("Folder")

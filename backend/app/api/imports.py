@@ -29,9 +29,9 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...pipeline import import_metadata
 from ...pipeline import ingest_queue as q
 from ...pipeline.group_jobs import schedule_grouping
-from ...pipeline.import_metadata import load_in_background
 from ...pipeline.ingest_archive import expand_archive
 from ...pipeline.ingest_local import (
     ArchiveLimits,
@@ -629,12 +629,13 @@ async def upload_archive(
                 max_uncompressed_bytes=app_settings.max_import_total_size,
                 max_file_size=app_settings.max_import_file_size,
             )
+            import_metadata.add_pending(db, job, counts.metadata)
             job.last_upload_at = q.utcnow()
             db.commit()
         finally:
             tmp.unlink(missing_ok=True)
             db.close()
-        load_in_background(job_id, counts.metadata, delete=counts.metadata)
+        import_metadata.kick()
         return ArchiveResult(
             name=name, created=counts.created, skipped=counts.skipped, failed=counts.failed
         )
@@ -655,17 +656,27 @@ async def upload_export_metadata(
     seal; the client sends it before the manifest. A file that can't be used imports
     nothing and leaves a note on the job; the import goes on without it."""
 
-    def _limits():
+    tmp = q.staging_dir_for(job_id) / f"metadata-{uuid.uuid4().hex}.jsonl"
+
+    def _begin():
+        # Recorded before the body arrives, so a seal meanwhile holds the files for it
         with _open_session(request) as db:
+            q.begin_immediate(db)
             job = _job_or_404(db, job_id)
             _require_unsealed(job)
+            import_metadata.add_pending(db, job, [tmp], ready=False)
+            db.commit()
             return get_app_settings(db)
 
-    app_settings = await asyncio.to_thread(_limits)
-    tmp = q.staging_dir_for(job_id) / f".{uuid.uuid4().hex}.jsonl.part"
-    await _stream_body(request, tmp, app_settings.max_import_file_size)
-
-    load_in_background(job_id, [tmp], delete=[tmp])
+    app_settings = await asyncio.to_thread(_begin)
+    try:
+        await _stream_body(request, tmp, app_settings.max_import_file_size)
+    except BaseException:
+        await asyncio.to_thread(import_metadata.forget_pending, job_id, tmp)
+        tmp.unlink(missing_ok=True)
+        raise
+    await asyncio.to_thread(import_metadata.set_ready, job_id, tmp)
+    import_metadata.kick()
     return ExportMetadataResult(loading=True)
 
 
@@ -722,8 +733,13 @@ async def add_local_sources(
                     max_uncompressed_bytes=app_settings.max_import_total_size,
                 ),
             )
+            extracted = set(counts.extracted)
+            import_metadata.add_pending(
+                db, job, [p for p in counts.metadata if p not in extracted], delete=False
+            )
+            import_metadata.add_pending(db, job, counts.extracted)
             db.commit()
-        load_in_background(job_id, counts.metadata, delete=counts.extracted)
+        import_metadata.kick()
         return LocalSourcesResult(
             created=counts.created,
             skipped=counts.skipped,

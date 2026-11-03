@@ -15,7 +15,7 @@ from backend.app.config import settings
 from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
-from backend.pipeline.import_metadata import delete_entries
+from backend.pipeline.import_metadata import delete_entries, pending_paths
 
 from .ingest_queue import (
     KIND_SORTED_OUT,
@@ -191,6 +191,7 @@ def sweep_stray_staging_files() -> int:
             for key in (staging_key, preview_key)
             if key
         }
+        referenced |= pending_paths(db)  # metadata files waiting to load
     removed = 0
     cutoff = time.time() - STRAY_FILE_GRACE_SECONDS
     for job_dir in root.iterdir():

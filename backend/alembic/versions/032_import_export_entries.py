@@ -7,6 +7,8 @@
 - ``import_jobs.export_model``: the first metadata file's header model (JSON); set when a
   job has metadata at all.
 - ``import_jobs.export_note``: why a job's metadata wasn't used, for its report.
+- ``import_jobs.metadata_pending``: its metadata files still to load (JSON); the worker
+  holds its items until they are.
 
 Revision ID: 032
 Revises: 031
@@ -36,9 +38,11 @@ def upgrade():
     )
     op.add_column("import_jobs", sa.Column("export_model", sa.Text(), nullable=True))
     op.add_column("import_jobs", sa.Column("export_note", sa.Text(), nullable=True))
+    op.add_column("import_jobs", sa.Column("metadata_pending", sa.Text(), nullable=True))
 
 
 def downgrade():
+    op.drop_column("import_jobs", "metadata_pending")
     op.drop_column("import_jobs", "export_note")
     op.drop_column("import_jobs", "export_model")
     op.drop_index("ix_import_export_entries_job_hash", table_name="import_export_entries")
