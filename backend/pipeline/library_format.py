@@ -373,6 +373,14 @@ def header_line(
     return _validated(Header, header, "The header")
 
 
+def tag_category_order(db: Session) -> dict[str, int]:
+    """Category → rank: the order tags go in readable names, as Settings lists them."""
+    names = db.scalars(
+        select(TagCategory.name).order_by(TagCategory.display_order, TagCategory.name)
+    )
+    return {name: rank for rank, name in enumerate(names)}
+
+
 def _image_query(condition: ColumnElement[bool] | None):
     query = (
         select(Image)

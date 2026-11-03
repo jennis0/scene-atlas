@@ -33,6 +33,23 @@ describe('postForDownload', () => {
     frame.contentDocument!.body.textContent = "That's 1,200 images; download at most 999"
     frame.dispatchEvent(new Event('load'))
     expect(onError).toHaveBeenCalledWith("That's 1,200 images; download at most 999")
+    // Read once: a later load doesn't repeat it
+    frame.dispatchEvent(new Event('load'))
+    expect(onError).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports a page it can't read as a download that didn't start", () => {
+    vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
+    const onError = vi.fn()
+    postForDownload('/api/v1/downloads', {}, onError)
+    const frame = document.querySelector('iframe')!
+    Object.defineProperty(frame, 'contentDocument', {
+      get: () => {
+        throw new DOMException('Blocked a frame from accessing a cross-origin frame')
+      },
+    })
+    frame.dispatchEvent(new Event('load'))
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("didn't start"))
   })
 })
 

@@ -23,6 +23,10 @@ function gridCount(draft: string): number | null {
   return n >= 1 && n <= MAX_GRID_COUNT ? n : null
 }
 
+/** A size typed but not one the API takes: shown as an error and not saved */
+const outOfRange = (draft: string) => draft.trim() !== '' && gridCount(draft) === null
+const RANGE_HINT = `A grid size is 1 to ${MAX_GRID_COUNT.toLocaleString()} tiles`
+
 export function GridSizeInput({ width, height, onChange, disabled, compact }: GridSizeInputProps) {
   const [wDraft, setWDraft] = useState(width?.toString() ?? '')
   const [hDraft, setHDraft] = useState(height?.toString() ?? '')
@@ -37,11 +41,13 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
   }, [height])
 
   const commitWidth = () => {
+    if (outOfRange(wDraft)) return
     const w = gridCount(wDraft)
     if (w !== width) onChange(w, height)
   }
 
   const commitHeight = () => {
+    if (outOfRange(hDraft)) return
     const h = gridCount(hDraft)
     if (h !== height) onChange(width, h)
   }
@@ -68,7 +74,9 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
         min={1}
         max={MAX_GRID_COUNT}
         disabled={disabled}
-        className={inputClass}
+        aria-invalid={outOfRange(wDraft)}
+        title={outOfRange(wDraft) ? RANGE_HINT : undefined}
+        className={`${inputClass} aria-[invalid=true]:border-destructive`}
       />
       <span className={compact ? 'text-3xs' : 'text-2xs'}>&times;</span>
       <input
@@ -81,7 +89,9 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
         min={1}
         max={MAX_GRID_COUNT}
         disabled={disabled}
-        className={inputClass}
+        aria-invalid={outOfRange(hDraft)}
+        title={outOfRange(hDraft) ? RANGE_HINT : undefined}
+        className={`${inputClass} aria-[invalid=true]:border-destructive`}
       />
     </div>
   )

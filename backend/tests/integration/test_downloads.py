@@ -153,6 +153,36 @@ class TestDownload:
         assert 'filename="AuthorA_Cave.zip"' in response.headers["content-disposition"]
         assert _zip(response).namelist() == [lf.FILENAME, "AuthorA_Cave.jpg"]
 
+    def test_a_linked_image_whose_folder_is_offline_is_left_out(self, library, tmp_db):
+        from backend.app.models.database import LibrarySource, SourceFile
+
+        client, ids, group_ids, _ = library
+        _engine, SessionLocal = tmp_db
+        with SessionLocal() as db:
+            source = LibrarySource(kind="folder", location="/gone", state="offline")
+            db.add(source)
+            db.flush()
+            row = SourceFile(source_id=source.id, rel_key="Forest/Dusk.jpg", size=5, mtime_ns=1)
+            db.add(row)
+            db.flush()
+            db.add(
+                Image(
+                    filename="Dusk.jpg",
+                    name="Dusk",
+                    source_file_id=row.id,
+                    group_id=group_ids["forest"],
+                )
+            )
+            db.commit()
+        check = client.post("/api/v1/downloads/check", json={"group_ids": [group_ids["forest"]]})
+        assert check.json()["missing"] == 1 and check.json()["image_count"] == 2
+        names = [
+            img.name
+            for ln in _metadata(_zip(_download(client, group_ids=[group_ids["forest"]])))[1:]
+            for img in ln.images
+        ]
+        assert "Dusk" not in names and len(names) == 2
+
     def test_a_missing_original_is_left_out_of_files_and_metadata(self, library):
         client, ids, group_ids, store = library
         store.get_path("aa/bb/day.jpg").unlink()

@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session, selectinload
 from ...pipeline import library_format as lf
 from ...pipeline.naming import ReadableLayout, layout_segment
 from ..config import settings
-from ..models import Image, ImageGroup, TagCategory, listed_images
+from ..models import Image, ImageGroup, listed_images
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db
 from .responses import attachment
@@ -153,14 +153,6 @@ def _zip_name(groups: Sequence[ImageGroup | None], count: int) -> str:
     return f"scene-atlas-download-{count}-images.zip"
 
 
-def tag_category_order(db: Session) -> dict[str, int]:
-    """Category → rank, the order tags go in readable names (as Settings lists them)."""
-    names = db.scalars(
-        select(TagCategory.name).order_by(TagCategory.display_order, TagCategory.name)
-    )
-    return {name: rank for rank, name in enumerate(names)}
-
-
 class _Refused(Exception):
     def __init__(self, status: int, detail: str):
         super().__init__(detail)
@@ -203,7 +195,7 @@ def _download(request: Request, group_ids: str, image_ids: str, db: Session) -> 
 
     service = get_lancedb_service()
     vectors = service.get_vectors(list(sources))  # one scan of the table, not one per group
-    order = tag_category_order(db)
+    order = lf.tag_category_order(db)
     layout = ReadableLayout()
     groups_seen: list[ImageGroup | None] = []
     members: list[tuple[str, Path]] = []  # (path in the zip, file on disk)

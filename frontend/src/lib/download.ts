@@ -28,7 +28,8 @@ function downloadFrame(): HTMLIFrameElement {
  *
  * It's submitted into a hidden frame of the app's own, so a response that isn't a download
  * can't replace the app. A download leaves the frame as it was; an error loads into it as
- * plain text (the endpoint lets this frame show it), which goes to *onError*.
+ * plain text (the endpoint lets this frame show it), which goes to *onError*, as does a
+ * page the app can't read (the request didn't reach the server).
  */
 export function postForDownload(
   url: string,
@@ -37,11 +38,15 @@ export function postForDownload(
 ): void {
   const frame = downloadFrame()
   frame.onload = () => {
-    let message = ''
+    let message: string
     try {
-      message = frame.contentDocument?.body?.textContent?.trim() ?? ''
+      const body = frame.contentDocument?.body
+      message = body?.textContent?.trim() ?? ''
+      if (body) body.textContent = '' // so a later load can't show it again
     } catch {
-      // A page the app can't read: not one of its errors
+      // A page the app can't read (the browser's own error page, a proxy's): the request
+      // never reached the endpoint
+      message = "The download didn't start. Check the connection and try again."
     }
     if (message) onError?.(message)
   }

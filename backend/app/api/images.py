@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from ...pipeline.library_format import tag_category_order
 from ...pipeline.naming import ReadableLayout
 from ..config import settings
 from ..models import (
@@ -39,7 +40,6 @@ from ..services.bulk_edit_service import (
 from ..services.image_scope import resolve_scope, scope_facets
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
-from .downloads import tag_category_order
 from .rate_limits import limiter
 from .responses import attachment
 
