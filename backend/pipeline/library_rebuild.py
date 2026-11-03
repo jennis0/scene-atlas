@@ -626,96 +626,134 @@ def _load(
     for line in lines:
         raise_if_shutting_down()
         if isinstance(line, lf.SourceFilesLine):
-            for f in line.source_files:
-                row = f.model_dump(exclude={"image_id"})
-                row["source_id"] = source_id
-                row["image_id"] = f.image_id if f.image_id in kept else None
-                if row["image_id"] is None and row["state"] in (FILE_IMAGE, FILE_DUPLICATE):
-                    row["state"] = FILE_PENDING  # as the export does: the next scan queues it
-                writer.add(SourceFile, row)
+            _add_source_files(writer, line, source_id, kept)
             continue
-        group_id = None
-        if line.group is not None:
-            group_id = groups.get(line.group.uid)
-            if group_id is None:
-                group_id = line.group.id  # checked: a library file's groups have ids
-                groups[line.group.uid] = group_id  # type: ignore[assignment]
-                writer.add(
-                    ImageGroup,
-                    {
-                        "id": group_id,
-                        "uid": line.group.uid,
-                        "base_name": line.group.base_name or "Unnamed group",
-                        "author": line.group.author,
-                        "created_at": line.group.created_at,
-                        "image_count": 0,
-                    },
-                )
+        group_id = _add_group(writer, line.group, groups)
         for index, image in enumerate(line.images):
-            if not image.storage_key and image.source_file_id is None:
+            if not _has_file(image, store):
                 left_out += 1
-                continue
-            if image.storage_key and not store.get_path(image.storage_key).is_file():
-                left_out += 1
-                if max_missing is not None and left_out > max_missing:
+                if image.storage_key and max_missing is not None and left_out > max_missing:
                     raise RebuildError(
                         "More images are missing than when the file was checked. Is a "
                         "folder offline? Check the file again."
                     )
                 continue
-            writer.add(Image, _image_row(image, group_id))
+            _add_image(writer, image, group_id)
             kept.add(image.id)  # type: ignore[arg-type]
-            for tag in image.tags:
-                writer.add(
-                    Tag,
-                    {
-                        "image_id": image.id,
-                        "category": tag.category,
-                        "value": tag.value,
-                        "source": tag.source or "manual",
-                        "confidence": 1.0 if tag.confidence is None else tag.confidence,
-                    },
-                )
-            for order, (hex_color, pct) in enumerate(image.colors, start=1):
-                lab = hex_to_lab(hex_color)
-                writer.add(
-                    Color,
-                    {
-                        "image_id": image.id,
-                        "color_hex": hex_color,
-                        "percentage": pct,
-                        "color_order": order,
-                        "lab_l": lab[0],
-                        "lab_a": lab[1],
-                        "lab_b": lab[2],
-                    },
-                )
             if group_id is not None:
                 counts[group_id] = counts.get(group_id, 0) + 1
                 if line.group and line.group.primary == index:
                     primaries[group_id] = image.id  # type: ignore[assignment]
-            if svc is not None and image.vector:
-                try:
-                    vector = lf.decode_vector(image.vector, svc.vector_size)
-                except ValueError:
-                    vector = None
-                if vector is not None:
-                    vectors.append(
-                        {
-                            "image_id": image.id,
-                            "embedding": vector.tolist(),
-                            "metadata": {"filename": image.filename, "author": image.author or ""},
-                        }
-                    )
-                    if len(vectors) >= _BATCH:
-                        _add_vectors(svc, vectors)
+            vector = _vector_row(svc, image)
+            if vector is not None:
+                vectors.append(vector)
+                if len(vectors) >= _BATCH:
+                    _add_vectors(svc, vectors)
             loaded += 1
             if progress_fn and loaded % 500 == 0:
                 progress_fn(loaded, total, f"Rebuilt {loaded:,} of {total:,}")
     writer.flush()
     if svc is not None and vectors:
         _add_vectors(svc, vectors)
-    # A linked image whose file the export didn't list has nothing to read: it goes
+    gone = _drop_dangling(db)
+    if gone:
+        kept.difference_update(gone)
+        loaded -= len(gone)
+        left_out += len(gone)
+        counts = _group_counts(db)
+    _finish_groups(db, groups.values(), counts, primaries, kept)
+    return loaded, left_out
+
+
+def _add_source_files(writer: _Writer, line, source_id: int, kept: set[int]) -> None:
+    """A linked library's files, linked to their images when those were kept."""
+    for f in line.source_files:
+        row = f.model_dump(exclude={"image_id"})
+        row["source_id"] = source_id
+        row["image_id"] = f.image_id if f.image_id in kept else None
+        if row["image_id"] is None and row["state"] in (FILE_IMAGE, FILE_DUPLICATE):
+            row["state"] = FILE_PENDING  # as the export does: the next scan queues it
+        writer.add(SourceFile, row)
+
+
+def _add_group(writer: _Writer, group, groups: dict[str, int]) -> int | None:
+    """The id of a line's group, added the first time its uid is seen."""
+    if group is None:
+        return None
+    group_id = groups.get(group.uid)
+    if group_id is None:
+        group_id = group.id  # checked: a library file's groups have ids
+        groups[group.uid] = group_id  # type: ignore[assignment]
+        writer.add(
+            ImageGroup,
+            {
+                "id": group_id,
+                "uid": group.uid,
+                "base_name": group.base_name or "Unnamed group",
+                "author": group.author,
+                "created_at": group.created_at,
+                "image_count": 0,
+            },
+        )
+    return group_id
+
+
+def _has_file(image, store) -> bool:
+    """Whether an image has a file to read: in the store, or a linked library file."""
+    if image.storage_key:
+        return store.get_path(image.storage_key).is_file()
+    return image.source_file_id is not None
+
+
+def _add_image(writer: _Writer, image, group_id: int | None) -> None:
+    """An image's row, its tags and its colours."""
+    writer.add(Image, _image_row(image, group_id))
+    for tag in image.tags:
+        writer.add(
+            Tag,
+            {
+                "image_id": image.id,
+                "category": tag.category,
+                "value": tag.value,
+                "source": tag.source or "manual",
+                "confidence": 1.0 if tag.confidence is None else tag.confidence,
+            },
+        )
+    for order, (hex_color, pct) in enumerate(image.colors, start=1):
+        lab = hex_to_lab(hex_color)
+        writer.add(
+            Color,
+            {
+                "image_id": image.id,
+                "color_hex": hex_color,
+                "percentage": pct,
+                "color_order": order,
+                "lab_l": lab[0],
+                "lab_a": lab[1],
+                "lab_b": lab[2],
+            },
+        )
+
+
+def _vector_row(svc, image) -> dict | None:
+    """An image's search vector, when the export's is for the model in use and reads."""
+    if svc is None or not image.vector:
+        return None
+    try:
+        vector = lf.decode_vector(image.vector, svc.vector_size)
+    except ValueError:
+        return None
+    if vector is None:
+        return None
+    return {
+        "image_id": image.id,
+        "embedding": vector.tolist(),
+        "metadata": {"filename": image.filename, "author": image.author or ""},
+    }
+
+
+def _drop_dangling(db) -> list[int]:
+    """Delete linked images whose file the export didn't list (nothing to read): their ids."""
     dangling = select(Image.id).where(
         Image.storage_key.is_(None), Image.source_file_id.not_in(select(SourceFile.id))
     )
@@ -724,21 +762,19 @@ def _load(
         for model in (Tag, Color):
             db.execute(delete(model).where(model.image_id.in_(gone)))  # type: ignore[attr-defined]
         db.execute(delete(Image).where(Image.id.in_(gone)))
-        for img_id in gone:
-            kept.discard(img_id)
-        loaded -= len(gone)
-        left_out += len(gone)
         db.commit()
         db.expire_all()
-        counts = {
-            gid: n
-            for gid, n in db.execute(
-                select(Image.group_id, func.count(Image.id)).group_by(Image.group_id)
-            )
-            if gid is not None
-        }
-    # Group sizes and covers, now that their images are in (a cover left out falls back to
-    # the group's first image); groups left empty go
+    return gone
+
+
+def _group_counts(db) -> dict[int, int]:
+    rows = db.execute(select(Image.group_id, func.count(Image.id)).group_by(Image.group_id))
+    return {gid: n for gid, n in rows if gid is not None}
+
+
+def _finish_groups(db, group_ids, counts: dict[int, int], primaries, kept: set[int]) -> None:
+    """Group sizes and covers, now that their images are in (a cover left out falls back to
+    the group's first image); groups left empty go."""
     firsts = dict(
         db.execute(
             select(Image.group_id, func.min(Image.id))
@@ -746,7 +782,7 @@ def _load(
             .group_by(Image.group_id)
         ).all()
     )
-    for group_id in groups.values():
+    for group_id in group_ids:
         group = db.get(ImageGroup, group_id)
         if group is None:
             continue
@@ -757,7 +793,6 @@ def _load(
         else:
             db.delete(group)
     db.commit()
-    return loaded, left_out
 
 
 def _add_vectors(svc, vectors: list[dict]) -> None:
