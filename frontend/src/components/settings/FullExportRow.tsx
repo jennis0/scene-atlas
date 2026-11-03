@@ -41,6 +41,10 @@ function readFolder(): string | null {
   }
 }
 
+function isHttpStatus(err: unknown, status: number): boolean {
+  return (err as { response?: { status?: number } })?.response?.status === status
+}
+
 function saveFolder(path: string): void {
   try {
     localStorage.setItem(FOLDER_KEY, path)
@@ -57,6 +61,14 @@ export function FullExportRow() {
   // Desktop: the folder of the export started last, kept across visits: Carry on goes on
   // there (a server knows its own: status.latest)
   const [folder, setFolder] = useState<string | null>(readFolder)
+  const forgetFolder = () => {
+    setFolder(null)
+    try {
+      localStorage.removeItem(FOLDER_KEY)
+    } catch {
+      // nothing kept
+    }
+  }
 
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: libraryApi.fullExportStatus })
   const { data: library } = useLibraryStatus()
@@ -85,6 +97,7 @@ export function FullExportRow() {
     },
     onError: (err) => {
       toast.error(getApiErrorMessage(err, 'Could not start the export'))
+      if (desktop && isHttpStatus(err, 422)) forgetFolder() // gone, or not an export now
       void queryClient.invalidateQueries({ queryKey: STATUS_KEY })
     },
   })
@@ -197,6 +210,9 @@ function ExportDone({ result }: { result: ExportResult }) {
           <summary className="cursor-pointer">
             {result.skipped.toLocaleString()} couldn&apos;t be exported
           </summary>
+          <p className="mt-1">
+            They&apos;re listed in scene-atlas-export-problems.txt in the export&apos;s folder.
+          </p>
           <ul className="mt-1 ml-4 list-disc space-y-0.5">
             {result.problems.map((p) => (
               <li key={p} className="break-all">

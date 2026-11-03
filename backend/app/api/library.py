@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ...pipeline import export_library, metadata_export
+from ...pipeline import export_library, library_rebuild, metadata_export
 from ...pipeline import ingest_queue as q
+from ...pipeline.db import pipeline_db
 from ...pipeline.ingest_worker import get_ingest_worker
 from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
@@ -34,7 +35,7 @@ from ..models.schemas import (
     MetadataExportStatus,
 )
 from ..services.app_settings import get_settings as get_app_settings
-from ..services.job_runner import get_job_runner
+from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 from ..services.linked_files import (
     count_linked,
     current_source,
@@ -324,7 +325,9 @@ def _full_export_target(body: FullExportRequest) -> Path:
     _outside_library(path)
     try:
         export_library.check_target(path)
-    except ValueError as e:
+        with pipeline_db() as db:
+            export_library.check_export_header(path, get_library_id(db))
+    except (ValueError, OSError) as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
     return path
 
@@ -348,9 +351,12 @@ def start_full_export(request: Request, body: FullExportRequest):
     see ``start_metadata_export``)."""
     target = _full_export_target(body)
     runner = get_job_runner()
-    with metadata_export.export_lock:
+    with metadata_export.export_lock:  # the purge takes it too
         if runner.has_active_job(export_library.JOB_NAME):
             raise HTTPException(status_code=409, detail="An export is already running")
+        for job in (PURGE_JOB_NAME, library_rebuild.JOB_NAME):
+            if runner.has_active_job(job):  # it deletes or replaces what an export reads
+                raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
         _refuse_while_reembedding(runner)
         job_id = runner.submit(
             export_library.export_library,

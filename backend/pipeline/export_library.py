@@ -50,7 +50,7 @@ from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline import library_format as lf
 from backend.pipeline.db import pipeline_db
-from backend.pipeline.naming import ReadableLayout
+from backend.pipeline.naming import ReadableLayout, windows_len
 
 logger = logging.getLogger(__name__)
 
@@ -109,77 +109,114 @@ class _Resume:
     started: bool = False  # the header is there
 
 
-def _ungrouped_key(stored_hash: str | None, content_hash: str | None, filename: str) -> str:
+def _ungrouped_key(
+    stored_hash: str | None, content_hash: str | None, filename: str, size: int | None
+) -> str:
     """How a resumed export recognises an ungrouped image it wrote."""
-    return stored_hash or content_hash or f"name:{filename}"
+    return stored_hash or content_hash or f"name:{filename}:{size}"
 
 
-def _complete_lines(path: Path) -> list[tuple[int, str]]:
-    """The file's lines that parse as JSON, each with the offset after it, up to the first
-    that doesn't (a write the process was killed in)."""
-    lines: list[tuple[int, str]] = []
-    offset = 0
-    with path.open("rb") as fp:
-        for raw in fp:
-            if not raw.endswith(b"\n"):
-                break
-            try:
-                text = raw.decode("utf-8")
-                json.loads(text)
-            except ValueError:
-                break
-            offset += len(raw)
-            lines.append((offset, text))
-    return lines
+def _not_ours() -> ExportStopped:
+    return ExportStopped(
+        errno.EEXIST, "That folder holds something else, not this library's export"
+    )
 
 
 def _read_resume(path: Path, library_id: str | None) -> _Resume:
-    """Read an unfinished export's ``scene-atlas.jsonl``, cutting it back to what was
-    surely finished: whole lines, and not the last group's (see the module docstring)."""
+    """Read an unfinished export's ``scene-atlas.jsonl`` in one streaming pass (it is a
+    gigabyte for a large library), keeping only what a resume needs, and cut it back to
+    what was surely finished: whole lines, and not the last group's lines (see the module
+    docstring)."""
     resume = _Resume()
-    if not path.exists():
+    if not path.exists() or path.stat().st_size == 0:
         return resume
-    lines = _complete_lines(path)
-    parsed = list(lf.read_lines([text for _, text in lines])) if lines else []
-    if parsed:
-        header = parsed[0]
-        if not (
-            isinstance(header, lf.Header)
-            and header.kind == lf.KIND_GROUPS
-            and library_id is not None
-            and header.library_id == library_id
-        ):
-            raise ExportStopped(
-                errno.EEXIST, "That folder holds something else, not this library's export"
-            )
-    # Drop the last group's lines (a group's lines are written together, but may not all
-    # have reached the disk); ungrouped lines are complete in themselves
-    keep = len(parsed)
-    last = parsed[-1] if len(parsed) > 1 else None
-    if isinstance(last, lf.GroupLine) and last.group is not None:
-        uid = last.group.uid
-        while keep > 1:
-            line = parsed[keep - 1]
-            if not (isinstance(line, lf.GroupLine) and line.group and line.group.uid == uid):
-                break
-            keep -= 1
-    with path.open("r+b") as fp:
-        fp.truncate(lines[keep - 1][0] if keep else 0)
-    for line in parsed[:keep]:
-        if isinstance(line, lf.Header):
-            resume.started = True
-        elif isinstance(line, lf.GroupLine):
-            for image in line.images:
-                if image.path:
-                    resume.taken.add(PurePosixPath(image.path).parts[0])
-                if line.group is None:
-                    resume.ungrouped.add(
-                        _ungrouped_key(image.stored_hash, image.content_hash, image.filename)
+    good_end = 0  # where the finished part of the file ends
+    offset = 0
+    run_uid: str | None = None  # the group whose lines are being read
+    run: list[list] = []  # its lines' images, counted once a later line shows it complete
+
+    def count(images: list, uid: str | None) -> None:
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+            rel = image.get("path")
+            if isinstance(rel, str) and rel:
+                resume.taken.add(PurePosixPath(rel).parts[0])
+            if uid is None:
+                resume.ungrouped.add(
+                    _ungrouped_key(
+                        image.get("stored_hash"),
+                        image.get("content_hash"),
+                        str(image.get("filename", "")),
+                        image.get("file_size"),
                     )
-                resume.images += 1
-            if line.group is not None:
-                resume.groups.add(line.group.uid)
+                )
+            resume.images += 1
+        if uid is not None:
+            resume.groups.add(uid)
+
+    with path.open("rb") as fp:
+        for raw in fp:
+            start, offset = offset, offset + len(raw)
+            try:
+                obj = json.loads(raw) if raw.endswith(b"\n") else None
+            except ValueError:
+                obj = None
+            if not isinstance(obj, dict):
+                if not resume.started and not raw.startswith(b'{"format"'):
+                    raise _not_ours()  # not a torn header of ours: someone else's file
+                break  # a write the process was killed in
+            if not resume.started:
+                try:
+                    header = lf.Header.model_validate(obj)
+                except ValueError:
+                    raise _not_ours() from None
+                if not (
+                    header.kind == lf.KIND_GROUPS
+                    and library_id is not None
+                    and header.library_id == library_id
+                ):
+                    raise _not_ours()
+                resume.started = True
+                good_end = offset
+                continue
+            group = obj.get("group")
+            uid = group.get("uid") if isinstance(group, dict) else None
+            found = obj.get("images")
+            images: list = found if isinstance(found, list) else []
+            if uid is None or uid != run_uid:
+                for line in run:  # a different line: the group before it was complete
+                    count(line, run_uid)
+                run, run_uid = [], None
+                good_end = start
+            if uid is None:
+                count(images, None)  # an ungrouped line is complete in itself
+                good_end = offset
+            else:
+                run_uid = uid
+                run.append(images)
+    # The last group's lines (in `run`) are dropped: it is placed again
+    with path.open("r+b") as fp:
+        fp.truncate(good_end)
     return resume
+
+
+def check_export_header(path: Path, library_id: str | None) -> None:
+    """Refuse (``ExportStopped``) a folder whose ``scene-atlas.jsonl`` isn't the start of
+    this library's export, reading only its first line."""
+    metadata = path / lf.FILENAME
+    if not metadata.is_file() or metadata.stat().st_size == 0:
+        return
+    with metadata.open("rb") as fp:
+        first = fp.readline(lf.MAX_LINE_CHARS)
+    try:
+        header = lf.Header.model_validate(json.loads(first))
+    except ValueError:
+        if first.endswith(b"\n") or not first.startswith(b'{"format"'):
+            raise _not_ours() from None
+        return  # a torn header of ours: it starts again
+    if header.kind != lf.KIND_GROUPS or library_id is None or header.library_id != library_id:
+        raise _not_ours()
 
 
 def check_target(path: Path) -> None:
@@ -243,6 +280,13 @@ def _same_disk(a: Path, b: Path) -> bool:
         return False
 
 
+def _same_size(path: Path, size: int) -> bool:
+    try:
+        return path.stat().st_size == size
+    except OSError:
+        return False
+
+
 def _check_space(dest: Path, needed: int, margin: int) -> None:
     free = shutil.disk_usage(dest).free
     if free < needed + margin:
@@ -283,7 +327,7 @@ def export_library(
         progress_fn(0, 0, "Reading the unfinished export…")
     resume = _read_resume(metadata, library_id)
     _clean_parts(dest)
-    layout = ReadableLayout(root_len=len(str(dest.resolve())), taken=resume.taken)
+    layout = ReadableLayout(root_len=windows_len(str(dest.resolve())), taken=resume.taken)
     margin = (
         _SHARED_DISK_MARGIN
         if _same_disk(dest, settings.data_dir) or _same_disk(dest, settings.images_dir)
@@ -315,7 +359,8 @@ def export_library(
         kept = []
         for img in images:
             if group is None and (
-                _ungrouped_key(img.stored_hash, img.content_hash, img.filename) in resume.ungrouped
+                _ungrouped_key(img.stored_hash, img.content_hash, img.filename, img.file_size)
+                in resume.ungrouped
             ):
                 continue
             try:
@@ -335,7 +380,12 @@ def export_library(
         flush()  # the previous group is done: its line goes down before more is written
         raise_if_shutting_down()
         paths = layout.place_images(group, images, order)
-        _check_space(dest, sum(sources[img.id][1] for img in images), margin)
+        needed = sum(
+            sources[img.id][1]
+            for img, path in zip(images, paths, strict=True)
+            if not _same_size(dest / path, sources[img.id][1])  # there: a resume skips it
+        )
+        _check_space(dest, needed, margin)
         failed.clear()
         for img, path in zip(images, paths, strict=True):
             raise_if_shutting_down()
@@ -433,7 +483,7 @@ if __name__ == "__main__":
     print(f"Exporting library to: {out}")
     try:
         result = export_library(out)
-    except (ValueError, ExportStopped) as e:
+    except (ValueError, OSError) as e:  # FormatError is a ValueError; ExportStopped an OSError
         print(e)
         sys.exit(1)
     print(f"Done: {result['images']} image(s) in the folder, {result['skipped']} skipped.")

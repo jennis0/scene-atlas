@@ -201,46 +201,50 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     """Purge the entire library (images, metadata, vectors, files).
 
     Submits a background job and returns immediately with a job ID.
-    Refuses to run if any import jobs are currently active.
+    Refuses to run if any import jobs are currently active, or while the library is being
+    exported or rebuilt (they read the files a purge deletes).
     """
+    from ...pipeline import export_library, library_rebuild
     from ...pipeline.linked_scanner import get_linked_scanner
+    from ...pipeline.metadata_export import export_lock
     from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 
     runner = get_job_runner()
-    if runner.has_active_job(PURGE_JOB_NAME):
-        raise HTTPException(status_code=409, detail="Library purge already in progress")
-    from ...pipeline import export_library, library_rebuild
+    with export_lock:  # the full export takes it too: neither starts during the other's check
+        if runner.has_active_job(PURGE_JOB_NAME):
+            raise HTTPException(status_code=409, detail="Library purge already in progress")
+        for job, what in (
+            (export_library.JOB_NAME, "The library is being exported"),
+            (library_rebuild.JOB_NAME, "The library is being rebuilt"),
+        ):
+            if runner.has_active_job(job):  # it reads the files a purge deletes
+                raise HTTPException(
+                    status_code=409, detail=f"{what}; try again when it has finished"
+                )
+        if get_linked_scanner().running:
+            raise HTTPException(
+                status_code=409, detail="The linked library is being checked; try again in a moment"
+            )
 
-    for job, what in (
-        (export_library.JOB_NAME, "The library is being exported"),
-        (library_rebuild.JOB_NAME, "The library is being rebuilt"),
-    ):
-        if runner.has_active_job(job):  # it reads the files a purge deletes
-            raise HTTPException(status_code=409, detail=f"{what}; try again when it has finished")
-    if get_linked_scanner().running:
-        raise HTTPException(
-            status_code=409, detail="The linked library is being checked; try again in a moment"
+        active_imports = (
+            db.query(ImportItem.job_id)
+            .filter(ImportItem.state.in_(("awaiting_bytes", "ready", "processing")))
+            .distinct()
+            .count()
         )
+        if active_imports:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot purge library while {active_imports} import(s) are in progress. "
+                "Cancel or wait for them to finish first.",
+            )
 
-    active_imports = (
-        db.query(ImportItem.job_id)
-        .filter(ImportItem.state.in_(("awaiting_bytes", "ready", "processing")))
-        .distinct()
-        .count()
-    )
-    if active_imports:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot purge library while {active_imports} import(s) are in progress. "
-            "Cancel or wait for them to finish first.",
+        job_id = runner.submit(
+            _purge_library,
+            request.app.state.db_engine,
+            name=PURGE_JOB_NAME,
         )
-
-    job_id = runner.submit(
-        _purge_library,
-        request.app.state.db_engine,
-        name=PURGE_JOB_NAME,
-    )
-    return {"job_id": job_id, "message": "Library purge started"}
+        return {"job_id": job_id, "message": "Library purge started"}
 
 
 # Tag reset (synchronous)

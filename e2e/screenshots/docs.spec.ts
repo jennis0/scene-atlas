@@ -105,6 +105,7 @@ async function asDesktopApp(
         chooseImportFolders: async () => [],
         chooseImportFiles: async () => [],
         chooseExportFile: async () => null,
+        chooseExportFolder: async () => null,
         setZoom: () => {},
         getUpdateState: noState,
         checkForUpdates: noState,

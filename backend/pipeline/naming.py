@@ -39,9 +39,12 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
 }
 
 
-def _u16(s: str) -> int:
+def windows_len(s: str) -> int:
     """Length as Windows counts it (UTF-16 units: an emoji is two)."""
     return len(s.encode("utf-16-le")) // 2
+
+
+_u16 = windows_len
 
 
 def layout_segment(s: str | None) -> str:
@@ -177,7 +180,10 @@ class ReadableLayout:
         folder_limit = min(FOLDER_MAX, PATH_MAX - _TEMP_SUFFIX - self._root_len - 1 - _MIN_STEM)
         folder_limit = max(folder_limit, _MIN_STEM)
         joined = _SEP.join(p for p in (layout_segment(author), layout_segment(group_name)) if p)
-        folder = self._top.claim(_safe_stem(joined, folder_limit), "", folder_limit)
+        stem = _safe_stem(joined, folder_limit)
+        while _u16(stem) > folder_limit and len(stem) > _MIN_STEM:  # emoji count twice
+            stem = _safe_stem(stem, len(stem) - (_u16(stem) - folder_limit))
+        folder = self._top.claim(stem, "", folder_limit)
         names = self._in_folder.setdefault(folder, _Names())
         return [f"{folder}/{self._file(folder, names, author, group_name, img)}" for img in images]
 
@@ -245,4 +251,5 @@ class _Names:
 
 
 def _key(name: str) -> str:
-    return unicodedata.normalize("NFC", name).casefold()
+    """Canonical caseless form: equal for names macOS and Windows treat as one."""
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFD", name).casefold())

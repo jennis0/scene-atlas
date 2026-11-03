@@ -173,4 +173,19 @@ describe('FullExportRow', () => {
       expect.objectContaining({ path: '/home/me/Export', resume: true }),
     )
   })
+  it('forgets a remembered folder that is refused', async () => {
+    mode.isApp = true
+    window.electronAPI = {
+      chooseExportFolder: vi.fn(async () => null),
+    } as unknown as Window['electronAPI']
+    localStorage.setItem('sceneAtlas.fullExportFolder', '/gone')
+    vi.mocked(libraryApi.startFullExport).mockRejectedValue({
+      response: { status: 422, data: { detail: 'Folder not found: /gone' } },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<FullExportRow />)
+    await user.click(screen.getByRole('button', { name: 'Carry on' }))
+    await waitFor(() => expect(localStorage.getItem('sceneAtlas.fullExportFolder')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Carry on' })).not.toBeInTheDocument()
+  })
 })

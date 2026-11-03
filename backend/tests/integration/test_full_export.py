@@ -3,12 +3,13 @@ the readable layout with metadata that re-imports them; resumable; problems skip
 listed, a full disk stopping it."""
 
 import errno
+import gzip
 import hashlib
 import io
 import os
 import time
-from collections import namedtuple
 import zipfile
+from collections import namedtuple
 from pathlib import Path
 
 import pytest
@@ -170,7 +171,7 @@ def test_a_group_stopped_part_way_is_finished_without_copying_again(
     with pytest.raises(ex.ExportStopped):
         ex.export_library(out)
     assert len(_lines(out)) == 1  # the header only: the forest isn't finished
-    (first,) = [p for p in out.rglob("*.png")]
+    (first,) = list(out.rglob("*.png"))
     written = first.stat().st_mtime_ns
 
     monkeypatch.setattr(ex, "copy_verified", real_copy)
@@ -199,12 +200,34 @@ def test_a_killed_export_carries_on(api, library, tmp_path, damage):
     assert len(paths) == len(set(paths)) == 3
 
 
-def test_the_last_group_is_written_again_in_case_it_was_torn(api, library, tmp_path):
+def test_a_group_whose_lines_were_not_all_written_is_finished(api, library, tmp_path, monkeypatch):
+    """A group of several lines, killed after its first reached the disk."""
+    monkeypatch.setattr(lf, "MAX_IMAGES_PER_LINE", 1)  # the forest is two lines
     out = tmp_path / "Export"
     ex.export_library(out)
-    before = _lines(out)
-    ex.export_library(out)  # carried on with nothing new: the last group is placed again
-    assert [ln.model_dump() for ln in _lines(out)] == [ln.model_dump() for ln in before]
+    metadata = out / lf.FILENAME
+    raw = metadata.read_bytes().splitlines(keepends=True)
+    forest = [i for i, line in enumerate(raw) if b"Golden Forest" in line]
+    assert len(forest) == 2
+    metadata.write_bytes(b"".join(raw[: forest[1]]))  # its second line never arrived
+    files = {p: p.stat().st_mtime_ns for p in out.rglob("*.png")}
+
+    ex.export_library(out)
+
+    paths = [img.path for ln in _lines(out)[1:] for img in ln.images]
+    assert len(paths) == len(set(paths)) == 3
+    assert sum("Golden Forest" in p for p in paths) == 2
+    assert {p: p.stat().st_mtime_ns for p in out.rglob("*.png")} == files  # none copied again
+
+
+def test_a_file_of_that_name_that_isnt_ours_is_left_alone(api, library, tmp_path):
+    out = tmp_path / "Mine"
+    out.mkdir()
+    (out / lf.FILENAME).write_bytes(gzip.compress(b"someone else's\n"))
+    before = (out / lf.FILENAME).read_bytes()
+    with pytest.raises(ex.ExportStopped, match="something else"):
+        ex.export_library(out)
+    assert (out / lf.FILENAME).read_bytes() == before
 
 
 def test_another_folder_with_metadata_is_not_carried_on(api, library, tmp_path):
@@ -285,6 +308,25 @@ class TestApi:
         _wait(api, first.json()["job_id"])
         response = api.client.post(self.URL, json={})
         assert response.status_code == 409 and "already" in response.json()["detail"]
+
+    def test_an_export_waits_for_a_purge(self, api, monkeypatch):
+        from backend.app.services.job_runner import PURGE_JOB_NAME
+
+        monkeypatch.setattr(settings, "app_mode", "server")
+        runner = get_job_runner()
+        monkeypatch.setattr(runner, "has_active_job", lambda name: name == PURGE_JOB_NAME)
+        assert api.client.post(self.URL, json={}).status_code == 409
+
+    def test_the_desktop_app_refuses_another_librarys_export(
+        self, api, library, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "app_mode", "app")
+        _images, forest = library
+        body = round_trip._download(api, group_ids=[forest])
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            zf.extractall(tmp_path / "Download")
+        response = api.client.post(self.URL, json={"path": str(tmp_path / "Download")})
+        assert response.status_code == 422 and "something else" in response.json()["detail"]
 
     def test_a_purge_waits_for_an_export(self, api, monkeypatch):
         runner = get_job_runner()
