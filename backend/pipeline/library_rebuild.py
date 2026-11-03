@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import create_engine, delete, event, func, insert, select
+from sqlalchemy import create_engine, delete, event, func, insert, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -179,11 +179,13 @@ class _Listed:
 
 def fingerprint(db: Session) -> list:
     """What changes when the library does: a check is only good for the library it saw."""
-    count, max_id, updated = db.execute(
-        select(func.count(Image.id), func.max(Image.id), func.max(Image.updated_at))
-    ).one()
-    groups = db.scalar(select(func.max(ImageGroup.id)))
-    return [count, max_id, str(updated), groups]
+    # Counts and newest ids: an import, a delete, a tag added or removed, a group made or
+    # merged. Not times: background work (hash and grid backfills) touches rows without
+    # changing what a rebuild would lose. A rename slips through.
+    images = db.execute(select(func.count(Image.id), func.max(Image.id))).one()
+    groups = db.execute(select(func.count(ImageGroup.id), func.max(ImageGroup.id))).one()
+    tags = db.execute(select(func.count(Tag.id), func.max(Tag.id))).one()
+    return [*images, *groups, *tags]
 
 
 @dataclass
@@ -552,6 +554,9 @@ def _build(
             loaded, left_out = _load(
                 db, lines, source.id, store, svc, max_missing, total, progress_fn
             )
+        # One file, no WAL: it moves into place as one
+        db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        db.execute(text("PRAGMA journal_mode=DELETE"))
         db.close()
     except BaseException:
         if svc is not None:
@@ -592,12 +597,15 @@ def build_in_place() -> str | None:
         own[SETUP_COMPLETED_KEY] = json.dumps(done)
     _build(own, max_missing=None, total=0, vectors=False, progress_fn=None)
     new = _new_dir()
-    for suffix in ("-wal", "-shm", ""):  # the main file last: its arrival marks it done
-        src = new / (DB_NAME + suffix)
-        if src.exists():
-            _move(src, live.with_name(live.name + suffix))
-    shutil.rmtree(new, ignore_errors=True)
     rebuild_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    # What's left of the lost library isn't this one's: a WAL would be replayed into the
+    # new database, and vectors are keyed by its ids
+    for suffix in ("-wal", "-shm"):
+        live.with_name(live.name + suffix).unlink(missing_ok=True)
+    if not _empty_dir(settings.vector_db_path):
+        _move_folder(settings.vector_db_path, rebuild_dir() / f"old-{rebuild_id}" / "lancedb")
+    _move(new / DB_NAME, live)
+    shutil.rmtree(new, ignore_errors=True)
     # Swapped already: the set-aside runs after startup, as for any rebuild
     _pending_path().write_text(json.dumps({"id": rebuild_id, "swapped": True}), "utf-8")
     staged_path().unlink(missing_ok=True)
@@ -831,20 +839,24 @@ def swap_if_pending() -> str | None:
     live = live_db()
     old.mkdir(parents=True, exist_ok=True)
     if (new / DB_NAME).exists():  # the database isn't in place yet
-        if live.exists() and not (old / DB_NAME).exists():
-            for suffix in _SUFFIXES:  # the live database, with its WAL, goes as one
+        if live.exists():
+            # The live database goes with its WAL, the main file last: while it's still
+            # here, what's beside it is still its own
+            for suffix in ("-wal", "-shm", ""):
                 src = live.with_name(live.name + suffix)
                 if src.exists():
                     _move(src, old / (DB_NAME + suffix))
-        for suffix in ("-wal", "-shm"):  # nothing of the old one may stay beside the new
+        for suffix in ("-wal", "-shm"):  # any left now aren't the old one's: not kept
             live.with_name(live.name + suffix).unlink(missing_ok=True)
         for suffix in ("-wal", "-shm", ""):  # the main file last: its arrival marks it done
             src = new / (DB_NAME + suffix)
             if src.exists():
                 _move(src, live.with_name(live.name + suffix))
+    # The live vectors go aside whether or not the build has its own: they're keyed by
+    # the old library's image ids. Without built ones, images are embedded again.
+    if not (old / "lancedb").exists() and not _empty_dir(settings.vector_db_path):
+        _move_folder(settings.vector_db_path, old / "lancedb")
     if (new / "lancedb").exists():
-        if not (old / "lancedb").exists():
-            _move_folder(settings.vector_db_path, old / "lancedb")
         _move_folder(new / "lancedb", settings.vector_db_path)
     leftovers = list(new.iterdir()) if new.exists() else []
     if leftovers:
@@ -939,6 +951,7 @@ def set_aside(progress_fn: ProgressFn | None = None) -> dict:
         os.replace(part, log)
 
     moved = 0
+    failed: list[str] = []
     if log.exists():
         with lf.open_file(log) as fp:
             entries = [
@@ -953,12 +966,21 @@ def set_aside(progress_fn: ProgressFn | None = None) -> dict:
             src = files.get(key)
             target = dest / PurePosixPath(rel)
             if src is not None and key not in used and not target.exists():
-                _move(src, target)
+                try:
+                    _move(src, target)
+                except OSError as e:  # in use, say: left where it is, and said
+                    failed.append(f"{key}: {e.strerror or e}")
+                    logger.warning("Set aside: %s not moved: %s", key, e)
             if target.exists():
                 moved += 1  # by this run or one before it
             if progress_fn and done % 200 == 0:
                 progress_fn(done, len(entries), f"Set aside {done:,} of {len(entries):,} files")
-    summary = {"id": rebuild_id, "moved": moved, "folder": str(dest) if moved else None}
+    summary = {
+        "id": rebuild_id,
+        "moved": moved,
+        "folder": str(dest) if moved else None,
+        "not_moved": failed[:50],
+    }
     (rebuild_dir() / "summary.json").write_text(json.dumps(summary), "utf-8")
     _pending_path().unlink(missing_ok=True)
     logger.info("Rebuild %s: %d file(s) set aside in %s", rebuild_id, moved, dest)
@@ -982,6 +1004,10 @@ def set_aside_failed_export() -> None:
         os.replace(staged, staged.with_name("staged-failed.jsonl"))
     shutil.rmtree(_part_dir(), ignore_errors=True)
     shutil.rmtree(_new_dir(), ignore_errors=True)
+
+
+def dismiss_summary() -> None:
+    (rebuild_dir() / "summary.json").unlink(missing_ok=True)
 
 
 def last_summary() -> dict | None:

@@ -92,7 +92,7 @@ export interface RebuildStatus {
   check_error: string | null
   built: boolean
   job_id: string | null
-  summary: { id: string; moved: number; folder: string | null } | null
+  summary: { id: string; moved: number; folder: string | null; not_moved?: string[] } | null
   set_aside_running: boolean
 }
 
@@ -210,6 +210,10 @@ export const libraryApi = {
 
   cancelRebuild: async (): Promise<void> => {
     await api.delete('/library/rebuild')
+  },
+
+  dismissRebuildSummary: async (): Promise<void> => {
+    await api.delete('/library/rebuild/summary')
   },
 
   /** Remove the maps whose linked file is missing (never touches files) */

@@ -43,16 +43,17 @@ _Confirm = Body(...)  # each POST must have a JSON body ({}): see the module doc
 
 
 @contextmanager
-def _exclusive():
+def _exclusive(*, cancelling: bool = False):
     """No other rebuild step, purge, export or set-aside starts until the caller's job is
-    submitted (purge and the full export take the same lock)."""
+    submitted (purge and the full export take the same lock). *cancelling* may forget a
+    swap that waits for a restart, but not one whose files are being set aside."""
     with export_lock:
         runner = get_job_runner()
         for job in (*_JOBS, PURGE_JOB_NAME, export_library.JOB_NAME, lr.SET_ASIDE_JOB, MOVE_JOB):
             if runner.has_active_job(job):
                 raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
         reason = lr.busy()
-        if reason:
+        if reason and not (cancelling and not lr.set_aside_pending()):
             raise HTTPException(status_code=409, detail=reason)
         yield runner
 
@@ -141,6 +142,8 @@ def apply_rebuild(request: Request, _body: dict = _Confirm, db: Session = Depend
     logger.warning("Stopping to put the rebuilt library in place; the service should restart")
     # A graceful shutdown (as for docker stop) after this response is sent, then a
     # non-zero exit for supervisors that restart only on failure
+    # (registered last, so it runs first and skips the other handlers: the process is
+    # done by then, and logging has been flushed by the shutdown)
     atexit.register(os._exit, RESTART_EXIT_CODE)
     threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
     return RebuildApplied(restart="server")
@@ -148,8 +151,14 @@ def apply_rebuild(request: Request, _body: dict = _Confirm, db: Session = Depend
 
 @router.delete("")
 def cancel_rebuild():
-    """Forget the export, its check and its build, and the last rebuild's summary."""
-    with _exclusive():
+    """Forget the export, its check and its build (and a swap waiting for a restart)."""
+    with _exclusive(cancelling=True):
         lr.discard()
-    (lr.rebuild_dir() / "summary.json").unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@router.delete("/summary")
+def dismiss_summary():
+    """Forget the last rebuild's summary (Settings' Dismiss)."""
+    lr.dismiss_summary()
     return {"ok": True}

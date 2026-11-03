@@ -287,13 +287,16 @@ class TestApi:
         assert response.status_code == 409 and "restart" in response.json()["detail"]
         assert api.client.delete("/api/v1/system/library").status_code == 409
 
-    def test_apply_refuses_a_library_changed_since_the_check(self, api, backup, library):
+    def test_apply_refuses_a_library_changed_since_the_check(
+        self, api, backup, library, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "app_mode", "app")  # a server would stop itself
         images, _forest = library
         with api.SessionLocal() as db:
             lr.check(db)
             lr.build(db)
-        patch = {"name": "Changed again"}
-        api.client.patch(f"/api/v1/images/{images['Harbour.png']}", json=patch)
+        tag = {"category": "season", "value": "winter", "source": "manual"}
+        api.client.post(f"/api/v1/tags/image/{images['Harbour.png']}", json=tag)
         response = api.client.post(f"{self.URL}/apply", json={})
         assert response.status_code == 409 and "changed" in response.json()["detail"]
 
@@ -354,3 +357,55 @@ def test_a_bad_staged_export_is_set_aside_not_tried_again(api, tmp_path):
     finally:
         lost.rename(lr.live_db())
         shutil.rmtree(lr.rebuild_dir(), ignore_errors=True)
+
+
+def test_vectors_from_another_model_leave_none_behind(api, backup, monkeypatch):
+    """Built without vectors (the export's model isn't installed): the old library's,
+    keyed by its ids, mustn't stay beside the new database."""
+    from backend.pipeline import import_metadata
+
+    monkeypatch.setattr(import_metadata, "_installed_model", lambda: ("ff" * 32, 8))
+    _built(api)
+    svc = _restart(api, monkeypatch)
+    with api.SessionLocal() as db:
+        ids = [i for (i,) in db.query(Image.id)]
+    assert svc.get_vectors(ids) == {}  # all embedded again after startup
+
+
+def test_a_stale_wal_is_not_kept_beside_a_database_built_in_place(api, library, tmp_path):
+    export = tmp_path / "backup.jsonl.gz"
+    me.export_metadata(export)
+    live = lr.live_db()
+    lost = tmp_path / "lost.db"
+    live.rename(lost)
+    live.with_name(live.name + "-wal").write_bytes(b"the lost library's")
+    lr.staged_path().parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(export, lr.staged_path())
+    try:
+        lr.build_in_place()
+        assert not live.with_name(live.name + "-wal").exists()
+    finally:
+        shutil.rmtree(lr.rebuild_dir(), ignore_errors=True)
+
+
+def test_background_updates_dont_invalidate_the_check(api, backup, library, monkeypatch):
+    monkeypatch.setattr(settings, "app_mode", "app")  # a server would stop itself
+    images, _forest = library
+    with api.SessionLocal() as db:
+        lr.check(db)
+        lr.build(db)
+        db.get_one(Image, images["Harbour.png"]).stored_hash = "ab" * 32  # a backfill
+        db.commit()
+    assert api.client.post("/api/v1/library/rebuild/apply", json={}).status_code == 200
+
+
+def test_cancel_after_apply_works_through_the_api(api, backup):
+    _built(api)
+    assert api.client.delete("/api/v1/library/rebuild").status_code == 200
+    assert lr.busy() is None
+
+
+def test_dismissing_the_summary_leaves_a_staged_export(api, backup):
+    (lr.rebuild_dir() / "summary.json").write_text('{"moved": 0}')
+    assert api.client.delete("/api/v1/library/rebuild/summary").status_code == 200
+    assert lr.last_summary() is None and lr.staged_path().exists()

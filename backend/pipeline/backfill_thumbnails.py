@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from backend.app.models.database import Image
 from backend.app.services import get_thumbnail_store
-from backend.app.services.originals import OriginalUnavailable, original_path
+from backend.app.services.originals import original_path
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 from backend.pipeline.tasks.image_processing import write_thumbnails
@@ -106,7 +106,7 @@ def backfill_thumbnails(progress_fn: ProgressFn | None = None) -> dict:
                     try:
                         image.thumbnail_key = _make(image, work)
                         made += 1
-                    except (OriginalUnavailable, OSError, ValueError) as exc:
+                    except Exception as exc:  # one bad original (a decompression bomb) is skipped
                         skipped += 1
                         logger.warning("Thumbnail for image %d not made: %s", image_id, exc)
                 db.commit()

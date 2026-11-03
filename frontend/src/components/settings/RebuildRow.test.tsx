@@ -15,6 +15,7 @@ vi.mock('@/lib/api/libraryApi', () => ({
     buildRebuild: vi.fn(),
     applyRebuild: vi.fn(),
     cancelRebuild: vi.fn(),
+    dismissRebuildSummary: vi.fn(),
   },
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))

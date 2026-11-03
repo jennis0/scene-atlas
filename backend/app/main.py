@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI):
 
     try:
         swap_if_pending()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # RebuildError is a ValueError
         for lock in storage_locks:
             lock.release()
         logger.critical("STARTUP ERROR: Could not put the rebuilt library in place: %s", exc)

@@ -65,6 +65,12 @@ export function RebuildRow() {
   })
   const cancel = useMutation({
     mutationFn: libraryApi.cancelRebuild,
+    onError: onError('Could not cancel the rebuild'),
+    onSettled: refresh,
+  })
+  const dismiss = useMutation({
+    mutationFn: libraryApi.dismissRebuildSummary,
+    onError: onError('Could not dismiss that'),
     onSettled: refresh,
   })
   const apply = useMutation({
@@ -192,7 +198,7 @@ export function RebuildRow() {
           <button
             type="button"
             className="float-right ml-2 underline"
-            onClick={() => cancel.mutate()}
+            onClick={() => dismiss.mutate()}
           >
             Dismiss
           </button>
@@ -202,6 +208,10 @@ export function RebuildRow() {
                 data.summary.moved === 1 ? 'is' : 'are'
               } in ${data.summary.folder}: import that folder to bring them back.`
             : 'Every file in the library was in the export.'}
+          {!!data.summary.not_moved?.length &&
+            ` ${plural(data.summary.not_moved.length, 'file')} couldn't be moved and ${
+              data.summary.not_moved.length === 1 ? 'is' : 'are'
+            } still in the library's folder (see the log).`}
         </p>
       )}
       {data?.set_aside_running && (
