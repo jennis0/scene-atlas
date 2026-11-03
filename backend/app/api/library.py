@@ -7,15 +7,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from ...pipeline import export_library, metadata_export
 from ...pipeline import ingest_queue as q
-from ...pipeline import metadata_export
 from ...pipeline.ingest_worker import get_ingest_worker
+from ...pipeline.library_format import FILENAME
 from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
 from ..library_identity import get_library_id, inside_any, inspect_folders
 from ..models import LibrarySource
 from ..models.database import SOURCE_DETACHED, SOURCE_OFFLINE, SOURCE_ONLINE
 from ..models.schemas import (
+    FullExportRequest,
+    FullExportStarted,
+    FullExportStatus,
     InspectHints,
     InspectLibrary,
     InspectLinked,
@@ -210,6 +214,22 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
 _REEMBEDDING_JOBS = (REBUILD_EMBEDDINGS_JOB, ACTIVATION_JOB_PREFIX)
 
 
+def _refuse_while_reembedding(runner) -> None:
+    if any(
+        job.status in ("queued", "running") and job.name.startswith(_REEMBEDDING_JOBS)
+        for job in runner.list_jobs()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The search data is being rebuilt; export when that has finished",
+        )
+
+
+def _outside_library(path: Path) -> None:
+    if inside_any(path, [settings.data_dir, settings.images_dir, settings.linked_library_dir]):
+        raise HTTPException(status_code=422, detail="Save it outside the library's own folders")
+
+
 def _export_target(raw: str | None) -> Path:
     """Where the export goes: the desktop app's chosen file, or the exports folder."""
     if raw is None:
@@ -224,8 +244,7 @@ def _export_target(raw: str | None) -> Path:
         raise HTTPException(status_code=422, detail=f"Folder not found: {path.parent}")
     if path.is_dir():
         raise HTTPException(status_code=422, detail=f"That's a folder: {path}")
-    if inside_any(path, [settings.data_dir, settings.images_dir, settings.linked_library_dir]):
-        raise HTTPException(status_code=422, detail="Save it outside the library's own folders")
+    _outside_library(path)
     return path
 
 
@@ -252,14 +271,7 @@ def start_metadata_export(request: Request, body: MetadataExportRequest):
     with metadata_export.export_lock:
         if runner.has_active_job(metadata_export.JOB_NAME):
             raise HTTPException(status_code=409, detail="An export is already running")
-        if any(
-            job.status in ("queued", "running") and job.name.startswith(_REEMBEDDING_JOBS)
-            for job in runner.list_jobs()
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="The search data is being rebuilt; export when that has finished",
-            )
+        _refuse_while_reembedding(runner)
         metadata_export.clean_exports()
         job_id = runner.submit(
             metadata_export.export_metadata, target, name=metadata_export.JOB_NAME
@@ -281,3 +293,65 @@ def download_metadata_export(name: str):
         filename=name,
         headers={"X-Accel-Buffering": "no"},
     )
+
+
+# Full library export (design/export-backup-move.md §7)
+
+
+def _full_export_target(body: FullExportRequest) -> Path:
+    """The desktop app's chosen folder: empty, or an export to carry on. On a server, a new
+    folder in its exports folder, or with ``resume`` its newest one."""
+    if settings.app_mode != "app":
+        if body.path is not None:
+            raise HTTPException(
+                status_code=422, detail="A folder can only be given in the desktop app"
+            )
+        latest = export_library.latest_server_export() if body.resume else None
+        return latest or export_library.server_export_dir()
+    if body.path is None:
+        raise HTTPException(status_code=422, detail="Choose a folder to export to")
+    path = Path(body.path)
+    if not path.is_absolute():
+        raise HTTPException(status_code=422, detail=f"Not an absolute path: {body.path}")
+    if not path.is_dir():
+        raise HTTPException(status_code=422, detail=f"Folder not found: {path}")
+    _outside_library(path)
+    if any(path.iterdir()) and not (path / FILENAME).is_file():
+        # Its files would be mixed with the export's, and a re-import would take them too
+        raise HTTPException(
+            status_code=422,
+            detail="That folder isn't empty. Choose an empty one, or an unfinished export.",
+        )
+    return path
+
+
+@router.get("/full-export", response_model=FullExportStatus)
+def full_export_status():
+    """The export running now, and on a server where exports go and the newest one."""
+    server = settings.app_mode != "app"
+    latest = export_library.latest_server_export() if server else None
+    return FullExportStatus(
+        job_id=get_job_runner().get_active_job_id(export_library.JOB_NAME),
+        folder=str(export_library.server_exports_dir()) if server else "",
+        latest=str(latest) if latest else None,
+    )
+
+
+@router.post("/full-export", status_code=202, response_model=FullExportStarted)
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def start_full_export(request: Request, body: FullExportRequest):
+    """Export every image and its metadata as a folder, as a background job (a JSON body:
+    see ``start_metadata_export``)."""
+    target = _full_export_target(body)
+    runner = get_job_runner()
+    with metadata_export.export_lock:
+        if runner.has_active_job(export_library.JOB_NAME):
+            raise HTTPException(status_code=409, detail="An export is already running")
+        _refuse_while_reembedding(runner)
+        job_id = runner.submit(
+            export_library.export_library,
+            target,
+            include_linked=body.include_linked,
+            name=export_library.JOB_NAME,
+        )
+    return FullExportStarted(job_id=job_id, path=str(target))

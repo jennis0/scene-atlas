@@ -43,7 +43,7 @@ import {
   type LibraryDirs,
 } from './libraryDirs'
 import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
-import { pickExportFile, pickImportPaths, pickLibraryFolder } from './pickers'
+import { pickExportFile, pickExportFolder, pickImportPaths, pickLibraryFolder } from './pickers'
 import { showDownloadProgress } from './downloads'
 import { Updater } from './updater'
 import { parseUpdateChoice, type UpdateState } from './updatePolicy'
@@ -207,6 +207,7 @@ handleTrusted('export:choose-file', (event, defaultName) =>
       : 'scene-atlas-metadata.jsonl.gz',
   ),
 )
+handleTrusted('export:choose-folder', (event) => pickExportFolder(event.sender))
 
 // The library's folders (design/library-setup.md): the setup wizard's library step and
 // Settings choose them; the backend checks them (POST /library/inspect) before they're applied.

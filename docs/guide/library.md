@@ -89,7 +89,16 @@ On a new computer or after a reinstall, point the desktop setup's library step a
 
 A download holds at most 999 images and 2 GB. Downloading a single image from the viewer or its menu saves just that file, named the same way.
 
-For a very large library, the [`export_library` command](/reference/cli#export-the-library) writes every image straight to a folder.
+## Exporting the whole library
+
+**Settings → Library → Export library** copies every image into a folder, laid out like a download, with its `scene-atlas.jsonl`. The files are ordinary images in folders named after their groups, so they're yours to use without Scene Atlas; importing the folder (or a ZIP of it) into Scene Atlas brings everything back, names, groups, tags, grids and search data included.
+
+- **Desktop app:** choose an empty folder. It needs as much free space as *Imported images* takes.
+- **Server:** it's written into `exports/` inside `SCENE_ATLAS_IMAGES_DIR`, and Settings shows where. Copy it off the server from there.
+
+Each file is checked against the library's record of it as it's copied. Files that can't be read are skipped and listed when it's done. A large library takes as long as copying its files: hours for a terabyte. If it stops (a full disk, say), make room and choose **Carry on**, or choose the same folder again: it picks up where it got to. If you have a linked library, you can leave its images out, since you have those files already.
+
+The [`export_library` command](/reference/cli#export-the-library) does the same from the command line.
 
 ## Starting over
 

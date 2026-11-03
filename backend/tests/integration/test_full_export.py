@@ -4,12 +4,16 @@ listed, a full disk stopping it."""
 
 import errno
 import os
+import time
 from collections import namedtuple
+from pathlib import Path
 
 import pytest
 
+from backend.app.config import settings
 from backend.app.models import Image
 from backend.app.services import get_image_store
+from backend.app.services.job_runner import get_job_runner
 from backend.pipeline import export_library as ex
 from backend.pipeline import library_format as lf
 
@@ -141,3 +145,78 @@ def test_copy_verified_leaves_nothing_half_written(tmp_path):
     ex.copy_verified(source, target, None)
     assert target.read_bytes() == b"x" * 10
     os.utime(target, (1, 1))
+
+
+def _wait(api, job_id: str) -> dict:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        job = api.client.get(f"/api/v1/jobs/{job_id}").json()
+        if job["status"] in ("completed", "failed"):
+            return job
+        time.sleep(0.05)
+    raise AssertionError("export job did not finish")
+
+
+class TestApi:
+    URL = "/api/v1/library/full-export"
+
+    def test_a_server_exports_into_its_images_folder_and_resumes_the_newest(
+        self, api, library, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "app_mode", "server")
+        status = api.client.get(self.URL).json()
+        assert status == {
+            "job_id": None,
+            "folder": str(settings.images_dir / "exports"),
+            "latest": None,
+        }
+        response = api.client.post(self.URL, json={})
+        assert response.status_code == 202, response.text
+        out = Path(response.json()["path"])
+        assert out.parent == settings.images_dir / "exports"
+        job = _wait(api, response.json()["job_id"])
+        assert job["status"] == "completed", job.get("error")
+        assert job["result"]["images"] == 3
+        assert api.client.get(self.URL).json()["latest"] == str(out)
+
+        again = api.client.post(self.URL, json={"resume": True})
+        assert again.json()["path"] == str(out)  # carried on, not a new folder
+        assert _wait(api, again.json()["job_id"])["result"]["images"] == 3
+
+    def test_a_server_refuses_a_folder(self, api, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "app_mode", "server")
+        assert api.client.post(self.URL, json={"path": str(tmp_path)}).status_code == 422
+
+    def test_the_desktop_app_exports_into_the_folder_it_chose(
+        self, api, library, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "app_mode", "app")
+        out = tmp_path / "Picked"
+        out.mkdir()
+        response = api.client.post(self.URL, json={"path": str(out), "include_linked": False})
+        assert response.status_code == 202, response.text
+        assert _wait(api, response.json()["job_id"])["result"]["images"] == 3
+        # Picked again: it's an export, so it carries on
+        assert api.client.post(self.URL, json={"path": str(out)}).status_code == 202
+
+    @pytest.mark.parametrize("case", ["none", "relative", "missing", "not empty", "store", "data"])
+    def test_bad_desktop_folders(self, api, tmp_path, monkeypatch, case):
+        monkeypatch.setattr(settings, "app_mode", "app")
+        settings.images_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "Full").mkdir()
+        (tmp_path / "Full" / "notes.txt").write_text("mine")
+        path = {
+            "none": None,
+            "relative": "Export",
+            "missing": str(tmp_path / "nope"),
+            "not empty": str(tmp_path / "Full"),
+            "store": str(settings.images_dir),
+            "data": str(settings.data_dir),
+        }[case]
+        assert api.client.post(self.URL, json={"path": path}).status_code == 422
+
+    def test_one_export_at_a_time(self, api, monkeypatch):
+        monkeypatch.setattr(settings, "app_mode", "server")
+        runner = get_job_runner()
+        monkeypatch.setattr(runner, "has_active_job", lambda name: name == ex.JOB_NAME)
+        assert api.client.post(self.URL, json={}).status_code == 409

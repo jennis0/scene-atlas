@@ -57,6 +57,12 @@ export interface LibraryStatus {
   linked: LinkedFolder | null
 }
 
+export interface FullExportStatus {
+  job_id: string | null
+  folder: string // server: where exports go; desktop: ''
+  latest: string | null // server: the newest export's folder
+}
+
 export const libraryApi = {
   inspect: async (body: InspectRequest): Promise<InspectResult> => {
     const { data } = await api.post<InspectResult>('/library/inspect', body)
@@ -86,6 +92,28 @@ export const libraryApi = {
    * The desktop app passes the file it picked; a server writes it for download. */
   startMetadataExport: async (path?: string): Promise<{ job_id: string }> => {
     const { data } = await api.post<{ job_id: string }>('/library/metadata-export', { path })
+    return data
+  },
+
+  /** The library export running now; on a server, where exports go and the newest one */
+  fullExportStatus: async (): Promise<FullExportStatus> => {
+    const { data } = await api.get<FullExportStatus>('/library/full-export')
+    return data
+  },
+
+  /** Export every image and its metadata as a folder (design/export-backup-move.md §7).
+   * The desktop app passes the folder it picked; a server writes into its exports folder,
+   * carrying on its newest export with `resume`. */
+  startFullExport: async (options: {
+    path?: string
+    resume?: boolean
+    includeLinked?: boolean
+  }): Promise<{ job_id: string; path: string }> => {
+    const { data } = await api.post<{ job_id: string; path: string }>('/library/full-export', {
+      path: options.path,
+      resume: options.resume ?? false,
+      include_linked: options.includeLinked ?? true,
+    })
     return data
   },
 

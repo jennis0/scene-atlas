@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from ..config import USER_FOLDERS, settings
 from ..library_identity import rewrite_markers
 from ..models import (
     Color,
@@ -37,11 +37,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _dir_size(path: Path) -> int:
-    """Recursively sum file sizes under *path*; returns 0 if path doesn't exist."""
+def _dir_size(path: Path, skip: tuple[str, ...] = ()) -> int:
+    """Recursively sum file sizes under *path*, leaving out its entries named in *skip*;
+    returns 0 if path doesn't exist."""
     total = 0
     try:
         for entry in os.scandir(path):
+            if entry.name in skip:
+                continue
             if entry.is_file(follow_symlinks=False):
                 total += entry.stat().st_size
             elif entry.is_dir(follow_symlinks=False):
@@ -68,7 +71,7 @@ def system_info(db: Session = Depends(get_db)):
     image_count = db.query(Image).filter(listed_images()).count()
     group_count = db.query(ImageGroup).count()
 
-    images_bytes = _dir_size(settings.store_images_dir)
+    images_bytes = _dir_size(settings.store_images_dir, skip=USER_FOLDERS)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
     vector_db_bytes = _dir_size(settings.vector_db_path)
     db_path = settings.data_dir / "battlemap.db"
@@ -113,12 +116,13 @@ def update_status():
 
 def _empty_store(store: Path) -> None:
     """Delete everything in the store except its lock file, which this process holds
-    open: Windows can't delete it, and elsewhere a second backend could then lock a new
-    one. The library marker goes too, and is written again afterwards."""
+    open (Windows can't delete it, and elsewhere a second backend could then lock a new
+    one), and the user's own folders (exports, set-aside files). The library marker goes
+    too, and is written again afterwards."""
     if not store.is_dir():
         return
     for entry in os.scandir(store):
-        if entry.name == LOCK_FILENAME:
+        if entry.name == LOCK_FILENAME or entry.name in USER_FOLDERS:
             continue
         if entry.is_dir(follow_symlinks=False):
             shutil.rmtree(entry.path)

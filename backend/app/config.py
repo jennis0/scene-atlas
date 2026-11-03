@@ -14,6 +14,10 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 _LEGACY_LIBRARY_DIR = _REPO_ROOT / "images"
 
 
+# Folders of the user's own in the images folder: never purged, nor counted as images
+USER_FOLDERS = ("exports", "not-in-backup", "backups")
+
+
 def default_images_dir(data_dir: Path) -> Path:
     """Where originals go when SCENE_ATLAS_IMAGES_DIR isn't set: beside the data, so
     setting SCENE_ATLAS_DATA_DIR alone keeps a whole library in one place.

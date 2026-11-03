@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Where to save a metadata export: the backend writes it there
   chooseExportFile: (defaultName: string): Promise<string | null> =>
     ipcRenderer.invoke('export:choose-file', defaultName),
+  // Where to export the whole library: the backend writes the folder
+  chooseExportFolder: (): Promise<string | null> => ipcRenderer.invoke('export:choose-folder'),
 
   setZoom: (percent: number): void => {
     const factor = zoomFactor(percent)

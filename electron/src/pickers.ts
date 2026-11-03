@@ -1,5 +1,5 @@
 // Native folder and file pickers: the library's folders (setup and Settings), local
-// imports, and where to save a metadata export. main.ts registers the IPC that opens
+// imports, and where to save a metadata export or the library's export. main.ts registers the IPC that opens
 // them; each picker opens over the window that asked, or on its own if that window has
 // gone.
 import * as path from 'path'
@@ -69,6 +69,23 @@ export async function pickExportFile(
     return result.canceled || !result.filePath ? null : result.filePath
   } catch (err) {
     console.error('[electron] Save dialog failed:', err)
+    return null
+  }
+}
+
+/** The folder to export the library into (design/export-backup-move.md §7): an empty one,
+ * or an unfinished export to carry on. Null when cancelled, and when the dialog fails. */
+export async function pickExportFolder(sender: Electron.WebContents): Promise<string | null> {
+  try {
+    const paths = await openDialog(sender, {
+      title: 'Export library to',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Export here',
+    })
+    return paths[0] ?? null
+  } catch (err) {
+    console.error('[electron] Folder picker failed:', err)
     return null
   }
 }

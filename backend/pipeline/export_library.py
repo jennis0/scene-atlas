@@ -64,11 +64,28 @@ class ExportStopped(OSError):
     """The export can't go on (a full or failing disk); run it again to resume."""
 
 
+_PREFIX = "scene-atlas-export-"
+
+
+def server_exports_dir() -> Path:
+    """Where a server writes full exports: in the images folder, which its admin can reach
+    on the host."""
+    return settings.images_dir / "exports"
+
+
 def server_export_dir(now: datetime | None = None) -> Path:
-    """Where a server writes a full export: in the images folder, which its admin can
-    reach on the host."""
+    """A new export's folder on a server."""
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    return settings.images_dir / "exports" / f"scene-atlas-export-{stamp}"
+    return server_exports_dir() / f"{_PREFIX}{stamp}"
+
+
+def latest_server_export() -> Path | None:
+    """The newest export folder on a server (the names sort by time)."""
+    root = server_exports_dir()
+    if not root.is_dir():
+        return None
+    found = sorted(p for p in root.iterdir() if p.is_dir() and p.name.startswith(_PREFIX))
+    return found[-1] if found else None
 
 
 @dataclass
