@@ -17,6 +17,7 @@ import { useStorageDirs } from '@/hooks/useStorageDirs'
 import { LinkedFolderSection } from './LinkedFolderSection'
 import { FullExportRow } from './FullExportRow'
 import { MetadataExportRow } from './MetadataExportRow'
+import { RebuildRow } from './RebuildRow'
 import { formatBytes } from '@/lib/format'
 
 interface SystemInfo {
@@ -43,6 +44,8 @@ export function LibraryTab({ open }: { open: boolean }) {
       <MetadataExportRow />
       <FullExportRow />
       <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
+        <RebuildRow />
+        <div className="border-t border-destructive/10" />
         <DeleteLibraryRow />
         <div className="border-t border-destructive/10" />
         <ResetTagsRow />

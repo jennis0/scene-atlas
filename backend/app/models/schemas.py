@@ -655,6 +655,21 @@ class FullExportStatus(BaseModel):
     latest: str | None  # server: the newest export's folder, to resume
 
 
+class RebuildStatus(BaseModel):
+    """Where a rebuild from an export has got to (design/export-backup-move.md §8)."""
+
+    staged: bool  # an export is uploaded
+    check: dict | None  # what checking it found (library_rebuild.CheckResult)
+    built: bool  # built, waiting to be applied
+    job_id: str | None  # the check or build running now
+    summary: dict | None  # the last rebuild's set-aside summary
+    set_aside_running: bool
+
+
+class RebuildApplied(BaseModel):
+    restart: Literal["app", "server"]  # who restarts the backend
+
+
 class LibraryScanStarted(BaseModel):
     started: bool
 

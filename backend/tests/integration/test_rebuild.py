@@ -153,3 +153,60 @@ def test_nothing_to_swap_without_a_build(api):
     with pytest.raises(lr.RebuildError):
         lr.request_swap()
     assert lr.swap_if_pending() is None
+
+
+class TestApi:
+    URL = "/api/v1/library/rebuild"
+
+    def _wait(self, api, job_id):
+        import time
+
+        for _ in range(300):
+            job = api.client.get(f"/api/v1/jobs/{job_id}").json()
+            if job["status"] in ("completed", "failed"):
+                return job
+            time.sleep(0.05)
+        raise AssertionError("job did not finish")
+
+    def test_upload_check_build_apply(self, api, library, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "vector_db_path", api.vectors._path)
+        export = tmp_path / "backup.jsonl.gz"
+        me.export_metadata(export)
+        try:
+            assert api.client.get(self.URL).json()["staged"] is False
+            assert api.client.post(f"{self.URL}/check").status_code == 409  # nothing yet
+            response = api.client.put(f"{self.URL}/upload", content=export.read_bytes())
+            assert response.status_code == 200 and response.json()["staged"] is True
+
+            job = self._wait(api, api.client.post(f"{self.URL}/check").json()["job_id"])
+            assert job["status"] == "completed", job.get("error")
+            assert job["result"]["lost"]["images"] == 0
+            assert api.client.get(self.URL).json()["check"]["images"] == 3
+
+            job = self._wait(api, api.client.post(f"{self.URL}/build").json()["job_id"])
+            assert job["status"] == "completed", job.get("error")
+            assert api.client.get(self.URL).json()["built"] is True
+
+            monkeypatch.setattr(settings, "app_mode", "app")
+            assert api.client.post(f"{self.URL}/apply").json() == {"restart": "app"}
+            assert (lr.rebuild_dir() / "pending.json").is_file()
+        finally:
+            shutil.rmtree(lr.rebuild_dir(), ignore_errors=True)
+
+    def test_a_bad_file_fails_its_check(self, api):
+        try:
+            api.client.put(f"{self.URL}/upload", content=b"not json\n")
+            job = self._wait(api, api.client.post(f"{self.URL}/check").json()["job_id"])
+            assert job["status"] == "failed" and "can't be read" in job["error"]
+            assert api.client.post(f"{self.URL}/build").status_code == 409  # not checked
+        finally:
+            shutil.rmtree(lr.rebuild_dir(), ignore_errors=True)
+
+    def test_cancel_forgets_it(self, api):
+        api.client.put(f"{self.URL}/upload", content=b"x\n")
+        assert api.client.delete(self.URL).status_code == 200
+        assert api.client.get(self.URL).json()["staged"] is False
+        shutil.rmtree(lr.rebuild_dir(), ignore_errors=True)
+
+    def test_nothing_to_apply(self, api):
+        assert api.client.post(f"{self.URL}/apply").status_code == 409

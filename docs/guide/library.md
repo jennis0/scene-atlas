@@ -60,6 +60,18 @@ Scene Atlas doesn't back up your library by itself. Back up both *Imported image
 
 **Settings → Library → Export metadata** saves your library's metadata to one file: the names, groups, tags and grids of every image, and the search data. It doesn't contain the images themselves, so keep it with a copy of *Imported images*. The desktop app asks where to save it; on a server your browser downloads it. A large library takes a few minutes, and the file is a few KB per image.
 
+### Rebuilding from a backup
+
+**Settings → Library → Rebuild from export…** replaces your library's metadata with a file from **Export metadata**: after losing *Search data*, say, or to go back to an earlier state. It doesn't merge: the library becomes what the export holds.
+
+1. Choose the export. Scene Atlas reads it and tells you what would change: images in the export whose files aren't in your library any more (they're left out), and images in your library that aren't in the export (they'll be lost). Open each line to see which groups and images.
+2. Choose **Rebuild**. The new library is built alongside the current one, which you can keep using meanwhile. Nothing changes yet, and **Cancel** still leaves everything as it was.
+3. Choose **Restart now**. Scene Atlas restarts into the rebuilt library. On a server, it stops and your service manager starts it again (Docker Compose does, with `restart: unless-stopped`).
+
+After the restart, image files the export didn't have are moved to `not-in-backup/` inside *Imported images*, in folders named like a download, so you can see what they are and import them again. The previous library's database is kept in `rebuild/` inside *Search data* until the next rebuild. Changes made between choosing **Rebuild** and the restart aren't in the rebuilt library.
+
+The export can be from another library (a warning says so): what matters is that the image files are here. If the search model has changed since the export, images are processed again afterwards.
+
 Before an update changes the structure of its database, Scene Atlas saves a copy of it in `backups/pre-migration/` inside *Imported images*.
 
 To go back to an older version of Scene Atlas after an update, install the older version and restore the newest backup from `backups/pre-migration/`. A database upgraded by a newer version can't be opened by an older one.

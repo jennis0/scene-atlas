@@ -63,6 +63,36 @@ export interface FullExportStatus {
   latest: string | null // server: the newest export's folder
 }
 
+/** A list of images by group, as a rebuild's check reports it */
+export interface RebuildListed {
+  images: number
+  group_count: number
+  groups: { name: string; images: string[] }[]
+}
+
+/** What checking an export found (design/export-backup-move.md §8.2) */
+export interface RebuildCheck {
+  images: number
+  groups: number
+  created_at: string
+  app_version: string
+  different_library: boolean
+  reembed: boolean
+  linked_checked: boolean
+  missing: RebuildListed
+  lost: RebuildListed
+  missing_stored: number
+}
+
+export interface RebuildStatus {
+  staged: boolean
+  check: RebuildCheck | null
+  built: boolean
+  job_id: string | null
+  summary: { id: string; moved: number; folder: string | null } | null
+  set_aside_running: boolean
+}
+
 export const libraryApi = {
   inspect: async (body: InspectRequest): Promise<InspectResult> => {
     const { data } = await api.post<InspectResult>('/library/inspect', body)
@@ -115,6 +145,41 @@ export const libraryApi = {
       include_linked: options.includeLinked ?? true,
     })
     return data
+  },
+
+  /** Rebuild from a metadata export (design/export-backup-move.md §8) */
+  rebuildStatus: async (): Promise<RebuildStatus> => {
+    const { data } = await api.get<RebuildStatus>('/library/rebuild')
+    return data
+  },
+
+  uploadRebuild: async (file: File, onProgress?: (loaded: number) => void): Promise<void> => {
+    await api.put('/library/rebuild/upload', file, {
+      headers: { 'Content-Type': 'application/octet-stream' },
+      timeout: 0,
+      onUploadProgress: (e) => onProgress?.(e.loaded),
+    })
+  },
+
+  checkRebuild: async (): Promise<{ job_id: string }> => {
+    const { data } = await api.post<{ job_id: string }>('/library/rebuild/check')
+    return data
+  },
+
+  buildRebuild: async (): Promise<{ job_id: string }> => {
+    const { data } = await api.post<{ job_id: string }>('/library/rebuild/build')
+    return data
+  },
+
+  /** Swap the built library in: the desktop app restarts its backend; a server stops and
+   * its service manager starts it again */
+  applyRebuild: async (): Promise<{ restart: 'app' | 'server' }> => {
+    const { data } = await api.post<{ restart: 'app' | 'server' }>('/library/rebuild/apply')
+    return data
+  },
+
+  cancelRebuild: async (): Promise<void> => {
+    await api.delete('/library/rebuild')
   },
 
   /** Remove the maps whose linked file is missing (never touches files) */

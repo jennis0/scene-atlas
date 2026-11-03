@@ -756,3 +756,22 @@ def last_summary() -> dict | None:
         return json.loads((rebuild_dir() / "summary.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+# Jobs (api/rebuild.py submits them)
+
+
+def check_job(progress_fn: ProgressFn | None = None) -> dict:
+    from backend.pipeline.db import pipeline_db
+
+    if progress_fn:
+        progress_fn(0, 0, "Reading the export…")
+    with pipeline_db() as db:
+        return asdict(check(db))
+
+
+def build_job(progress_fn: ProgressFn | None = None) -> dict:
+    from backend.pipeline.db import pipeline_db
+
+    with pipeline_db() as db:
+        return build(db, progress_fn)

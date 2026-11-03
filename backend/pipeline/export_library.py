@@ -163,7 +163,7 @@ def _read_resume(path: Path, library_id: str | None) -> _Resume:
             except ValueError:
                 obj = None
             if not isinstance(obj, dict):
-                if not resume.started and not raw.startswith(b'{"format"'):
+                if not resume.started and (raw.endswith(b"\n") or not raw.startswith(b'{"format"')):
                     raise _not_ours()  # not a torn header of ours: someone else's file
                 break  # a write the process was killed in
             if not resume.started:

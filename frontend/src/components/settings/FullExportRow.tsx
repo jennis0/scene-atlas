@@ -95,9 +95,10 @@ export function FullExportRow() {
       saveFolder(data.path)
       job.track(data.job_id)
     },
-    onError: (err) => {
+    onError: (err, resume) => {
       toast.error(getApiErrorMessage(err, 'Could not start the export'))
-      if (desktop && isHttpStatus(err, 422)) forgetFolder() // gone, or not an export now
+      // The remembered folder is gone, or isn't an export now (not: a new pick refused)
+      if (desktop && resume && isHttpStatus(err, 422)) forgetFolder()
       void queryClient.invalidateQueries({ queryKey: STATUS_KEY })
     },
   })

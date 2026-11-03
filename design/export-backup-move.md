@@ -215,6 +215,16 @@ Replaces the library's metadata with a `library` file. The user decided the flow
 
 **Build alongside, swap at restart.** The new database and vector table are built from the file while the app keeps running, without touching the live library. The restart only swaps folders. So a failure before the swap changes nothing, and there is no rollback to write.
 
+**As built** (`backend/pipeline/library_rebuild.py`, `api/rebuild.py`, `RebuildRow.tsx`), differing from the plan below where noted:
+
+- The file is staged as `{data_dir}/rebuild/staged.jsonl` (gzipped or not; the reader sniffs) by `PUT /library/rebuild/upload` in both modes: the desktop app uploads over localhost too, so there's one route.
+- **Check** is a job (`POST /check`, "Checking the export"): reading a gigabyte file takes minutes. Its result is saved (`check.json`) so Settings picks it up when reopened (`GET /library/rebuild`). A `groups` file (a download or full export) is refused: "Import it instead". Image or group ids missing (a damaged file) are refused.
+- **Build** (`POST /build`) needs a saved check. `init_db` makes the new database; settings come from the file except `library_id`, `active_model` and `setup_completed_at`; one `library_sources` row for this install's linked folder (or `detached`); rows inserted with their ids in batches of 1,000. Colours' Lab values are recomputed from hex. A linked image whose `source_files` row isn't in the file is dropped. Vectors go into a LanceDB beside it, in the live service's table name, only when the encoder matches. Search text, the linked folder's state and missing vectors are made again by the usual startup work. **Not rebuilt:** visual grouping features (`image_grouping_features`): grouping new imports into rebuilt groups goes by names only.
+- **Apply** (`POST /apply`) writes `pending.json` and restarts: the desktop app via `electronAPI.restartBackend`; a server sends itself SIGTERM after replying and relies on its restart policy, the page polling `/health` and reloading. `swap_if_pending` runs first thing in the lifespan after the storage locks, and deletes older `old-*` folders.
+- **Set aside** runs as a job at startup (when the worker runs) while `pending.json` says `swapped`; the orphan sweep returns early meanwhile. It reuses `library_format.group_lines` over the old database (with `keep`/`place`), writing the log with `.part` then rename; vectors aren't included (a re-import embeds them). Thumbnails of set-aside files are left for the orphan sweep (they're derived). A summary is kept in `summary.json` for Settings.
+- Refusals: one check/build at a time; not while a purge or full export runs (and they refuse while a rebuild builds).
+- **Not yet built:** §8.5 (rebuild when app data is lost, at startup) and the thumbnail backfill.
+
 ### 8.1 Upload
 
 The file is staged at `{data_dir}/rebuild/staged.jsonl.gz` in both modes, so the rebuild never depends on a drive that can be unplugged.

@@ -200,6 +200,8 @@ Scene Atlas doesn't make backups of its own. Back up the `scene-atlas-data` volu
 
 Before an update migrates the database, Scene Atlas writes a copy of it to `SCENE_ATLAS_IMAGES_DIR/backups/pre-migration/`. To go back to the previous version, stop the container, copy that `battlemap.db` into the data volume as `/app/data/battlemap.db`, and start the previous image.
 
+**Settings → Library → Rebuild from export** stops the server to put a rebuilt library in place; it relies on a restart policy (`restart: unless-stopped` in the Compose file) to start it again. Without one, start it yourself: the rebuild finishes as it starts.
+
 ## Updating
 
 Pull the new image and restart:

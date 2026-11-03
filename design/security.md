@@ -157,6 +157,10 @@ There is no restriction on which absolute paths are accepted, so code running in
 
 A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-move.md#6-import)) is untrusted: it goes through the lenient reader, its paths are only compared with file names (never opened), a recorded filename is reduced to a plain name with the file's own extension (`ingest_process.restored_filename`), text is cut to the API's limits, and a file that fails validation is ignored. It is applied only to files whose bytes hash to one of its entries. **A file can name any group `uid`**: an image imported with it joins the library's group with that uid, if there is one. Uids are random and not shown in the UI, so naming one needs a copy of an export from this library; whoever can import can already edit groups through the API, so this grants nothing new.
 
+### 6b-4. MEDIUM: Rebuild from export
+
+`/library/rebuild` ([export-backup-move.md §8](export-backup-move.md#8-rebuild)) replaces the library's metadata, and `POST /apply` stops a server. Controls: every step is a separate request (upload, check, build, apply), the upload is a raw body (a cross-origin page can't send one without a CORS preflight) under the import size limit, check and build are rate-limited as expensive and apply as destructive, and nothing changes the live library until apply. The file is untrusted: it's read by the lenient reader, and nothing in it is used as a path (storage keys are looked up through `ImageStore`, linked paths only checked with `is_file` under the configured folder). The previous database is kept in `rebuild/old-<id>/`. As for every endpoint, server mode has no authentication: anyone who can reach it can rebuild, as they can already purge.
+
 ### 6c. MEDIUM: Reading the linked folder
 
 **Status**: Mitigated.

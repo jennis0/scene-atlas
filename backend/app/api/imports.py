@@ -566,7 +566,7 @@ def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_d
     )
 
 
-async def _stream_body(request: Request, dest: Path, max_bytes: int) -> tuple[int, str]:
+async def stream_body(request: Request, dest: Path, max_bytes: int) -> tuple[int, str]:
     """Stream the request body to ``dest``, hashing as it goes. Returns (bytes, sha256)."""
     digest = hashlib.sha256()
     written = 0
@@ -610,7 +610,7 @@ async def upload_archive(
 
     app_settings = await asyncio.to_thread(_limits)
     tmp = q.staging_dir_for(job_id) / f".{uuid.uuid4().hex}.zip.part"
-    await _stream_body(request, tmp, app_settings.max_import_file_size)
+    await stream_body(request, tmp, app_settings.max_import_file_size)
 
     def _expand() -> ArchiveResult:
         db = _open_session(request)
@@ -670,7 +670,7 @@ async def upload_export_metadata(
 
     app_settings = await asyncio.to_thread(_begin)
     try:
-        await _stream_body(request, tmp, app_settings.max_import_file_size)
+        await stream_body(request, tmp, app_settings.max_import_file_size)
     except BaseException:
         await asyncio.to_thread(import_metadata.forget_pending, job_id, tmp)
         tmp.unlink(missing_ok=True)
@@ -891,7 +891,7 @@ async def upload_content(job_id: str, item_id: int, request: Request):
     staging_key = f"{uuid.uuid4().hex}{ext}"
     final = q.staged_path(job_id, staging_key)
     tmp = final.with_name(f".{staging_key}.part")
-    written, digest = await _stream_body(request, tmp, limit)
+    written, digest = await stream_body(request, tmp, limit)
     if written == 0:
         tmp.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Empty upload")
