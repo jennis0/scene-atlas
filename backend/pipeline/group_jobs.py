@@ -974,7 +974,10 @@ class GroupingScheduler:
                 elif outcome != Outcome.DEFERRED:
                     self._failures.pop(job_id, None)
                     self._waiting_since.pop(job_id, None)
-        if outcome in (None, Outcome.GROUPED, Outcome.NO_VECTORS):  # it read and computed
+        # Only after a run that grouped, or failed (None: it may have got as far as the plan).
+        # Not on NO_VECTORS waits, which a sweep repeats after every batch: a full collection
+        # of a large heap is the cost, not malloc_trim.
+        if outcome in (None, Outcome.GROUPED):
             _release_memory()
 
 

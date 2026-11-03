@@ -254,7 +254,8 @@ def test_a_held_worker_does_not_sweep(monkeypatch):
 
 def test_freed_memory_is_released_after_a_run_that_computed(db_url, monkeypatch):
     """A run's features, pairs and plan are freed, but glibc keeps the pages (~300 MB at 10k
-    images): runs that grouped or failed hand them back; cheap outcomes don't pay for it."""
+    images): runs that grouped or failed hand them back; deferred runs and waits for vectors
+    (repeated every sweep) don't pay for a full collection."""
     released: list[str] = []
     monkeypatch.setattr(gj, "_release_memory", lambda: released.append("x"))
     done = make_job(db_url)
@@ -269,4 +270,8 @@ def test_freed_memory_is_released_after_a_run_that_computed(db_url, monkeypatch)
 
     monkeypatch.setattr(gj, "_proposals", broken)
     assert inline().schedule() == [busy]
+    assert len(released) == 2
+
+    monkeypatch.setattr(gj, "group_job", lambda *_a, **_k: Outcome.NO_VECTORS)
+    assert inline().schedule() == [busy]  # waiting for vectors
     assert len(released) == 2
