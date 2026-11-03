@@ -228,7 +228,10 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    # UTF-8 mode: files read without an encoding (alembic.ini, configs) mustn't depend
+    # on the machine's locale. Under a C/POSIX locale (minimal Linux, containers) the
+    # frozen interpreter otherwise reads them as ASCII and fails to start.
+    [("X utf8_mode=1", None, "OPTION")],
     exclude_binaries=True,
     name='scene-atlas-backend',
     debug=False,

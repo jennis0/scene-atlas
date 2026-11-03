@@ -192,6 +192,8 @@ export async function launch(
     [
       `--user-data-dir=${profile.userData}`,
       `--remote-debugging-port=${cdpPort}`,
+      // Chromium won't start as root without it (a container); never set on CI runners
+      ...(process.env.PACKAGED_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
       ...extraArgs,
     ],
     {
@@ -293,6 +295,21 @@ export async function applyLibraryAndRestart(
   void applyLibrary(page, dirs).catch(() => {});
   await waitUntil("old backend to exit", () => !isAlive(oldSidecarPid), 30_000);
   await waitForChosenLibraryUi(page);
+}
+
+/**
+ * After something that restarts the backend in the window (a move, a rebuild): wait for
+ * the backend that was running (*oldSidecarPid*) to exit, and for the UI to reload on the
+ * new one. Resolves to the new backend's origin.
+ */
+export async function waitForRestartedUi(
+  page: Page,
+  oldSidecarPid: number,
+  timeoutMs = 300_000,
+): Promise<string> {
+  await waitUntil("old backend to exit", () => !isAlive(oldSidecarPid), 60_000);
+  await waitForChosenLibraryUi(page, timeoutMs);
+  return new URL(page.url()).origin;
 }
 
 /** Wait until the window has reloaded the UI with libraryChosen set (after a restart). */

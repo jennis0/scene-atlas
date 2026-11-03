@@ -375,14 +375,37 @@ jobs:
           fi
           uv run --no-project python scripts/build/build_electron.py --skip-sidecar --skip-frontend --platform "$TARGET_PLATFORM"
 
-      # The packaged app's windows and sidecar lifecycle (e2e/packaged). Windows only
-      # for now: the specs are cross-platform but have only been run there.
+      # The search model, for the packaged-app tests that import images and the upgrade
+      # test: downloaded once, then kept between runs.
+      - name: Cache the search model
+        if: matrix.platform == 'windows' || matrix.platform == 'linux'
+        uses: actions/cache@v6
+        with:
+          path: .upgrade-model-cache
+          key: upgrade-model-small-${{ hashFiles('backend/app/services/model_registry.py') }}
+
+      # The packaged app's windows and sidecar lifecycle, and moving, exporting and
+      # rebuilding a library across real restarts (e2e/packaged). Windows and Linux; not
+      # macOS yet (the specs are cross-platform but haven't been run there).
       - name: Test packaged app
         if: matrix.platform == 'windows'
         run: npm run test:packaged
+        env:
+          PACKAGED_MODEL_CACHE: ${{ github.workspace }}\.upgrade-model-cache
+
+      # Under a virtual display, without Chromium's sandbox (a test-only switch,
+      # e2e/packaged/app.ts): newer Ubuntu restricts the user namespaces it needs.
+      - name: Test packaged app (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+          xvfb-run -a npm run test:packaged
+        env:
+          PACKAGED_MODEL_CACHE: ${{ github.workspace }}/.upgrade-model-cache
+          PACKAGED_NO_SANDBOX: "1"
 
       - name: Upload packaged-app test report
-        if: failure() && matrix.platform == 'windows'
+        if: failure() && matrix.platform != 'macos'
         uses: actions/upload-artifact@v7
         with:
           name: packaged-test-report-${{ matrix.platform }}
@@ -413,13 +436,6 @@ jobs:
       - name: Fetch the test images for the upgrade test
         if: matrix.platform == 'windows'
         run: git lfs pull --include "e2e/fixtures/e2e-images.zip.enc"
-
-      - name: Cache the search model for the upgrade test
-        if: matrix.platform == 'windows'
-        uses: actions/cache@v6
-        with:
-          path: .upgrade-model-cache
-          key: upgrade-model-small-${{ hashFiles('backend/app/services/model_registry.py') }}
 
       - name: Upgrade test
         if: matrix.platform == 'windows'
