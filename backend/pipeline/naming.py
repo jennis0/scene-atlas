@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -29,16 +30,25 @@ def sanitize_segment(s: str) -> str:
 
 FOLDER_MAX = 80
 FILE_MAX = 150
-PATH_MAX = 259  # Windows' MAX_PATH, less the terminating NUL
+PATH_MAX = 259  # Windows' MAX_PATH, less the terminating NUL, in UTF-16 units
+_TEMP_SUFFIX = len(".part")  # writers write a file as <name>.part first
 _MIN_STEM = 8  # never shorten a name below this, whatever the path budget says
 _SEP = "_"
-_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"{p}{i}" for p in ("COM", "LPT") for i in range(1, 10)}
+_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
+    f"{p}{i}" for p in ("COM", "LPT") for i in [*"0123456789", "¹", "²", "³"]
+}
+
+
+def _u16(s: str) -> int:
+    """Length as Windows counts it (UTF-16 units: an emoji is two)."""
+    return len(s.encode("utf-16-le")) // 2
 
 
 def layout_segment(s: str | None) -> str:
     """One part of a readable name: unsafe characters, and ``_`` (the separator between
-    parts), become spaces."""
-    return sanitize_segment((s or "").replace(_SEP, " "))
+    parts), become spaces. NFC, so a name typed on macOS (NFD) and one typed on Windows
+    are the same name, as macOS' file systems treat them."""
+    return sanitize_segment(unicodedata.normalize("NFC", (s or "").replace(_SEP, " ")))
 
 
 def _safe_stem(stem: str, limit: int = FILE_MAX) -> str:
@@ -164,7 +174,7 @@ class ReadableLayout:
         """The relative (``/``-separated) path of each of *images*, in order."""
         if group_name is None or len(images) == 1:
             return [self._file(None, self._top, author, group_name, img) for img in images]
-        folder_limit = min(FOLDER_MAX, PATH_MAX - self._root_len - 1 - _MIN_STEM)
+        folder_limit = min(FOLDER_MAX, PATH_MAX - _TEMP_SUFFIX - self._root_len - 1 - _MIN_STEM)
         folder_limit = max(folder_limit, _MIN_STEM)
         joined = _SEP.join(p for p in (layout_segment(author), layout_segment(group_name)) if p)
         folder = self._top.claim(_safe_stem(joined, folder_limit), "", folder_limit)
@@ -195,23 +205,31 @@ class ReadableLayout:
         group_name: str | None,
         img: LayoutImage,
     ) -> str:
-        used = self._root_len + 1 + (len(folder) + 1 if folder else 0)
-        limit = max(min(FILE_MAX, PATH_MAX - used) - len(img.ext), _MIN_STEM)
-        stem = readable_stem(author, group_name, img.subgroup, img.name, img.grid, img.tags, limit)
-        return names.claim(stem, img.ext, limit)
+        budget = PATH_MAX - _TEMP_SUFFIX - self._root_len - 1 - (_u16(folder) + 1 if folder else 0)
+        limit = max(min(FILE_MAX, budget) - len(img.ext), _MIN_STEM)
+        while True:
+            stem = readable_stem(
+                author, group_name, img.subgroup, img.name, img.grid, img.tags, limit
+            )
+            # Characters outside the BMP count twice towards Windows' limit
+            excess = _u16(stem) + _u16(img.ext) - budget
+            if excess <= 0 or limit <= _MIN_STEM:
+                return names.claim(stem, img.ext, limit)
+            limit = max(limit - excess, _MIN_STEM)
 
 
 class _Names:
-    """The names taken in one folder, compared case-insensitively."""
+    """The names taken in one folder, compared as Windows and macOS do: ignoring case and
+    Unicode normalisation."""
 
     def __init__(self, taken: Iterable[str] = ()):
-        self._taken = {t.casefold() for t in taken}
+        self._taken = {_key(t) for t in taken}
         self._next: dict[str, int] = {}  # a name → the next ` (n)` to try for it
 
     def claim(self, stem: str, ext: str, limit: int) -> str:
         """``stem + ext``, or ``stem (n) + ext`` for the first n not taken, shortening
         *stem* so the result keeps within *limit*; records it."""
-        base = (stem + ext).casefold()
+        base = _key(stem + ext)
         candidate = stem
         if base in self._taken:
             n = self._next.get(base, 2)
@@ -219,8 +237,12 @@ class _Names:
                 suffix = f" ({n})"
                 candidate = _safe_stem(stem, limit - len(suffix)) + suffix
                 n += 1
-                if (candidate + ext).casefold() not in self._taken:
+                if _key(candidate + ext) not in self._taken:
                     break
             self._next[base] = n
-        self._taken.add((candidate + ext).casefold())
+        self._taken.add(_key(candidate + ext))
         return candidate + ext
+
+
+def _key(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()

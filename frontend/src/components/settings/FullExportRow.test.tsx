@@ -56,6 +56,7 @@ describe('FullExportRow', () => {
   })
   afterEach(() => {
     delete window.electronAPI
+    localStorage.clear()
   })
 
   it('on a server, says where it writes and reports what it exported', async () => {
@@ -86,9 +87,14 @@ describe('FullExportRow', () => {
     const user = userEvent.setup()
     renderWithProviders(<FullExportRow />)
     await user.click(screen.getByRole('button', { name: 'Export library' }))
+    vi.mocked(libraryApi.fullExportStatus).mockResolvedValue({
+      job_id: null,
+      folder: SERVER_DIR,
+      latest: `${SERVER_DIR}/scene-atlas-export-1`,
+    })
     expect(await screen.findByRole('alert')).toHaveTextContent('Not enough space')
 
-    await user.click(screen.getByRole('button', { name: 'Carry on' }))
+    await user.click(await screen.findByRole('button', { name: 'Carry on' }))
     expect(libraryApi.startFullExport).toHaveBeenLastCalledWith(
       expect.objectContaining({ resume: true }),
     )
@@ -137,6 +143,34 @@ describe('FullExportRow', () => {
     await user.click(screen.getByRole('button', { name: 'Export library' }))
     expect(libraryApi.startFullExport).toHaveBeenCalledWith(
       expect.objectContaining({ includeLinked: false }),
+    )
+  })
+  it("on a server, offers to carry on the export that's there, not a second one", async () => {
+    vi.mocked(libraryApi.fullExportStatus).mockResolvedValue({
+      job_id: null,
+      folder: SERVER_DIR,
+      latest: `${SERVER_DIR}/scene-atlas-export-1`,
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<FullExportRow />)
+    await user.click(await screen.findByRole('button', { name: 'Carry on' }))
+    expect(screen.queryByRole('button', { name: 'Export library' })).not.toBeInTheDocument()
+    expect(libraryApi.startFullExport).toHaveBeenCalledWith(
+      expect.objectContaining({ resume: true }),
+    )
+  })
+
+  it('in the desktop app, remembers the folder for next time', async () => {
+    mode.isApp = true
+    const chooseExportFolder = vi.fn(async () => null)
+    window.electronAPI = { chooseExportFolder } as unknown as Window['electronAPI']
+    localStorage.setItem('sceneAtlas.fullExportFolder', '/home/me/Export')
+    const user = userEvent.setup()
+    renderWithProviders(<FullExportRow />)
+    await user.click(screen.getByRole('button', { name: 'Carry on' }))
+    expect(chooseExportFolder).not.toHaveBeenCalled()
+    expect(libraryApi.startFullExport).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/home/me/Export', resume: true }),
     )
   })
 })

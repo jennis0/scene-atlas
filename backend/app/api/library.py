@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from ...pipeline import export_library, metadata_export
 from ...pipeline import ingest_queue as q
 from ...pipeline.ingest_worker import get_ingest_worker
-from ...pipeline.library_format import FILENAME
 from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
 from ..library_identity import get_library_id, inside_any, inspect_folders
@@ -306,22 +305,27 @@ def _full_export_target(body: FullExportRequest) -> Path:
             raise HTTPException(
                 status_code=422, detail="A folder can only be given in the desktop app"
             )
-        latest = export_library.latest_server_export() if body.resume else None
-        return latest or export_library.server_export_dir()
+        latest = export_library.latest_server_export()
+        if body.resume and latest is not None:
+            return latest
+        if latest is not None:
+            # One at a time on the library's own disk: each can be as big as the library
+            raise HTTPException(
+                status_code=409,
+                detail=f"There's an export already, in {latest}. Carry it on, or delete it "
+                "from the server first.",
+            )
+        return export_library.server_export_dir()
     if body.path is None:
         raise HTTPException(status_code=422, detail="Choose a folder to export to")
     path = Path(body.path)
     if not path.is_absolute():
         raise HTTPException(status_code=422, detail=f"Not an absolute path: {body.path}")
-    if not path.is_dir():
-        raise HTTPException(status_code=422, detail=f"Folder not found: {path}")
     _outside_library(path)
-    if any(path.iterdir()) and not (path / FILENAME).is_file():
-        # Its files would be mixed with the export's, and a re-import would take them too
-        raise HTTPException(
-            status_code=422,
-            detail="That folder isn't empty. Choose an empty one, or an unfinished export.",
-        )
+    try:
+        export_library.check_target(path)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     return path
 
 

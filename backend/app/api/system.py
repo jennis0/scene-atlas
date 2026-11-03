@@ -209,6 +209,14 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     runner = get_job_runner()
     if runner.has_active_job(PURGE_JOB_NAME):
         raise HTTPException(status_code=409, detail="Library purge already in progress")
+    from ...pipeline import export_library, library_rebuild
+
+    for job, what in (
+        (export_library.JOB_NAME, "The library is being exported"),
+        (library_rebuild.JOB_NAME, "The library is being rebuilt"),
+    ):
+        if runner.has_active_job(job):  # it reads the files a purge deletes
+            raise HTTPException(status_code=409, detail=f"{what}; try again when it has finished")
     if get_linked_scanner().running:
         raise HTTPException(
             status_code=409, detail="The linked library is being checked; try again in a moment"

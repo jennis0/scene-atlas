@@ -31,13 +31,32 @@ function asResult(result: Record<string, unknown> | null): ExportResult | null {
   return result && typeof result.images === 'number' ? (result as unknown as ExportResult) : null
 }
 
+const FOLDER_KEY = 'sceneAtlas.fullExportFolder'
+
+function readFolder(): string | null {
+  try {
+    return localStorage.getItem(FOLDER_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveFolder(path: string): void {
+  try {
+    localStorage.setItem(FOLDER_KEY, path)
+  } catch {
+    // Not kept: Carry on asks for the folder again next time
+  }
+}
+
 export function FullExportRow() {
   const queryClient = useQueryClient()
   const job = useJobPolling()
   const desktop = isApp && typeof window.electronAPI?.chooseExportFolder === 'function'
   const [includeLinked, setIncludeLinked] = useState(true)
-  // The folder of the export started last: "Carry on" goes on there
-  const [folder, setFolder] = useState<string | null>(null)
+  // Desktop: the folder of the export started last, kept across visits: Carry on goes on
+  // there (a server knows its own: status.latest)
+  const [folder, setFolder] = useState<string | null>(readFolder)
 
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: libraryApi.fullExportStatus })
   const { data: library } = useLibraryStatus()
@@ -61,6 +80,7 @@ export function FullExportRow() {
     onSuccess: (data) => {
       if (!data) return
       setFolder(data.path)
+      saveFolder(data.path)
       job.track(data.job_id)
     },
     onError: (err) => {
@@ -70,8 +90,16 @@ export function FullExportRow() {
   })
 
   const result = job.isComplete ? asResult(job.result) : null
-  // A server carries on its newest export; the desktop app the folder it chose
-  const canCarryOn = job.isFailed && (desktop ? !!folder : true)
+  const { isComplete, isFailed } = job
+  useEffect(() => {
+    // A server's newest export is now the one that ran
+    if (isComplete || isFailed) void queryClient.invalidateQueries({ queryKey: STATUS_KEY })
+  }, [isComplete, isFailed, queryClient])
+  // An export there already (stopped, or finished and the library grown since) can be
+  // carried on. A server keeps one at a time, so it offers only that.
+  const latest = desktop ? folder : (status.data?.latest ?? null)
+  const canCarryOn = !!latest && !isComplete
+  const canStartNew = desktop || !latest
 
   return (
     <div className="space-y-2">
@@ -107,24 +135,27 @@ export function FullExportRow() {
                 onClick={() => start.mutate(true)}
                 disabled={start.isPending}
                 className="h-8"
+                title={latest ?? undefined}
               >
                 Carry on
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => start.mutate(false)}
-              disabled={start.isPending}
-              className="gap-1.5 h-8"
-            >
-              {start.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FolderDown className="h-3.5 w-3.5" />
-              )}
-              {desktop ? 'Export library…' : 'Export library'}
-            </Button>
+            {canStartNew && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => start.mutate(false)}
+                disabled={start.isPending}
+                className="gap-1.5 h-8"
+              >
+                {start.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FolderDown className="h-3.5 w-3.5" />
+                )}
+                {desktop ? 'Export library…' : 'Export library'}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -136,6 +167,12 @@ export function FullExportRow() {
           />
           Include the linked library&apos;s images (you have those files already)
         </label>
+      )}
+      {!desktop && latest && !job.isRunning && !result && (
+        <p className="text-xs text-muted-foreground">
+          The last export is in <span className="font-mono break-all">{latest}</span>. Carry it on
+          to add what&apos;s new, or delete it from the server to start again.
+        </p>
       )}
       {result && <ExportDone result={result} />}
       {job.isFailed && (

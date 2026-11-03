@@ -93,10 +93,10 @@ A download holds at most 999 images and 2 GB. Downloading a single image from th
 
 **Settings → Library → Export library** copies every image into a folder, laid out like a download, with its `scene-atlas.jsonl`. The files are ordinary images in folders named after their groups, so they're yours to use without Scene Atlas; importing the folder (or a ZIP of it) into Scene Atlas brings everything back, names, groups, tags, grids and search data included.
 
-- **Desktop app:** choose an empty folder. It needs as much free space as *Imported images* takes.
-- **Server:** it's written into `exports/` inside `SCENE_ATLAS_IMAGES_DIR`, and Settings shows where. Copy it off the server from there.
+- **Desktop app:** choose an empty folder. It needs as much free space as your images take: *Imported images*, plus the linked library unless you leave it out.
+- **Server:** it's written into `exports/` inside `SCENE_ATLAS_IMAGES_DIR`, and Settings shows where. Copy it off the server from there, then delete it: the server keeps one export at a time, and a backup of the images folder would copy it too.
 
-Each file is checked against the library's record of it as it's copied. Files that can't be read are skipped and listed when it's done. A large library takes as long as copying its files: hours for a terabyte. If it stops (a full disk, say), make room and choose **Carry on**, or choose the same folder again: it picks up where it got to. If you have a linked library, you can leave its images out, since you have those files already.
+Each file is checked against the library's record of it as it's copied. Files that can't be read are skipped, listed when it's done, and written to `scene-atlas-export-problems.txt` in the folder. A large library takes as long as copying its files: hours for a terabyte. If it stops (a full disk, the computer turned off), make room and choose **Carry on**: it picks up where it got to. **Carry on** after a finished export adds the groups that are new since. It doesn't retry files that were skipped in groups it has already written; export into a new folder for those. If you have a linked library, you can leave its images out, since you have those files already.
 
 The [`export_library` command](/reference/cli#export-the-library) does the same from the command line.
 

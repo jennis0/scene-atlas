@@ -176,3 +176,31 @@ def test_layout_image_only_keeps_plain_extensions(filename, ext):
         grid_height=None, storage_key=None, filename=filename, tags=[],
     )  # fmt: skip
     assert layout_image(img).ext == ext
+
+
+def test_names_that_differ_only_in_unicode_form_are_kept_apart():
+    """macOS' file systems treat NFC and NFD as one name: so must the layout."""
+    import unicodedata
+
+    layout = ReadableLayout()
+    nfc = layout.place_group(unicodedata.normalize("NFC", "Café"), "A", [_img(), _img("Night")])
+    nfd = layout.place_group(unicodedata.normalize("NFD", "Café"), "A", [_img(), _img("Night")])
+    assert nfc[0].split("/")[0] == "A_Café"
+    assert nfd[0].split("/")[0] == "A_Café (2)"
+    assert unicodedata.is_normalized("NFC", nfd[0])
+
+
+@pytest.mark.parametrize("name", ["Long " * 60, "🐉" * 120])
+def test_paths_leave_room_for_the_part_file_in_windows_units(name):
+    root_len = 120
+    layout = ReadableLayout(root_len=root_len)
+    (path,) = layout.place_group(None, "Author", [_img(name=name)])
+    windows_len = root_len + 1 + len(path.encode("utf-16-le")) // 2 + len(".part")
+    assert windows_len <= 259
+
+
+@pytest.mark.parametrize("stem", ["COM0", "LPT¹", "CONIN$", "conout$"])
+def test_more_reserved_windows_names(stem):
+    from backend.pipeline.naming import _safe_stem
+
+    assert _safe_stem(stem) != stem

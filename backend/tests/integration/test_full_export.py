@@ -3,15 +3,18 @@ the readable layout with metadata that re-imports them; resumable; problems skip
 listed, a full disk stopping it."""
 
 import errno
+import hashlib
+import io
 import os
 import time
 from collections import namedtuple
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from backend.app.config import settings
-from backend.app.models import Image
+from backend.app.models import Image, ImageGroup
 from backend.app.services import get_image_store
 from backend.app.services.job_runner import get_job_runner
 from backend.pipeline import export_library as ex
@@ -132,7 +135,7 @@ def test_too_little_space_stops_it_before_writing(api, library, tmp_path, monkey
     monkeypatch.setattr(ex.shutil, "disk_usage", lambda _p: Usage(10, 9, 1))
     with pytest.raises(ex.ExportStopped, match="Not enough space"):
         ex.export_library(tmp_path / "Export")
-    assert [p.name for p in (tmp_path / "Export").iterdir()] == [lf.FILENAME]
+    assert list((tmp_path / "Export").iterdir()) == []  # it didn't start
 
 
 def test_copy_verified_leaves_nothing_half_written(tmp_path):
@@ -144,7 +147,100 @@ def test_copy_verified_leaves_nothing_half_written(tmp_path):
     assert not target.exists() and not list(target.parent.iterdir())
     ex.copy_verified(source, target, None)
     assert target.read_bytes() == b"x" * 10
+    # Already there with the right bytes: left alone
     os.utime(target, (1, 1))
+    ex.copy_verified(source, target, hashlib.sha256(b"x" * 10).hexdigest())
+    assert target.stat().st_mtime == 1
+
+
+def test_a_group_stopped_part_way_is_finished_without_copying_again(
+    api, library, tmp_path, monkeypatch
+):
+    out = tmp_path / "Export"
+    real_copy = ex.copy_verified
+    copies = []
+
+    def disk_fills_on_the_second(source, target, expected):
+        copies.append(target.name)
+        if len(copies) == 2:  # the forest's second file
+            raise OSError(errno.ENOSPC, "No space left on device")
+        real_copy(source, target, expected)
+
+    monkeypatch.setattr(ex, "copy_verified", disk_fills_on_the_second)
+    with pytest.raises(ex.ExportStopped):
+        ex.export_library(out)
+    assert len(_lines(out)) == 1  # the header only: the forest isn't finished
+    (first,) = [p for p in out.rglob("*.png")]
+    written = first.stat().st_mtime_ns
+
+    monkeypatch.setattr(ex, "copy_verified", real_copy)
+    assert ex.export_library(out)["images"] == 3
+    assert first.stat().st_mtime_ns == written  # found by its hash, not copied again
+    assert sum(len(ln.images) for ln in _lines(out)[1:]) == 3
+
+
+@pytest.mark.parametrize("damage", ["empty", "torn last line"])
+def test_a_killed_export_carries_on(api, library, tmp_path, damage):
+    """The process killed mid-write: an empty file, or half a line at the end."""
+    out = tmp_path / "Export"
+    ex.export_library(out)
+    metadata = out / lf.FILENAME
+    text = metadata.read_bytes()
+    if damage == "empty":
+        metadata.write_bytes(b"")
+    else:
+        last = text.rstrip(b"\n").rsplit(b"\n", 1)[0] + b"\n"
+        metadata.write_bytes(last + text[len(last) : len(last) + 40])  # 40 bytes of it
+
+    assert ex.export_library(out)["images"] == 3
+    lines = _lines(out)
+    assert [type(ln) for ln in lines].count(lf.Header) == 1
+    paths = [img.path for ln in lines[1:] for img in ln.images]
+    assert len(paths) == len(set(paths)) == 3
+
+
+def test_the_last_group_is_written_again_in_case_it_was_torn(api, library, tmp_path):
+    out = tmp_path / "Export"
+    ex.export_library(out)
+    before = _lines(out)
+    ex.export_library(out)  # carried on with nothing new: the last group is placed again
+    assert [ln.model_dump() for ln in _lines(out)] == [ln.model_dump() for ln in before]
+
+
+def test_another_folder_with_metadata_is_not_carried_on(api, library, tmp_path):
+    _images, forest = library
+    body = round_trip._download(api, group_ids=[forest])
+    out = tmp_path / "Download"
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        zf.extractall(out)
+    with pytest.raises(ex.ExportStopped, match="something else"):
+        ex.export_library(out)
+
+
+def test_the_cover_is_kept_when_another_file_fails(api, library, tmp_path, monkeypatch):
+    images, forest = library
+    with api.SessionLocal() as db:
+        night = images["Golden Forest Night.png"]
+        db.get_one(ImageGroup, forest).primary_image_id = night
+        db.commit()
+    real_copy = ex.copy_verified
+
+    def day_fails(source, target, expected):
+        if "Day" in target.name:
+            raise OSError(errno.EACCES, "Permission denied")
+        real_copy(source, target, expected)
+
+    monkeypatch.setattr(ex, "copy_verified", day_fails)
+    result = ex.export_library(tmp_path / "Export")
+    assert result["skipped"] == 1
+    assert (tmp_path / "Export" / ex.PROBLEMS_FILE).read_text().count("\n") == 1
+    (forest_line,) = [
+        ln
+        for ln in _lines(tmp_path / "Export")[1:]
+        if ln.group and len(ln.images) > 0 and "Forest" in ln.group.base_name
+    ]
+    assert forest_line.group.primary is not None
+    assert "Night" in forest_line.images[forest_line.group.primary].path
 
 
 def _wait(api, job_id: str) -> dict:
@@ -167,13 +263,13 @@ class TestApi:
         status = api.client.get(self.URL).json()
         assert status == {
             "job_id": None,
-            "folder": str(settings.images_dir / "exports"),
+            "folder": str(settings.store_images_dir / "exports"),
             "latest": None,
         }
         response = api.client.post(self.URL, json={})
         assert response.status_code == 202, response.text
         out = Path(response.json()["path"])
-        assert out.parent == settings.images_dir / "exports"
+        assert out.parent == settings.store_images_dir / "exports"
         job = _wait(api, response.json()["job_id"])
         assert job["status"] == "completed", job.get("error")
         assert job["result"]["images"] == 3
@@ -182,6 +278,26 @@ class TestApi:
         again = api.client.post(self.URL, json={"resume": True})
         assert again.json()["path"] == str(out)  # carried on, not a new folder
         assert _wait(api, again.json()["job_id"])["result"]["images"] == 3
+
+    def test_a_server_keeps_one_export_at_a_time(self, api, library, monkeypatch):
+        monkeypatch.setattr(settings, "app_mode", "server")
+        first = api.client.post(self.URL, json={})
+        _wait(api, first.json()["job_id"])
+        response = api.client.post(self.URL, json={})
+        assert response.status_code == 409 and "already" in response.json()["detail"]
+
+    def test_a_purge_waits_for_an_export(self, api, monkeypatch):
+        runner = get_job_runner()
+        monkeypatch.setattr(runner, "has_active_job", lambda name: name == ex.JOB_NAME)
+        response = api.client.delete("/api/v1/system/library")
+        assert response.status_code == 409 and "exported" in response.json()["detail"]
+
+    def test_a_folder_a_file_manager_has_shown_is_still_empty(self, api, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "app_mode", "app")
+        (tmp_path / "New").mkdir()
+        (tmp_path / "New" / ".DS_Store").write_bytes(b"x")
+        (tmp_path / "New" / "Thumbs.db").write_bytes(b"x")
+        assert api.client.post(self.URL, json={"path": str(tmp_path / "New")}).status_code == 202
 
     def test_a_server_refuses_a_folder(self, api, tmp_path, monkeypatch):
         monkeypatch.setattr(settings, "app_mode", "server")
