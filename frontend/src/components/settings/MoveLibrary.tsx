@@ -25,7 +25,8 @@ export function MoveButton({
   kind: Movable
   move: ReturnType<typeof useLibraryMove>
 }) {
-  const busy = move.job.isRunning || move.start.isPending
+  const busy = move.job.isRunning || move.start.isPending || !!move.copied
+  if (!move.available || !move.movable[kind === 'appData' ? 'app_data' : 'store']) return null
   return (
     <button
       type="button"
@@ -45,9 +46,10 @@ export function MoveStatus({ move }: { move: ReturnType<typeof useLibraryMove> }
   const [confirming, setConfirming] = useState(false)
   const remove = useMutation({
     mutationFn: libraryApi.deleteMovedFrom,
-    onSuccess: () => {
+    onSuccess: (result) => {
       setConfirming(false)
-      toast.success('Old folder deleted')
+      if (result.kept.length) toast.error(`Not deleted: ${result.kept.join('; ')}`)
+      else toast.success('Old folder deleted')
       void queryClient.invalidateQueries({ queryKey: MOVE_STATUS_KEY })
     },
     onError: (err) => {
@@ -55,17 +57,50 @@ export function MoveStatus({ move }: { move: ReturnType<typeof useLibraryMove> }
       toast.error(getApiErrorMessage(err, "Couldn't delete the old folder"))
     },
   })
-  const { job, error, movedFrom } = move
+  const { job, error, movedFrom, copied } = move
 
-  if (job.isRunning || (job.isComplete && !error)) {
+  if (job.isRunning) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         <span>
-          {job.isComplete
-            ? 'Copied. Restarting on the new folder…'
-            : `Copying the library: ${job.progress ?? 'starting…'} You can keep using it meanwhile.`}
+          Copying the library: {job.progress ?? 'starting…'} You can keep using it meanwhile.
         </span>
+      </div>
+    )
+  }
+  if (copied) {
+    return (
+      <div className="space-y-2 rounded border border-border/60 p-2.5 text-xs" role="status">
+        <p>
+          Copied to{' '}
+          <span className="font-mono break-all">{Object.values(copied).join(' and ')}</span>. Scene
+          Atlas restarts to switch over, copying anything that changed meanwhile.
+        </p>
+        {error && (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => void move.restart()}
+            disabled={move.restarting}
+          >
+            Restart now
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => move.cancel.mutate()}
+            disabled={move.restarting}
+          >
+            Cancel
+          </Button>
+        </div>
       </div>
     )
   }

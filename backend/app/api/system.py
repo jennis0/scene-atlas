@@ -204,7 +204,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     Refuses to run if any import jobs are currently active, or while the library is being
     exported or rebuilt (they read the files a purge deletes).
     """
-    from ...pipeline import export_library, library_rebuild
+    from ...pipeline import export_library, library_move, library_rebuild
     from ...pipeline.linked_scanner import get_linked_scanner
     from ...pipeline.metadata_export import export_lock
     from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
@@ -216,6 +216,7 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
         for job, what in (
             (export_library.JOB_NAME, "The library is being exported"),
             (library_rebuild.JOB_NAME, "The library is being rebuilt"),
+            (library_move.JOB_NAME, "The library is being moved"),
         ):
             if runner.has_active_job(job):  # it reads the files a purge deletes
                 raise HTTPException(

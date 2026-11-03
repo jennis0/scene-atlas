@@ -1,5 +1,6 @@
 /** Move library (desktop app; design/export-backup-move.md §10): the copy job, the
- * restart onto the new folders once it's done, and the old folders left to delete. */
+ * restart onto the new folders once it's copied, and the old folders left to delete. The
+ * backend remembers a finished copy, so closing Settings meanwhile loses nothing. */
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,24 +18,24 @@ export function useLibraryMove(open: boolean) {
   const queryClient = useQueryClient()
   const job = useJobPolling()
   const [error, setError] = useState<string | null>(null)
+  const [restarting, setRestarting] = useState(false)
+  // A backend that can't move (a server, or the developer's) answers 404: no Move…
   const status = useQuery({
     queryKey: MOVE_STATUS_KEY,
     queryFn: libraryApi.moveStatus,
     enabled: open,
+    retry: false,
   })
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: MOVE_STATUS_KEY })
   const runningId = status.data?.job_id ?? null
-  const { track, isComplete, result } = job
+  const { track, isComplete, isFailed } = job
   useEffect(() => {
     if (runningId) track(runningId)
   }, [runningId, track])
-
-  // Copied: restart on the new folders (the page reloads)
   useEffect(() => {
-    if (!isComplete || !result) return
-    void window.electronAPI
-      ?.applyMove(result as { app_data?: string; store?: string })
-      .then((outcome) => setError(outcome.error))
-  }, [isComplete, result])
+    if (isComplete || isFailed) refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComplete, isFailed])
 
   const start = useMutation({
     mutationFn: async (kind: Movable) => {
@@ -48,9 +49,31 @@ export function useLibraryMove(open: boolean) {
     },
     onError: (err) => {
       toast.error(getApiErrorMessage(err, 'Could not move the folder'))
-      void queryClient.invalidateQueries({ queryKey: MOVE_STATUS_KEY })
+      refresh()
     },
   })
 
-  return { job, start, error, movedFrom: status.data?.moved_from ?? null }
+  const copied = status.data?.copied ?? null
+  const restart = async () => {
+    if (!copied) return
+    setRestarting(true)
+    // Resolves only when it can't restart; otherwise the page reloads on the new folders
+    const outcome = await window.electronAPI?.applyMove(copied)
+    setRestarting(false)
+    setError(outcome?.error ?? null)
+  }
+  const cancel = useMutation({ mutationFn: libraryApi.cancelMove, onSettled: refresh })
+
+  return {
+    job,
+    start,
+    error,
+    available: !!status.data,
+    movable: status.data?.movable ?? { app_data: false, store: false },
+    copied,
+    restart,
+    restarting,
+    cancel,
+    movedFrom: status.data?.moved_from ?? null,
+  }
 }

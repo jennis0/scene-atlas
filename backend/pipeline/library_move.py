@@ -3,18 +3,21 @@ server's folders are mounts, and its docs say how to move them.
 
 1. **Copy while the app runs** (``copy_job``): everything in the folder(s) being moved
    but the live database and vector table, each file through ``<name>.part`` and synced;
-   imported originals checked against their ``stored_hash`` as they're read. A target
-   holds ``scene-atlas-move.json`` while it is being filled.
+   imported originals checked against their ``stored_hash`` as they're read. The target
+   holds ``scene-atlas-move.json`` (where from, and how far it got) throughout, and the
+   app data ``move.json`` (the targets), so Settings offers the restart once it's copied.
 2. **Restart:** Electron saves the new folders, and starts the backend with the old ones
-   as ``--move-from-…`` arguments.
-3. **Finish** (``finish_move``, in the sidecar's entry point before the app is imported):
-   copy what changed since step 1 (files added, changed or deleted), then the database and
-   vector table, and check every imported image's file is in the new store. A failure
-   raises ``MoveError``: the sidecar exits with its own code and Electron goes back to the
-   old folders, which are untouched.
-4. The old folders are kept, their library marker renamed so they no longer open as the
-   library, with a note saying where it went; Settings offers to delete them
-   (``delete_old``).
+   as ``--move-from-…`` arguments until the backend has started on them.
+3. **Finish** (``finish_move``, in the sidecar's entry point before the app is imported or
+   logs anything): only for a target the copy filled from that very folder. Copy what
+   changed since step 1, then the database and vector table, and check every imported
+   image's file is in the new store. The old folders are only read. A failure raises
+   ``MoveError``: the sidecar exits with its own code and Electron goes back to the old
+   folders.
+4. **Retire** (``retire_finished``, once the app has opened the new folders): the old
+   folders' library markers are renamed so they no longer open as the library, with a
+   note saying where it went; Settings offers to delete them (``delete_old``). Until
+   then any failed start can go back to them.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ import logging
 import os
 import shutil
 import sqlite3
+import stat
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,12 +37,19 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 JOB_NAME = "Moving library"
-MOVING_FILE = "scene-atlas-move.json"  # in a target being filled
+MOVING_FILE = "scene-atlas-move.json"  # in a target: {"from", "kind", "state"}
+STATE_FILE = "move.json"  # in the app data: the targets of the move being copied
+RETIRE_FILE = "move-retire.json"  # in the new app data: the old folders, to retire
 MOVED_NOTE = "scene-atlas-moved.txt"  # in an old folder, saying where it went
 MOVED_FROM_KEY = "moved_from"  # app setting: the old folders, for Settings to delete
 DB_NAME = "battlemap.db"
 _DB_FILES = (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm")
-_CHUNK = 1024 * 1024
+# Copied, finished: the target's states. Retired, it has no MOVING_FILE.
+COPIED, FINISHED = "copied", "finished"
+# File systems round times (exFAT to 10 ms, FAT32 to 2 s): a copy keeps its source's
+# time, so a time this close and the same size is the same file
+_MTIME_SLACK_NS = 2_000_000_000
+_FREE_MARGIN = 1024**3
 
 ProgressFn = Callable[[int, int, str | None], None]
 
@@ -46,26 +58,31 @@ class MoveError(RuntimeError):
     """The move can't be done or finished (shown to the user)."""
 
 
-def _lock_name() -> str:
-    from backend.app.storage_lock import LOCK_FILENAME
-
-    return LOCK_FILENAME
-
-
 def _marker_name() -> str:
     from backend.app.library_identity import MARKER_FILENAME
 
     return MARKER_FILENAME
 
 
-def _skip_live(rel: Path) -> bool:
-    """Files the copy while running leaves to the finish: the live database and vectors,
-    and this process' lock."""
+def _never_copied(rel: Path) -> bool:
+    """Files no copy takes: the live database and vectors (the finish copies those), the
+    lock, the move's own records, and an earlier move's retirement."""
+    from backend.app.storage_lock import LOCK_FILENAME
+
     top = rel.parts[0]
-    return top in _DB_FILES or top == "lancedb" or top == _lock_name() or top == MOVING_FILE
+    return (
+        top in _DB_FILES
+        or top in ("lancedb", LOCK_FILENAME, MOVING_FILE, STATE_FILE, RETIRE_FILE, MOVED_NOTE)
+        or top == _marker_name() + ".moved"
+    )
 
 
-def _files(root: Path, skip: Callable[[Path], bool]) -> Iterator[tuple[Path, Path]]:
+def _key(rel: Path) -> str:
+    """A relative path as compared: HFS+ hands back NFD names for NFC ones."""
+    return unicodedata.normalize("NFC", rel.as_posix())
+
+
+def _files(root: Path, skip: Callable[[Path], bool] = _never_copied) -> Iterator[tuple[Path, Path]]:
     """(absolute, relative) of every file under *root*, but those *skip* names."""
     for dirpath, _dirs, names in os.walk(root):
         for name in names:
@@ -86,7 +103,20 @@ def _same(src: Path, dst: Path) -> bool:
         a, b = src.stat(), dst.stat()
     except OSError:
         return False
-    return a.st_size == b.st_size and a.st_mtime_ns == b.st_mtime_ns
+    return a.st_size == b.st_size and abs(a.st_mtime_ns - b.st_mtime_ns) <= _MTIME_SLACK_NS
+
+
+def _record(target: Path) -> dict | None:
+    try:
+        value = json.loads((target / MOVING_FILE).read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _write_record(target: Path, source: Path, kind: str, state: str | None) -> None:
+    record = {"from": str(source), "kind": kind, "state": state}
+    (target / MOVING_FILE).write_text(json.dumps(record), "utf-8")
 
 
 # 1. Checks and the copy while the app runs
@@ -101,18 +131,21 @@ class Move:
     target: Path
 
 
-def _our_copy(target: Path, source: Path) -> bool:
-    """*target* is an unfinished copy of *source* (a move tried before): carried on."""
-    try:
-        record = json.loads((target / MOVING_FILE).read_text("utf-8"))
-    except (OSError, ValueError):
-        return False
-    return isinstance(record, dict) and record.get("from") == str(source)
+def movable() -> dict[str, bool]:
+    """Which folders Settings can offer to move: not Search data alone when Imported
+    images is inside it (an old layout)."""
+    from backend.app.config import settings
+    from backend.app.library_identity import inside_any
+
+    return {
+        "app_data": not inside_any(settings.store_images_dir, [settings.data_dir]),
+        "store": True,
+    }
 
 
 def plan(app_data: str | None, store: str | None) -> list[Move]:
-    """The moves asked for, checked: targets absolute, empty (or missing), outside every
-    library folder, and on a disk with room. Raises ``MoveError``."""
+    """The moves asked for, checked: targets absolute, empty (or this move's unfinished
+    copy), apart, and outside every library folder. Raises ``MoveError``."""
     from backend.app.config import settings
     from backend.app.library_identity import inside_any
 
@@ -126,17 +159,12 @@ def plan(app_data: str | None, store: str | None) -> list[Move]:
     ]
     if not moves:
         raise MoveError("Choose where to move a folder to")
+    if any(m.kind == "app_data" for m in moves) and not movable()["app_data"]:
+        raise MoveError("Imported images are inside Search data, so they can't move apart")
     folders = [settings.data_dir, settings.store_images_dir, settings.linked_library_dir]
-    kinds = {m.kind for m in moves}
-    if (
-        "app_data" in kinds
-        and "store" not in kinds
-        and inside_any(settings.store_images_dir, [settings.data_dir])
-    ):
-        raise MoveError("Imported images are inside Search data: move both together")
-    targets = [m.target for m in moves]
-    if len(targets) == 2 and (
-        inside_any(targets[0], [targets[1]]) or inside_any(targets[1], [targets[0]])
+    if len(moves) == 2 and (
+        inside_any(moves[0].target, [moves[1].target])
+        or inside_any(moves[1].target, [moves[0].target])
     ):
         raise MoveError("Move the two folders to separate places")
     for move in moves:
@@ -150,14 +178,44 @@ def plan(app_data: str | None, store: str | None) -> list[Move]:
         parent = target if target.exists() else target.parent
         if not parent.is_dir():
             raise MoveError(f"Folder not found: {parent}")
-        needed = sum(p.stat().st_size for p, _ in _files(move.source, lambda _r: False))
-        free = shutil.disk_usage(parent).free
-        if free < needed + 1024**3:
-            raise MoveError(
-                f"Not enough space for {move.source.name}: {needed / 1024**3:.1f} GB to "
-                f"copy, {free / 1024**3:.1f} GB free"
-            )
     return moves
+
+
+def _our_copy(target: Path, source: Path) -> bool:
+    """*target* holds a copy this move made of *source* (finished or not)."""
+    record = _record(target)
+    return record is not None and record.get("from") == str(source)
+
+
+def _state_path() -> Path:
+    from backend.app.config import settings
+
+    return settings.data_dir / STATE_FILE
+
+
+def copy_status() -> dict[str, str] | None:
+    """The targets of a copy that has finished and waits for the restart, else None."""
+    try:
+        targets = json.loads(_state_path().read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    ready = all((_record(Path(t)) or {}).get("state") == COPIED for t in targets.values())
+    return targets if targets and ready else None
+
+
+def cancel() -> None:
+    """Forget a copied move that wasn't applied, deleting its copies."""
+    from backend.app.config import settings
+
+    try:
+        targets = json.loads(_state_path().read_text("utf-8"))
+    except (OSError, ValueError):
+        targets = {}
+    sources = {"app_data": settings.data_dir, "store": settings.store_images_dir}
+    for kind, target in targets.items():
+        if _our_copy(Path(target), sources[kind]):
+            shutil.rmtree(target, ignore_errors=True)
+    _state_path().unlink(missing_ok=True)
 
 
 def _stored_hashes() -> dict[str, str]:
@@ -175,19 +233,26 @@ def _stored_hashes() -> dict[str, str]:
 
 def copy_job(moves: list[Move], progress_fn: ProgressFn | None = None) -> dict:
     """Copy the folders while the app runs (step 1). Resumable: files already there with
-    the same size and time are skipped. Returns the folders, for Electron's restart."""
+    the same size and time are skipped. Returns the new folders, for the restart."""
     from backend.app.services.shutdown import raise_if_shutting_down
 
     hashes = _stored_hashes()
-    work = [(m, list(_files(m.source, _skip_live))) for m in moves]
+    work = [(m, list(_files(m.source))) for m in moves]
+    for move, files in work:
+        move.target.mkdir(parents=True, exist_ok=True)
+        needed = sum(src.stat().st_size for src, rel in files if not _same(src, move.target / rel))
+        free = shutil.disk_usage(move.target).free
+        if free < needed + _FREE_MARGIN:
+            raise MoveError(
+                f"Not enough space in {move.target}: {needed / 1024**3:.1f} GB to copy, "
+                f"{free / 1024**3:.1f} GB free"
+            )
+    _state_path().write_text(json.dumps({m.kind: str(m.target) for m in moves}), "utf-8")
     total = sum(len(files) for _, files in work)
     done = 0
     problems: list[str] = []
     for move, files in work:
-        move.target.mkdir(parents=True, exist_ok=True)
-        (move.target / MOVING_FILE).write_text(
-            json.dumps({"from": str(move.source), "kind": move.kind}), "utf-8"
-        )
+        _write_record(move.target, move.source, move.kind, None)
         for src, rel in files:
             raise_if_shutting_down()
             dst = move.target / rel
@@ -204,9 +269,12 @@ def copy_job(moves: list[Move], progress_fn: ProgressFn | None = None) -> dict:
     if problems:
         # A file that doesn't read back as the library recorded it: stop before switching
         raise MoveError(
-            f"{len(problems)} file(s) didn't copy correctly, e.g. {problems[0]}. "
-            "Nothing has moved; try again, or check the disks."
+            f"{len(problems)} file(s) didn't copy correctly, e.g. {problems[0]}. Nothing has "
+            "moved; try again (an original changed since it was imported fails until it's "
+            "imported again), or check the disks."
         )
+    for move in moves:
+        _write_record(move.target, move.source, move.kind, COPIED)
     return {m.kind: str(m.target) for m in moves}
 
 
@@ -214,16 +282,24 @@ def copy_job(moves: list[Move], progress_fn: ProgressFn | None = None) -> dict:
 
 
 def _sync(source: Path, target: Path) -> None:
-    """Make *target* hold what *source* does (but the live files, done next)."""
-    keep: set[Path] = set()
-    for src, rel in _files(source, _skip_live):
-        keep.add(rel)
+    """Make *target* hold what *source* does (the live files aside: done next). Only
+    files a copy would take are deleted from the target."""
+    keep: set[str] = set()
+    for src, rel in _files(source):
+        keep.add(_key(rel))
         dst = target / rel
         if not _same(src, dst):
             _copy(src, dst)
-    for dst, rel in list(_files(target, _skip_live)):
-        if rel not in keep and rel.name != _marker_name():
+    for dst, rel in list(_files(target)):
+        if _key(rel) not in keep:
             dst.unlink()  # deleted since the copy
+
+
+def _copy_tree(source: Path, target: Path) -> None:
+    """A folder copied file by file, each synced (the vector table)."""
+    shutil.rmtree(target, ignore_errors=True)
+    for src, rel in _files(source, skip=lambda _r: False):
+        _copy(src, target / rel)
 
 
 def _verify(db_path: Path, store: Path) -> None:
@@ -247,76 +323,110 @@ def _verify(db_path: Path, store: Path) -> None:
         )
 
 
-def _retire(old: Path, new: Path) -> None:
-    """Leave a note in the old folder, and rename its marker so it no longer opens as the
-    library (it would be a second copy, drifting apart)."""
-    marker = old / _marker_name()
-    if marker.exists():
-        os.replace(marker, marker.with_name(marker.name + ".moved"))
-    (old / MOVED_NOTE).write_text(
-        f"This Scene Atlas folder was moved to {new} on {datetime.now(UTC):%Y-%m-%d}.\n"
-        "Delete it from Settings → Storage locations, or by hand once you're sure.\n",
-        "utf-8",
-    )
+def _to_do(pair: tuple[Path, Path] | None) -> bool:
+    """Whether *pair* (old, new) still needs finishing. Refuses (``MoveError``) one that
+    isn't this move's copy: the finish deletes files in the new folder."""
+    if pair is None:
+        return False
+    old, new = pair
+    if old.exists() and new.exists() and os.path.samefile(old, new):
+        raise MoveError(f"{new} is the folder it would be moved from")
+    record = _record(new)
+    if record is not None and record.get("from") == str(old):
+        if record.get("state") == FINISHED:
+            return False  # finished, not yet retired: the app retires it
+        if record.get("state") == COPIED:
+            return True
+        raise MoveError(f"The copy to {new} didn't finish; move it again from Settings")
+    if (old / MOVED_NOTE).is_file() and (new / _marker_name()).is_file():
+        return False  # moved and retired already: a start after the move
+    raise MoveError(f"{new} isn't a copy of {old}")
 
 
 def finish_move(
     *, app_data: tuple[Path, Path] | None = None, store: tuple[Path, Path] | None = None
 ) -> None:
     """Finish a move: each of *app_data* and *store* is (old, new). The old folders are
-    only read until everything is in place and checked."""
-    if app_data is None and store is None:
-        return
-    logger.info("Finishing the library move: app data %s, images %s", app_data, store)
-    if store:
-        _sync(*store)
-    new_data = app_data[1] if app_data else None
-    if app_data:
-        old, new = app_data
-        _sync(old, new)
-        for name in _DB_FILES:
-            src, dst = old / name, new / name
-            if src.exists():
-                _copy(src, dst)
-            else:
-                dst.unlink(missing_ok=True)
-        shutil.rmtree(new / "lancedb", ignore_errors=True)
-        if (old / "lancedb").is_dir():
-            shutil.copytree(old / "lancedb", new / "lancedb")
-    db_dir = new_data or (app_data[0] if app_data else None)
-    if db_dir is None:
-        from backend.app.config import settings
-
-        db_dir = settings.data_dir
-    _verify(db_dir / DB_NAME, store[1] if store else _current_store())
-    for old, new in (x for x in (app_data, store) if x):
-        (new / MOVING_FILE).unlink(missing_ok=True)
-        _retire(old, new)
-    _record_moved_from(db_dir / DB_NAME, app_data, store)
-    logger.info("Library moved")
-
-
-def _current_store() -> Path:
+    only read. Holds both folders' locks, so a backend that hasn't quite stopped can't
+    write to them meanwhile."""
     from backend.app.config import settings
+    from backend.app.storage_lock import acquire_storage_lock
 
-    return settings.store_images_dir
-
-
-def _record_moved_from(db_path: Path, app_data, store) -> None:
-    value = {k: str(v[0]) for k, v in (("app_data", app_data), ("store", store)) if v}
-    conn = sqlite3.connect(db_path)
+    pairs = {"app_data": app_data, "store": store}
+    to_do = {kind: pair for kind, pair in pairs.items() if _to_do(pair)}
+    if not to_do:
+        return
+    logger.info("Finishing the library move: %s", to_do)
+    locks = [
+        acquire_storage_lock(root, timeout=15)
+        for pair in to_do.values()
+        for root in pair  # type: ignore[union-attr]
+    ]
     try:
-        conn.execute(
-            "INSERT INTO app_settings (key, value_json) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
-            (MOVED_FROM_KEY, json.dumps(value)),
-        )
-        conn.commit()
+        if "store" in to_do:
+            _sync(*to_do["store"])  # type: ignore[misc]
+        if "app_data" in to_do:
+            old, new = to_do["app_data"]  # type: ignore[misc]
+            _sync(old, new)
+            for name in _DB_FILES:
+                if (old / name).exists():
+                    _copy(old / name, new / name)
+                else:
+                    (new / name).unlink(missing_ok=True)
+            if (old / "lancedb").is_dir():
+                _copy_tree(old / "lancedb", new / "lancedb")
+        data_dir = to_do["app_data"][1] if "app_data" in to_do else settings.data_dir  # type: ignore[index]
+        new_store = to_do["store"][1] if "store" in to_do else settings.store_images_dir  # type: ignore[index]
+        _verify(data_dir / DB_NAME, new_store)
+        retire = {kind: [str(p) for p in pair] for kind, pair in to_do.items()}  # type: ignore[union-attr]
+        (data_dir / RETIRE_FILE).write_text(json.dumps(retire), "utf-8")
+        for kind, (old, new) in to_do.items():  # type: ignore[misc]
+            _write_record(new, old, kind, FINISHED)
     finally:
-        conn.close()
+        for lock in locks:
+            lock.release()
+    logger.info("Library move finished; the old folders are retired once the app opens")
 
 
-# 4. The old folders
+# 4. Retire, once the app has opened the new folders
+
+
+def retire_finished(db) -> None:
+    """After a move's first successful start: retire the old folders (the marker renamed,
+    a note left) and record them for Settings."""
+    from backend.app.config import settings
+    from backend.app.models.database import AppSetting
+
+    path = settings.data_dir / RETIRE_FILE
+    try:
+        retire = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return
+    moved_from: dict[str, str] = {}
+    for kind, (old, new) in retire.items():
+        old_path, new_path = Path(old), Path(new)
+        marker = old_path / _marker_name()
+        if marker.exists():
+            os.replace(marker, marker.with_name(marker.name + ".moved"))
+        (old_path / MOVED_NOTE).write_text(
+            f"This Scene Atlas folder was moved to {new_path} on {datetime.now(UTC):%Y-%m-%d}.\n"
+            "Delete it from Settings → Storage locations, or by hand once you're sure.\n",
+            "utf-8",
+        )
+        (new_path / MOVING_FILE).unlink(missing_ok=True)
+        moved_from[kind] = old
+    row = db.get(AppSetting, MOVED_FROM_KEY)
+    if row is None:
+        db.add(AppSetting(key=MOVED_FROM_KEY, value_json=json.dumps(moved_from)))
+    else:
+        row.value_json = json.dumps(moved_from)
+    db.commit()
+    path.unlink(missing_ok=True)
+    (settings.data_dir / STATE_FILE).unlink(missing_ok=True)
+    logger.info("Library moved; the old folders are kept until deleted: %s", moved_from)
+
+
+# The old folders
 
 
 def moved_from(db) -> dict[str, str] | None:
@@ -331,23 +441,37 @@ def moved_from(db) -> dict[str, str] | None:
     return present or None
 
 
-def delete_old(db) -> int:
+def _writable_then_retry(func, path, _exc) -> None:
+    """``rmtree``'s handler: Windows refuses to delete read-only files."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def delete_old(db) -> dict:
     """Delete the old folders of the last move: only those with the note the move left,
-    and none that is a folder the library uses now. Returns how many went."""
+    and none inside, or holding, a folder the library uses now (those are kept, and
+    said). The record goes once nothing is left of it."""
     from backend.app.config import settings
     from backend.app.library_identity import inside_any
     from backend.app.models.database import AppSetting
 
-    gone = 0
-    live = [settings.data_dir, settings.store_images_dir, settings.linked_library_dir]
+    deleted, kept = 0, []
+    live: list[Path | None] = [
+        p for p in (settings.data_dir, settings.store_images_dir, settings.linked_library_dir) if p
+    ]
     for path in (moved_from(db) or {}).values():
         folder = Path(path)
-        if inside_any(folder, live) or any(inside_any(p, [folder]) for p in live if p):
+        if inside_any(folder, live) or any(p and inside_any(p, [folder]) for p in live):
+            kept.append(f"{folder} (it's inside, or holds, a folder in use: delete it by hand)")
             continue
-        shutil.rmtree(folder)
-        gone += 1
-    row = db.get(AppSetting, MOVED_FROM_KEY)
-    if row is not None:
-        db.delete(row)
-        db.commit()
-    return gone
+        try:
+            shutil.rmtree(folder, onerror=_writable_then_retry)
+            deleted += 1
+        except OSError as e:
+            kept.append(f"{folder} ({e.strerror or e})")
+    if not kept:
+        row = db.get(AppSetting, MOVED_FROM_KEY)
+        if row is not None:
+            db.delete(row)
+            db.commit()
+    return {"deleted": deleted, "kept": kept}

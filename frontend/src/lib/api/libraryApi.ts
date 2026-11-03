@@ -153,6 +153,8 @@ export const libraryApi = {
   /** Move library (desktop app; design/export-backup-move.md §10) */
   moveStatus: async (): Promise<{
     job_id: string | null
+    copied: { app_data?: string; store?: string } | null
+    movable: { app_data: boolean; store: boolean }
     moved_from: Record<string, string> | null
   }> => {
     const { data } = await api.get('/library/move')
@@ -165,8 +167,13 @@ export const libraryApi = {
     return data
   },
 
-  deleteMovedFrom: async (): Promise<{ deleted: number }> => {
-    const { data } = await api.delete<{ deleted: number }>('/library/move/old')
+  /** Forget a copy that wasn't applied, deleting it */
+  cancelMove: async (): Promise<void> => {
+    await api.delete('/library/move')
+  },
+
+  deleteMovedFrom: async (): Promise<{ deleted: number; kept: string[] }> => {
+    const { data } = await api.delete<{ deleted: number; kept: string[] }>('/library/move/old')
     return data
   },
 

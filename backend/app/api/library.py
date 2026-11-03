@@ -356,7 +356,7 @@ def start_full_export(request: Request, body: FullExportRequest):
     with metadata_export.export_lock:  # the purge takes it too
         if runner.has_active_job(export_library.JOB_NAME):
             raise HTTPException(status_code=409, detail="An export is already running")
-        for job in (PURGE_JOB_NAME, library_rebuild.JOB_NAME):
+        for job in (PURGE_JOB_NAME, library_rebuild.JOB_NAME, library_move.JOB_NAME):
             if runner.has_active_job(job):  # it deletes or replaces what an export reads
                 raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
         _refuse_while_reembedding(runner)
@@ -382,6 +382,8 @@ def move_status(db: Session = Depends(get_db)):
     _desktop_only()
     return MoveStatus(
         job_id=get_job_runner().get_active_job_id(library_move.JOB_NAME),
+        copied=library_move.copy_status(),
+        movable=library_move.movable(),
         moved_from=library_move.moved_from(db),
     )
 
@@ -389,12 +391,18 @@ def move_status(db: Session = Depends(get_db)):
 @router.post("/move", status_code=202)
 @limiter.limit(lambda: settings.rate_limit_expensive)
 def start_move(request: Request, body: MoveRequest):
-    """Copy the folders to their new places while the app runs. Its result is the new
-    folders, which the app then restarts on (Electron's library:apply-move)."""
+    """Copy the folders to their new places while the app runs. Once copied, Settings
+    offers the restart onto them (Electron's library:apply-move)."""
     _desktop_only()
     runner = get_job_runner()
     with metadata_export.export_lock:
-        for job in (library_move.JOB_NAME, PURGE_JOB_NAME, library_rebuild.JOB_NAME):
+        busy = (
+            library_move.JOB_NAME,
+            PURGE_JOB_NAME,
+            library_rebuild.JOB_NAME,
+            export_library.JOB_NAME,
+        )
+        for job in busy:
             if runner.has_active_job(job):
                 raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
         try:
@@ -405,8 +413,18 @@ def start_move(request: Request, body: MoveRequest):
     return {"job_id": job_id}
 
 
+@router.delete("/move")
+def cancel_move():
+    """Forget a copied move that wasn't applied, deleting its copies."""
+    _desktop_only()
+    if get_job_runner().has_active_job(library_move.JOB_NAME):
+        raise HTTPException(status_code=409, detail="The copy is still running")
+    library_move.cancel()
+    return {"ok": True}
+
+
 @router.delete("/move/old")
 def delete_old_folders(db: Session = Depends(get_db)):
     """Delete the folders the library was moved from."""
     _desktop_only()
-    return {"deleted": library_move.delete_old(db)}
+    return library_move.delete_old(db)

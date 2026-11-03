@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import export_library
 from ...pipeline import library_rebuild as lr
+from ...pipeline.library_move import JOB_NAME as MOVE_JOB
 from ...pipeline.metadata_export import export_lock
 from ..config import settings
 from ..models import ImportItem
@@ -47,7 +48,7 @@ def _exclusive():
     submitted (purge and the full export take the same lock)."""
     with export_lock:
         runner = get_job_runner()
-        for job in (*_JOBS, PURGE_JOB_NAME, export_library.JOB_NAME, lr.SET_ASIDE_JOB):
+        for job in (*_JOBS, PURGE_JOB_NAME, export_library.JOB_NAME, lr.SET_ASIDE_JOB, MOVE_JOB):
             if runner.has_active_job(job):
                 raise HTTPException(status_code=409, detail=f"{job} is running; try again after")
         reason = lr.busy()

@@ -270,6 +270,16 @@ handleTrusted('library:apply', (_event, raw) => {
   return new Promise(() => {})
 })
 
+/** *target* holds the backend's finished copy of *source* (its scene-atlas-move.json). */
+function isCopyOf(target: string, source: string): boolean {
+  try {
+    const record = JSON.parse(fs.readFileSync(path.join(target, 'scene-atlas-move.json'), 'utf8'))
+    return record?.from === source && record?.state === 'copied'
+  } catch {
+    return false
+  }
+}
+
 // Move library (design/export-backup-move.md §10): the backend has copied the folders
 // (POST /library/move); restart on them, finishing the move first. Resolves only when it
 // can't (dev, or nothing to move); otherwise the page is replaced.
@@ -283,6 +293,15 @@ handleTrusted('library:apply-move', (_event, raw) => {
   const config = loadConfig()
   if (!config) return { error: "Couldn't read the app's settings file.", restarted: false }
   if (!moved.appData && !moved.store) return { error: 'Nothing to move.', restarted: false }
+  // Only to a folder the backend's copy filled from the folder in use: the finish makes
+  // it hold what that folder does, deleting anything else
+  const from = { appData: config.appDataDir, store: config.imageLibraryDir }
+  for (const kind of ['appData', 'store'] as const) {
+    const target = moved[kind]
+    if (target && !isCopyOf(target, from[kind])) {
+      return { error: `${target} isn't a finished copy of the library.`, restarted: false }
+    }
+  }
   if (isDev) {
     return {
       error:
@@ -521,7 +540,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
       if (moveFrom) {
         // Finished: the backend only reports ready once the move is in place
         const config = loadConfig()
-        if (config) saveConfig(withoutMove(config))
+        if (config?.pendingMove) saveConfig(withoutMove(config))
       }
       console.log(`[electron] Backend ready on port ${readyPort}`)
       void showBackendUi(readyPort, child)
@@ -547,20 +566,25 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     // non-zero code is a crash.
     if (ready && (code === 0 || code === null)) return
     const tail = recentLines.slice(-10).join('\n')
-    if (!ready && code === MOVE_FAILED) {
-      // Back to the folders it moved from, which the move never changed
-      const config = loadConfig()
-      if (config?.pendingMove) {
-        const back = revertMove(config)
-        saveConfig(back)
-        void dialog.showMessageBox({
-          type: 'error',
-          message: "Scene Atlas couldn't finish moving the library",
-          detail: `It's using the folders it was in before, which are as they were.\n\n${tail}\n\nFull log: ${logPath}`,
-        })
-        restartBackend(libraryDirsOf(back))
-        return
-      }
+    const config = loadConfig()
+    if (!ready && config?.pendingMove) {
+      // A start on a move's new folders failed (finishing it, or opening them): back to
+      // the folders it moved from, which aren't changed until the new ones have opened
+      const back = revertMove(config)
+      saveConfig(back)
+      void dialog.showMessageBox({
+        type: 'error',
+        message:
+          code === MOVE_FAILED
+            ? "Scene Atlas couldn't finish moving the library"
+            : "Scene Atlas couldn't open the library in its new folder",
+        detail:
+          "It's using the folders it was in before, which are as they were. The copy in " +
+          'the new folder is kept: move again from Settings to carry on, or delete it.' +
+          `\n\n${tail}\n\nFull log: ${logPath}`,
+      })
+      restartBackend(libraryDirsOf(back))
+      return
     }
     const what = ready ? 'Backend crashed' : 'Backend exited during startup'
     signalBackendError(

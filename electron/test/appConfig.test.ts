@@ -210,4 +210,11 @@ describe('library moves', () => {
     const junk = parseConfig({ ...base, pendingMove: { store: 'relative', x: 1 } }, 'linux')
     assert.equal(junk?.config.pendingMove, undefined)
   })
+  test('choosing folders again drops a pending move', () => {
+    const moved = withMove(config, { store: '/new/images' })
+    const defaults = { appData: '/d/data', store: '/d/images' }
+    assert.equal(withDefaultLibrary(moved, defaults, false).pendingMove, undefined)
+    const chosen = withChosenLibrary(moved, { appData: '/x', store: '/y', linked: null })
+    assert.equal(chosen.pendingMove, undefined)
+  })
 })

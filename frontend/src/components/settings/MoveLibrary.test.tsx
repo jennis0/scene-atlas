@@ -9,7 +9,12 @@ import { useLibraryMove } from '@/hooks/useLibraryMove'
 import { MoveButton, MoveStatus } from './MoveLibrary'
 
 vi.mock('@/lib/api/libraryApi', () => ({
-  libraryApi: { moveStatus: vi.fn(), startMove: vi.fn(), deleteMovedFrom: vi.fn() },
+  libraryApi: {
+    moveStatus: vi.fn(),
+    startMove: vi.fn(),
+    deleteMovedFrom: vi.fn(),
+    cancelMove: vi.fn(),
+  },
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -39,12 +44,19 @@ function Harness() {
   )
 }
 
+const STATUS = {
+  job_id: null,
+  copied: null,
+  movable: { app_data: true, store: true },
+  moved_from: null,
+}
+
 describe('Move library', () => {
   const applyMove = vi.fn()
   const chooseFolder = vi.fn()
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(libraryApi.moveStatus).mockResolvedValue({ job_id: null, moved_from: null })
+    vi.mocked(libraryApi.moveStatus).mockResolvedValue(STATUS)
     vi.mocked(libraryApi.startMove).mockResolvedValue({ job_id: 'job-1' })
     window.electronAPI = { applyMove, chooseFolder } as unknown as Window['electronAPI']
   })
@@ -52,16 +64,39 @@ describe('Move library', () => {
     delete window.electronAPI
   })
 
-  it('copies to the folder picked, then restarts on it', async () => {
+  it('copies to the folder picked, then offers the restart', async () => {
     chooseFolder.mockResolvedValue('/new/images')
     applyMove.mockReturnValue(new Promise(() => {})) // the page reloads
     vi.spyOn(jobApi, 'get').mockResolvedValue(job({ result: { store: '/new/images' } }))
     const user = userEvent.setup()
     renderWithProviders(<Harness />)
-    await user.click(screen.getByRole('button', { name: 'Move imported images folder' }))
+    const button = await screen.findByRole('button', { name: 'Move imported images folder' })
+    vi.mocked(libraryApi.moveStatus).mockResolvedValue({
+      ...STATUS,
+      copied: { store: '/new/images' },
+    })
+    await user.click(button)
     expect(libraryApi.startMove).toHaveBeenCalledWith({ store: '/new/images' })
-    await waitFor(() => expect(applyMove).toHaveBeenCalledWith({ store: '/new/images' }))
-    expect(screen.getByText(/Restarting on the new folder/)).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Restart now' }))
+    expect(applyMove).toHaveBeenCalledWith({ store: '/new/images' })
+  })
+
+  it('offers the restart for a copy finished while Settings was closed', async () => {
+    vi.mocked(libraryApi.moveStatus).mockResolvedValue({
+      ...STATUS,
+      copied: { store: '/new/images' },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<Harness />)
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect(libraryApi.cancelMove).toHaveBeenCalled()
+  })
+
+  it('offers no Move… where the backend can not move', async () => {
+    vi.mocked(libraryApi.moveStatus).mockRejectedValue(new Error('Not Found'))
+    renderWithProviders(<Harness />)
+    await waitFor(() => expect(libraryApi.moveStatus).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Move/ })).not.toBeInTheDocument()
   })
 
   it('says nothing moved when the copy fails', async () => {
@@ -71,17 +106,17 @@ describe('Move library', () => {
     )
     const user = userEvent.setup()
     renderWithProviders(<Harness />)
-    await user.click(screen.getByRole('button', { name: 'Move imported images folder' }))
+    await user.click(await screen.findByRole('button', { name: 'Move imported images folder' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Nothing has moved')
     expect(applyMove).not.toHaveBeenCalled()
   })
 
   it('offers to delete the old copy', async () => {
     vi.mocked(libraryApi.moveStatus).mockResolvedValue({
-      job_id: null,
+      ...STATUS,
       moved_from: { store: '/old/images' },
     })
-    vi.mocked(libraryApi.deleteMovedFrom).mockResolvedValue({ deleted: 1 })
+    vi.mocked(libraryApi.deleteMovedFrom).mockResolvedValue({ deleted: 1, kept: [] })
     const user = userEvent.setup()
     renderWithProviders(<Harness />)
     expect(await screen.findByText('/old/images')).toBeInTheDocument()

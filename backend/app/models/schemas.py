@@ -680,6 +680,8 @@ class MoveRequest(BaseModel):
 
 class MoveStatus(BaseModel):
     job_id: str | None  # the copy running now
+    copied: dict[str, str] | None  # a finished copy's new folders, waiting for the restart
+    movable: dict[str, bool]  # which folders can be moved
     moved_from: dict[str, str] | None  # the last move's old folders, still there
 
 

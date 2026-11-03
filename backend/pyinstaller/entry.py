@@ -132,14 +132,12 @@ def main():
     os.environ["SCENE_ATLAS_API_HOST"] = "127.0.0.1"
     os.environ["SCENE_ATLAS_APP_MODE"] = "app"
 
-    from backend.app.logging_config import setup_logging
-
-    setup_logging(Path(args.app_data_dir))
-
-    logger = logging.getLogger(__name__)
-
     if args.move_from_app_data_dir or args.move_from_image_library_dir:
-        # Before the app opens anything in the new folders (design/export-backup-move.md §10)
+        # Before the app opens anything in the new folders (design/export-backup-move.md
+        # §10), and before its log file is open there: the finish copies that folder.
+        # Logged to stderr, which the desktop app keeps in its own log.
+        logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+        from backend.app.storage_lock import StorageLockedError
         from backend.pipeline.library_move import MoveError, finish_move
 
         def pair(old: str | None, new: str) -> tuple[Path, Path] | None:
@@ -150,10 +148,17 @@ def main():
                 app_data=pair(args.move_from_app_data_dir, args.app_data_dir),
                 store=pair(args.move_from_image_library_dir, args.image_library_dir),
             )
-        except (MoveError, OSError, sqlite3.Error) as exc:
+        except (MoveError, OSError, sqlite3.Error, StorageLockedError) as exc:
             print(f"ERROR: Moving the library failed: {exc}", file=sys.stderr, flush=True)
-            logger.exception("Moving the library failed")
             sys.exit(MOVE_FAILED)
+        for handler in logging.getLogger().handlers[:]:  # setup_logging's take over
+            logging.getLogger().removeHandler(handler)
+
+    from backend.app.logging_config import setup_logging
+
+    setup_logging(Path(args.app_data_dir))
+
+    logger = logging.getLogger(__name__)
 
     import uvicorn
 

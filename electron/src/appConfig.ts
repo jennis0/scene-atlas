@@ -124,14 +124,15 @@ export function withDefaultLibrary(
   defaults: DefaultDirs,
   defaultsAreEmpty: boolean,
 ): AppConfig {
-  const { linkedLibraryDir: _dropped, ...rest } = config
+  // A pending move goes too: its folders are no longer the ones in use (§10)
+  const { linkedLibraryDir: _dropped, pendingMove: _move, ...rest } = config
   return { ...rest, ...firstLaunchConfig(defaults, defaultsAreEmpty) }
 }
 
 /** *config* with the folders chosen in setup or Settings: no longer provisional, since
  * the user has now chosen them, even if they kept the defaults. */
 export function withChosenLibrary(config: AppConfig, dirs: LibraryDirs): AppConfig {
-  const { linkedLibraryDir: _dropped, ...rest } = config
+  const { linkedLibraryDir: _dropped, pendingMove: _move, ...rest } = config
   return {
     ...rest,
     appDataDir: dirs.appData,

@@ -206,6 +206,12 @@ async def lifespan(app: FastAPI):
             raise
         logger.info("Library %s", library_id)
 
+        # A move's first start on its new folders: now they've opened, the old ones are
+        # retired (design/export-backup-move.md §10)
+        from ..pipeline.library_move import retire_finished
+
+        retire_finished(session)
+
         from ..pipeline.linked_scan import reconcile_linked_source
 
         reconcile_linked_source(session)

@@ -101,7 +101,9 @@ def availability_dirs(roots: Iterable[Path]) -> list[str]:
 
 
 # A folder holding either is a Scene Atlas library's own (app data or store).
-_LIBRARY_ENTRIES = frozenset({MARKER_FILENAME, LOCK_FILENAME})
+_LIBRARY_ENTRIES = frozenset(
+    {MARKER_FILENAME, LOCK_FILENAME, "scene-atlas-moved.txt"}  # a library's folder, or an old one
+)
 
 
 def walk_files(top: Path) -> Iterator[os.DirEntry]:
