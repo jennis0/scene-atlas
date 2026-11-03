@@ -148,8 +148,11 @@ What grows with the size of an import, measured with `stress_tests/ingest_scale.
   every manifest it reads in a metadata cache of up to 1 GiB (and an index cache of up to 6 GiB),
   so through a first import it grew quadratically: about 120 MB after 11k images, toward 1 GiB
   at 50k. Both caches are bounded at 64 MiB; writes and searches were no slower with the bound.
-  The table is never compacted, so it still accrues a fragment and a version per batch (time,
-  not memory; a separate concern).
+  The table is never compacted, so it still accrues a fragment and a version per batch. On a
+  very large table that is never compacted (about 12.5k fragments at 200k images) the 64 MiB
+  metadata cache could thrash: lookups re-read fragment metadata from disk, which costs latency,
+  not memory. Compaction is the real fix, tracked by the roadmap's "Compact the vector table"
+  row.
 - **The grouping phase** (`group_jobs.group_job`), measured on a 10k-image import grouped alone
   (RSS above the process before the run):
 
@@ -162,11 +165,14 @@ What grows with the size of an import, measured with `stress_tests/ingest_scale.
   (`evidence._rowwise_dot`: 2 × 256 MB of 1024-float edge rows; now chunks of 8 MB), and the
   job's vectors were read by twenty `id IN (500 ids)` LanceDB queries, each scanning every
   fragment and leaving ~300 MB of native buffers held (`LanceDBService.get_embedding_arrays`
-  now reads a whole job's by one streaming scan: ~30 MB, and faster). What is left of the peak
+  now reads a whole job's by one streaming scan holding one batch at a time: 4096 rows, about
+  12.6 MB at 768 dimensions, and faster). The scan is used when the ids are at least 10% of
+  the table's rows or 5000 or more; fewer ids go through filtered queries of 500, as does a
+  scan that fails twice. Rows with a null vector are skipped. What is left of the peak
   is linear in the import: the feature matrix (4 KB of edge map and 2 KB of embedding per image,
   float32), the candidate pairs and the walk's Python state.
-- **Freed but held.** glibc keeps freed pages in its arenas. After a grouping run that computed
-  (grouped, failed, or waiting for vectors), `GroupingScheduler._run` calls
+- **Freed but held.** glibc keeps freed pages in its arenas. After a grouping run that grouped
+  or failed (not deferred runs or waits for vectors, which sweeps repeat), `GroupingScheduler._run` calls
   `process_utils.release_freed_memory` (`gc.collect`, then `malloc_trim(0)` on Linux): ~90 MB
   back at 10k. macOS and Windows allocators return memory on their own terms; there it only
   collects.

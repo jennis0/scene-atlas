@@ -226,6 +226,8 @@ class TestCacheBounds:
 
 
 class TestGetEmbeddingArrays:
+    """Many ids are read by one streaming scan, few by filtered ``id IN`` queries."""
+
     def _fill(self, svc, n):
         vectors = {i: _rand_vec() for i in range(1, n + 1)}
         for start in range(1, n + 1, 50):  # several fragments, as an ingest writes them
@@ -237,21 +239,109 @@ class TestGetEmbeddingArrays:
             )
         return vectors
 
-    @pytest.mark.parametrize("max_ids", [10_000, 3])  # filtered lookup; streaming scan
-    def test_returns_float32_vectors_of_the_ids_found(self, svc, monkeypatch, max_ids):
+    @pytest.fixture()
+    def paths(self, svc, monkeypatch):
+        """Count scans and filtered queries; small thresholds so 300 rows exercise both."""
         import backend.app.services.lancedb_service as module
 
-        monkeypatch.setattr(module, "_LOOKUP_MAX_IDS", max_ids)
+        monkeypatch.setattr(module, "_LOOKUP_MAX_IDS", 3)
+        monkeypatch.setattr(module, "_SCAN_MIN_IDS", 1000)
         monkeypatch.setattr(module, "_SCAN_BATCH_ROWS", 64)  # batches cut across fragments
+        calls = {"scan": 0, "filtered": 0}
+        scan, lookup = module._scan_vectors, svc.get_embeddings
+
+        def counted_scan(*args):
+            calls["scan"] += 1
+            return scan(*args)
+
+        def counted_lookup(ids):
+            calls["filtered"] += 1
+            return lookup(ids)
+
+        monkeypatch.setattr(module, "_scan_vectors", counted_scan)
+        monkeypatch.setattr(svc, "get_embeddings", counted_lookup)
+        return module, calls
+
+    @pytest.mark.parametrize("wanted", [[5, 77, 299, 299, 1000], list(range(0, 400, 7))])
+    def test_returns_float32_vectors_of_the_ids_found(self, svc, paths, wanted):
         vectors = self._fill(svc, 300)
-        wanted = [5, 77, 150, 299, 299, 1000]  # a duplicate and a missing id
         found = svc.get_embedding_arrays(wanted)
-        assert sorted(found) == [5, 77, 150, 299]
+        assert sorted(found) == sorted({i for i in wanted if 1 <= i <= 300})
         for i, v in found.items():
             assert v.dtype == np.float32 and v.shape == (32,)
             assert np.array_equal(v, np.asarray(vectors[i], dtype=np.float32))
-        reference = svc.get_embeddings([5, 77, 150, 299])
-        assert all(np.array_equal(found[i], np.float32(reference[i])) for i in reference)
 
-    def test_no_ids_reads_nothing(self, svc):
+    def test_scans_only_for_a_large_share_of_the_table(self, svc, paths):
+        _, calls = paths
+        self._fill(svc, 300)
+        svc.get_embedding_arrays(range(1, 21))  # 7% of the rows: filtered queries
+        assert calls == {"scan": 0, "filtered": 7}
+        svc.get_embedding_arrays(range(1, 41))  # 13%
+        assert calls["scan"] == 1
+
+    def test_scans_for_many_ids_whatever_the_share(self, svc, paths):
+        module, calls = paths
+        self._fill(svc, 300)
+        module._SCAN_MIN_IDS = 10
+        assert len(svc.get_embedding_arrays(range(1, 11))) == 10
+        assert calls == {"scan": 1, "filtered": 0}
+
+    def test_null_vectors_are_skipped_without_shifting_the_others(self, svc, paths):
+        """``FixedSizeListArray.flatten`` drops null slots: rows after one would be cut at the
+        wrong offsets."""
+        import pyarrow as pa
+
+        vectors = self._fill(svc, 300)
+        n = 4
+        svc._tbl.add(
+            pa.table(
+                {
+                    "id": list(range(1000, 1000 + n)),
+                    "vector": pa.array(
+                        [None, *([float(k)] * 32 for k in range(1, n))],
+                        type=pa.list_(pa.float32(), 32),
+                    ),
+                    "image_id": list(range(1000, 1000 + n)),
+                    "filename": [""] * n,
+                    "author": [""] * n,
+                    "base_name": [""] * n,
+                }
+            )
+        )
+        _, calls = paths
+        found = svc.get_embedding_arrays([*range(1, 301), *range(1000, 1000 + n)])
+        assert calls["scan"] == 1
+        assert 1000 not in found
+        for k in range(1, n):
+            assert np.array_equal(found[1000 + k], np.full(32, k, dtype=np.float32))
+        assert all(np.array_equal(found[i], np.float32(vectors[i])) for i in vectors)
+
+    def test_a_failing_scan_is_retried_then_falls_back_to_filtered_queries(
+        self, svc, paths, monkeypatch
+    ):
+        module, calls = paths
+        vectors = self._fill(svc, 300)
+        failures = []
+
+        def broken(*_args):
+            failures.append(1)
+            raise OSError("transient")
+
+        monkeypatch.setattr(module, "_scan_vectors", broken)
+        found = svc.get_embedding_arrays(range(1, 101))
+        assert len(failures) == 2
+        assert calls["filtered"] == 34  # ceil(100 / 3)
+        assert sorted(found) == list(range(1, 101))
+        assert all(np.array_equal(found[i], np.float32(vectors[i])) for i in found)
+
+    def test_a_closed_service_raises_on_either_path(self, svc, paths):
+        self._fill(svc, 300)
+        svc.close()
+        for ids in (range(1, 3), range(1, 200)):
+            with pytest.raises(RuntimeError):
+                svc.get_embedding_arrays(ids)
+
+    def test_no_ids_reads_nothing(self, svc, paths):
+        _, calls = paths
         assert svc.get_embedding_arrays([]) == {}
+        assert calls == {"scan": 0, "filtered": 0}

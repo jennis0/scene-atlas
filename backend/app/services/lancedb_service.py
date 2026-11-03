@@ -30,8 +30,13 @@ logger = logging.getLogger(__name__)
 # a few tables' fragments, whose metadata fits easily in this; there are no vector indexes.
 _METADATA_CACHE_BYTES = 64 * 1024 * 1024
 _INDEX_CACHE_BYTES = 64 * 1024 * 1024
-# get_embedding_arrays: more ids than this are read by a streaming scan, in batches of rows
+# get_embedding_arrays. Filtered lookups take this many ids per ``id IN`` query.
 _LOOKUP_MAX_IDS = 500
+# A streaming scan (in batches of rows) reads every vector of the table, so it is used for ids
+# that are a large share of the table, or many: each filtered query scans every fragment and
+# left ~15 MB of native buffers held, so 10 of them already hold more than a scan's batch.
+_SCAN_MIN_SHARE = 0.1
+_SCAN_MIN_IDS = 10 * _LOOKUP_MAX_IDS
 _SCAN_BATCH_ROWS = 4096
 
 
@@ -39,6 +44,29 @@ def _session() -> lancedb.Session:
     return lancedb.Session(
         index_cache_size_bytes=_INDEX_CACHE_BYTES, metadata_cache_size_bytes=_METADATA_CACHE_BYTES
     )
+
+
+def _scan_vectors(table: Table, wanted: np.ndarray) -> dict[int, np.ndarray]:
+    """The vectors of the ``wanted`` (sorted) image ids, by one streaming scan of the table.
+    Rows whose vector is null are skipped: ``FixedSizeListArray.flatten`` would drop their
+    slots and misalign every row after them, so rows are cut from ``values`` instead."""
+    out: dict[int, np.ndarray] = {}
+    query = table.search().select(["image_id", "vector"]).limit(None)
+    for batch in query.to_batches(_SCAN_BATCH_ROWS):
+        ids = batch.column("image_id").to_numpy(zero_copy_only=False)
+        column = batch.column("vector")
+        keep = np.isin(ids, wanted)
+        if column.null_count:
+            keep &= column.is_valid().to_numpy(zero_copy_only=False)
+        rows = np.flatnonzero(keep)
+        if not len(rows):
+            continue
+        dim = column.type.list_size
+        values = column.values.slice(column.offset * dim, len(column) * dim)
+        vectors = values.to_numpy(zero_copy_only=False).reshape(len(column), dim)
+        for row in rows.tolist():
+            out[int(ids[row])] = np.array(vectors[row], dtype=np.float32)
+    return out
 
 
 def _table_schema(vector_size: int) -> pa.Schema:
@@ -301,35 +329,51 @@ class LanceDBService:
             return {}
 
     def get_embedding_arrays(self, image_ids: Iterable[int]) -> dict[int, np.ndarray]:
-        """float32 vectors of many images (missing IDs are absent; a failed read finds none).
+        """float32 vectors of many images (missing ids, and rows without a vector, are absent).
 
-        Up to ``_LOOKUP_MAX_IDS`` ids are looked up by an ``id IN (...)`` filter. More are
-        read by one streaming scan of ``(image_id, vector)``, kept if wanted: repeated
-        filtered lookups each scan every fragment and left ~300 MB of native buffers held
-        for 10k ids, where the scan holds one batch at a time (~30 MB) and is faster.
+        Few ids are looked up by ``id IN (...)`` filters of ``_LOOKUP_MAX_IDS``. Each such
+        query scans every fragment, and after a 10k-id lookup (20 queries) ~300 MB of native
+        buffers stayed held, so ids that are many (``_SCAN_MIN_IDS``) or a large share of the
+        table (``_SCAN_MIN_SHARE``) are read by one streaming scan of ``(image_id, vector)``
+        instead, holding one batch at a time; a scan that fails twice falls back to the
+        filtered queries, so one error doesn't make every vector missing.
         """
+        table = self._tbl  # a closed service raises here, as get_embeddings does
         wanted = np.unique(np.fromiter(image_ids, dtype=np.int64))
         if len(wanted) == 0:
             return {}
-        if len(wanted) <= _LOOKUP_MAX_IDS:
-            found = self.get_embeddings(wanted.tolist())
-            return {i: np.asarray(v, dtype=np.float32) for i, v in found.items()}
+        if self._scan_pays(table, len(wanted)):
+            for attempt in (1, 2):
+                try:
+                    return _scan_vectors(table, wanted)
+                except Exception as e:
+                    logger.warning(
+                        "Error scanning embeddings for %d ids (attempt %d): %s",
+                        len(wanted),
+                        attempt,
+                        e,
+                    )
         out: dict[int, np.ndarray] = {}
-        try:
-            query = self._tbl.search().select(["image_id", "vector"]).limit(None)
-            for batch in query.to_batches(_SCAN_BATCH_ROWS):
-                ids = batch.column("image_id").to_numpy()
-                keep = np.flatnonzero(np.isin(ids, wanted))
-                if not len(keep):
-                    continue
-                flat = batch.column("vector").flatten().to_numpy(zero_copy_only=False)
-                vectors = flat.reshape(len(batch), -1)
-                for row in keep.tolist():
-                    out[int(ids[row])] = np.array(vectors[row], dtype=np.float32)
-        except Exception as e:
-            logger.warning("Error retrieving embeddings for %d ids: %s", len(wanted), e)
-            return {}
+        ids = wanted.tolist()
+        for start in range(0, len(ids), _LOOKUP_MAX_IDS):
+            found = self.get_embeddings(ids[start : start + _LOOKUP_MAX_IDS])
+            out.update(
+                (i, np.asarray(v, dtype=np.float32)) for i, v in found.items() if v is not None
+            )
         return out
+
+    @staticmethod
+    def _scan_pays(table: Table, n_ids: int) -> bool:
+        """Whether ``n_ids`` are read by a scan rather than filtered queries."""
+        if n_ids <= _LOOKUP_MAX_IDS:
+            return False
+        if n_ids >= _SCAN_MIN_IDS:
+            return True
+        try:
+            rows = table.count_rows()
+        except Exception:
+            return False
+        return n_ids >= _SCAN_MIN_SHARE * rows
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""
