@@ -312,16 +312,17 @@ def decode_vector(text: str, dim: int) -> np.ndarray:
 
 
 def dump_line(line: BaseModel) -> str:
-    """One validated line of the file, newline included. Nulls are left out."""
-    return (
-        json.dumps(
-            line.model_dump(mode="json", exclude_none=True),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        + "\n"
+    """One validated line of the file, newline included. Nulls are left out. A line the
+    reader would refuse as too long raises ``ExportError``."""
+    text = json.dumps(
+        line.model_dump(mode="json", exclude_none=True),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
     )
+    if len(text) >= MAX_LINE_CHARS:
+        raise ExportError(f"A line of {len(text):,} characters is too long to export")
+    return text + "\n"
 
 
 def _validated[M: BaseModel](model: type[M], data: dict[str, Any], what: str) -> M:

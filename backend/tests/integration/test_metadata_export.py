@@ -290,6 +290,7 @@ class TestApi:
         # The configured folders, not stand-ins: swapping them under the running app would
         # leave its shutdown working on the wrong library.
         monkeypatch.setattr(settings, "app_mode", "app")
+        settings.images_dir.mkdir(parents=True, exist_ok=True)
         response = client.post(
             "/api/v1/library/metadata-export",
             json={
@@ -297,6 +298,8 @@ class TestApi:
             },
         )
         assert response.status_code == 422
+        if path.startswith(("{data}", "{store}")):
+            assert response.json()["detail"] == "Save it outside the library's own folders"
 
     @pytest.mark.parametrize(
         "name",

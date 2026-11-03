@@ -79,11 +79,11 @@ Ungrouped images are lines with `"group": null`. Images still awaiting grouping 
 
 **Lenient reading, validated writing.** The reader accepts anything the database can hold: an unknown grid type, an out-of-range number or a malformed hash becomes null, and text over 4,000 characters (200 for tag values and short fields) is cut short. It refuses only what protects it or the filesystem: a line over 64 M characters, non-finite numbers, ids and sizes outside SQLite's 64-bit range, and a storage or thumbnail key that isn't plain names. The writer passes every line through the same models (`ExportError` names a row it can't write), so it writes exactly what the reader returns. A vector that isn't the header model's size is dropped by the reader.
 
-**Big groups** are split over lines of at most 2,000 images, each with the same `group.uid`; `primary` is an index into the line that holds it. Readers join a group's lines by `uid`.
+**Big groups** are split over lines of at most 2,000 images (`MAX_IMAGES_PER_LINE`, part of format 1.x: the reader refuses longer lines), each with the same `group.uid`; `primary` is an index into the line that holds it, and is absent from the group's other lines. Readers join a group's lines by `uid`.
 
 **`source_files` rows** whose image isn't in the file (it was awaiting grouping) are written as `pending` with no `image_id`, so the scan after a rebuild imports the file again rather than skipping it.
 
-**`stored_hash`** is written as stored; rows from before it existed get it from `backfill_stored_hash`, a job that runs at startup while any image lacks one (it hashes the file the image reads from, and fills a missing `content_hash` too).
+**`stored_hash`** is written as stored. Rows from before it existed (migration 020) were never converted, since conversion arrived with it, so migration 031 copies their `content_hash`. Rows with neither hash are hashed by `backfill_stored_hash`, a startup job (it reads the file the image reads from, and leaves out linked images while their folder is offline). The writer doesn't report the values it coerces (a grid width of 0 becomes null); the API refuses such values on the way in, so only rows from before those limits are affected.
 
 **Reading vectors:** the metadata export and full export stream the LanceDB table once, in id order, alongside the image query; downloads (≤ 999 images) read their ids in one `id IN (…)` query. Neither uses `get_embeddings` as it is, because it swallows errors and returns `{}`: a read error fails the export rather than silently leaving vectors out. No scalar index is needed.
 

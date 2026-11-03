@@ -13,11 +13,16 @@ Usage:
 import hashlib
 import logging
 
+from sqlalchemy import CursorResult, func, update
 from sqlalchemy.orm import selectinload
 
 from backend.app.file_hash import file_sha256
 from backend.app.models.database import Image
-from backend.app.services.originals import OriginalUnavailable, original_path
+from backend.app.services.originals import (
+    OriginalUnavailable,
+    linked_folder_available,
+    original_path,
+)
 from backend.app.services.shutdown import raise_if_shutting_down
 from backend.pipeline.db import pipeline_db
 
@@ -100,16 +105,27 @@ def backfill_content_hash():
 STORED_HASH_JOB = "Computing file hashes"
 
 
+def _missing_stored_hash(db):
+    """Images whose stored file has never been hashed (migration 031 copied
+    ``content_hash`` for the rest). Linked images only while their folder is online:
+    otherwise they can't be read, and would be offered again at every start."""
+    query = db.query(Image.id).filter(Image.stored_hash.is_(None), Image.content_hash.is_(None))
+    if not linked_folder_available():
+        query = query.filter(Image.storage_key.isnot(None))
+    return query
+
+
 def images_missing_stored_hash(db) -> int:
-    return db.query(Image.id).filter(Image.stored_hash.is_(None)).count()
+    return _missing_stored_hash(db).count()
 
 
 def backfill_stored_hash(progress_fn=None) -> dict:
-    """Hash the file each image reads from (the stored file, or the linked file) where
-    ``stored_hash`` is NULL; set ``content_hash`` too where that is NULL, since then the
-    file is all there is to go by. Images whose file is missing are left for a later run."""
+    """Hash the file each image reads from (the stored file, or the linked file) for the
+    images ``images_missing_stored_hash`` counts, setting both hashes (with neither
+    recorded, the file is all there is to go by). An image whose file can't be read is
+    left for a later run; one deleted meanwhile is skipped."""
     with pipeline_db() as db:
-        image_ids = [i for (i,) in db.query(Image.id).filter(Image.stored_hash.is_(None))]
+        image_ids = [i for (i,) in _missing_stored_hash(db)]
     totals = {"total": len(image_ids), "updated": 0, "skipped": 0}
     for start in range(0, len(image_ids), BATCH_SIZE):
         raise_if_shutting_down()
@@ -120,20 +136,27 @@ def backfill_stored_hash(progress_fn=None) -> dict:
                 .filter(Image.id.in_(image_ids[start : start + BATCH_SIZE]))
                 .all()
             )
+            hashes = {}
             for image in batch:
                 try:
-                    digest = file_sha256(original_path(image))
-                except (OriginalUnavailable, OSError) as exc:
-                    logger.warning("Image %s: can't hash its file: %s", image.id, exc)
+                    hashes[image.id] = file_sha256(original_path(image))
+                except (OriginalUnavailable, OSError):
                     totals["skipped"] += 1
-                    continue
-                image.stored_hash = digest
-                if image.content_hash is None:
-                    image.content_hash = digest
-                totals["updated"] += 1
+            db.expunge_all()  # written below by id: the rows may have changed meanwhile
+            for image_id, digest in hashes.items():
+                result: CursorResult = db.execute(  # type: ignore[assignment]
+                    update(Image)
+                    .where(Image.id == image_id, Image.stored_hash.is_(None))
+                    .values(
+                        stored_hash=digest, content_hash=func.coalesce(Image.content_hash, digest)
+                    )
+                )
+                totals["updated"] += result.rowcount
         if progress_fn:
             done = min(start + BATCH_SIZE, len(image_ids))
             progress_fn(done, len(image_ids), f"Hashed {done:,} of {len(image_ids):,} files")
+    if totals["skipped"]:
+        logger.warning("Stored-hash backfill: %d file(s) couldn't be read", totals["skipped"])
     logger.info("Stored-hash backfill: %s", totals)
     return totals
 

@@ -53,29 +53,36 @@ def test_backfill_content_hash(library):
         assert all(img.content_hash for img in db.query(Image))
 
 
-def test_backfill_stored_hash_hashes_the_stored_file(library):
+def test_backfill_stored_hash_hashes_images_with_neither_hash(library):
     from backend.app.file_hash import file_sha256
     from backend.app.services import get_image_store
-    from backend.pipeline.backfill_content_hash import backfill_stored_hash
+    from backend.pipeline.backfill_content_hash import (
+        backfill_stored_hash,
+        images_missing_stored_hash,
+    )
 
     with library() as db:
-        kept = db.query(Image).filter_by(filename="Cave.jpg").one()
-        kept.content_hash = "ab" * 32  # the upload's hash: a converted file differs from it
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        cave.content_hash = "ab" * 32  # migration 031's to fill in, not the job's
         db.commit()
+        assert images_missing_stored_hash(db) == 1
     progress = []
 
-    result = backfill_stored_hash(lambda *args: progress.append(args))
-
-    assert result == {"total": 2, "updated": 2, "skipped": 0}
-    assert progress[-1][:2] == (2, 2)
+    assert backfill_stored_hash(lambda *args: progress.append(args)) == {
+        "total": 1,
+        "updated": 1,
+        "skipped": 0,
+    }
+    assert progress[-1][:2] == (1, 1)
     with library() as db:
-        for img in db.query(Image):
-            assert img.stored_hash == file_sha256(get_image_store().get_path(img.storage_key))
-        assert db.query(Image).filter_by(filename="Cave.jpg").one().content_hash == "ab" * 32
-    assert backfill_stored_hash()["total"] == 0  # nothing left to do
+        forest = db.query(Image).filter_by(filename="Forest_Night_winter.jpg").one()
+        digest = file_sha256(get_image_store().get_path(forest.storage_key))
+        assert (forest.stored_hash, forest.content_hash) == (digest, digest)
+        assert db.query(Image).filter_by(filename="Cave.jpg").one().stored_hash is None
+        assert images_missing_stored_hash(db) == 0
 
 
-def test_backfill_stored_hash_leaves_missing_files_for_later(library):
+def test_backfill_stored_hash_leaves_unreadable_files_for_later(library):
     from backend.app.services import get_image_store
     from backend.pipeline.backfill_content_hash import backfill_stored_hash
 
@@ -86,6 +93,43 @@ def test_backfill_stored_hash_leaves_missing_files_for_later(library):
     assert backfill_stored_hash() == {"total": 2, "updated": 1, "skipped": 1}
     with library() as db:
         assert db.query(Image).filter_by(filename="Cave.jpg").one().stored_hash is None
+
+
+def test_backfill_stored_hash_skips_an_image_deleted_meanwhile(library, monkeypatch):
+    from backend.pipeline import backfill_content_hash as backfill
+
+    real_hash = backfill.file_sha256
+
+    def hash_then_delete(path):
+        digest = real_hash(path)
+        with library() as db:
+            db.query(Image).filter_by(filename="Cave.jpg").delete()
+            db.commit()
+        return digest
+
+    monkeypatch.setattr(backfill, "file_sha256", hash_then_delete)
+    result = backfill.backfill_stored_hash()
+    assert result["total"] == 2 and result["updated"] == 1
+
+
+def test_backfill_stored_hash_leaves_out_linked_images_while_offline(library, monkeypatch):
+    from backend.app.models.database import LibrarySource, SourceFile
+    from backend.pipeline import backfill_content_hash as backfill
+
+    with library() as db:
+        source = LibrarySource(kind="folder", location="/maps", state="online")
+        db.add(source)
+        db.flush()
+        linked_file = SourceFile(source_id=source.id, rel_key="Cave.jpg", size=1, mtime_ns=1)
+        db.add(linked_file)
+        db.flush()
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        cave.storage_key, cave.source_file_id = None, linked_file.id  # read from the folder
+        db.commit()
+        monkeypatch.setattr(backfill, "linked_folder_available", lambda: False)
+        assert backfill.images_missing_stored_hash(db) == 1
+        monkeypatch.setattr(backfill, "linked_folder_available", lambda: True)
+        assert backfill.images_missing_stored_hash(db) == 2
 
 
 def test_retag_all_images_replaces_auto_tags(library):

@@ -1,6 +1,5 @@
 """Library identity and the linked folder (design/library-setup.md)."""
 
-import threading
 from datetime import UTC
 from pathlib import Path
 
@@ -45,7 +44,9 @@ from ..services.linked_files import (
 )
 from ..services.originals import forget_availability, linked_folder_available
 from .dependencies import acquire_heavy_op, get_db, write_locked
+from .models import ACTIVATION_JOB_PREFIX
 from .rate_limits import limiter
+from .search import REBUILD_EMBEDDINGS_JOB
 
 router = APIRouter()
 
@@ -206,10 +207,7 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
 
 
 # Jobs that rewrite the vectors: an export during one would mix two models' vectors.
-_REEMBEDDING_JOBS = ("Rebuilding image embeddings", "Activate model:")
-# Check-and-start is one step, so two clicks can't start two exports (or clean the first's
-# partial files).
-_export_lock = threading.Lock()
+_REEMBEDDING_JOBS = (REBUILD_EMBEDDINGS_JOB, ACTIVATION_JOB_PREFIX)
 
 
 def _export_target(raw: str | None) -> Path:
@@ -249,7 +247,9 @@ def start_metadata_export(request: Request, body: MetadataExportRequest):
     site can't start one (it would need a CORS preflight, which is refused)."""
     target = _export_target(body.path)
     runner = get_job_runner()
-    with _export_lock:
+    # Check-and-start is one step, so two clicks can't start two exports, and the hourly
+    # clean can't delete the partial files of one being started.
+    with metadata_export.export_lock:
         if runner.has_active_job(metadata_export.JOB_NAME):
             raise HTTPException(status_code=409, detail="An export is already running")
         if any(

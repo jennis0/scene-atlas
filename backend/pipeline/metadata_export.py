@@ -21,6 +21,7 @@ import gzip
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator, Sequence
@@ -52,6 +53,10 @@ EXPORT_NAME = re.compile(r"scene-atlas-metadata-[0-9]{8}-[0-9]{6}\.jsonl\.gz")
 KEEP_SECONDS = 24 * 3600
 
 ProgressFn = Callable[[int, int, str | None], None]
+
+# Held while deciding to start an export and while cleaning the exports folder, so a
+# clean can't delete the partial files of an export being started.
+export_lock = threading.Lock()
 
 
 def export_name(now: datetime | None = None) -> str:
@@ -100,9 +105,10 @@ def clean_exports_when_idle() -> int:
     """``clean_exports``, unless an export is running (scheduled hourly)."""
     from backend.app.services.job_runner import get_job_runner
 
-    if get_job_runner().has_active_job(JOB_NAME):
-        return 0
-    return clean_exports()
+    with export_lock:
+        if get_job_runner().has_active_job(JOB_NAME):
+            return 0
+        return clean_exports()
 
 
 def _model_info(svc: LanceDBService) -> dict:
