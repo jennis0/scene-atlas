@@ -198,11 +198,18 @@ The desktop app's backend serves the app's window on `127.0.0.1`, without user a
 Two checks run on every request in app mode (`backend/app/host_check.py`):
 
 - **Host.** Only `127.0.0.1`, `localhost` and `[::1]` (400 otherwise), against DNS rebinding: a web page whose domain re-resolves to loopback still sends its own domain.
-- **The launch token.** Electron makes a random 256-bit token once per run (`electron/src/appToken.ts`). It passes it to the backend in the sidecar's environment as `SCENE_ATLAS_APP_TOKEN`. The environment is used because a command line is visible to other users, and a process's environment isn't. Electron sets the token as an HttpOnly, SameSite=Strict cookie (`scene_atlas_token`) on the window's session before it loads the UI, so every request the window makes carries it: `fetch`, images, downloads and WebSockets. Electron's own calls (the `/health` polling) send it as the `X-Scene-Atlas-Token` header. A request with neither, or the wrong one (compared in constant time), gets 403. The token lasts the app's run, so the cookie stays good when the backend restarts (a rebuild, a move, changed folders).
+- **The launch token.** Electron makes a random 256-bit token for each backend it starts (`electron/src/appToken.ts`). It passes it to the backend in the sidecar's environment as `SCENE_ATLAS_APP_TOKEN`. On Linux and macOS any user can list another user's command lines; a process's environment can only be read by its own user, root or an administrator, on all three systems. Electron adds the token as the `X-Scene-Atlas-Token` header to every request its window sends to that backend's origin (the exact host and port): page loads, `fetch`, images and downloads (`session.webRequest.onBeforeSendHeaders`, `sendTokenTo` in `main.ts`). It also sends the token on its own `/health` polling. The page's scripts never see the token, and it is never written to disk. A request without it, or with the wrong one (compared in constant time), gets 403.
+
+A new token for each backend means one that has stopped, whose port anything may take next, is never trusted with the next one's. A restarted backend (a rebuild, a move, changed folders, the port retry) gets a new token, and the window's header follows it.
 
 Not enforced when no token is set: development (`scripts/app/start.py`, where the developer runs the backend) and the browser E2E tests. Server mode never checks it; access there is the reverse proxy's job ([Server mode has no built-in authentication](#server-mode-has-no-built-in-authentication)).
 
-What it doesn't stop: a program running as the same user. It can read the app's memory or its cookie store, and it doesn't need the API anyway: it can already read and write the user's files. The packaged-app tests start the app with a token they choose (`e2e/helpers/appToken.ts`); `makeAppToken` takes one from the environment the same way, because whoever starts the app sets its environment already.
+What it doesn't stop:
+
+- **A program running as the same user, or an administrator.** It can read the app's memory or environment, and doesn't need the API anyway: it can already read and write the user's files.
+- **A port squatted during a crash restart.** After a crash, `entry.py` restarts uvicorn in the same process, on the same port, with the same token, after a backoff of a second or more. Another user who binds that port in the gap receives the window's next requests, token included, and serves the window as if it were the app. That needs them to win a race they can't start, in a window of about a second. Closing it would mean exiting after a crash instead, so that Electron starts a new backend on a new port with a new token, at the cost of the silent in-process recovery.
+
+The packaged-app tests start the app with a token they choose (`e2e/helpers/appToken.ts`); `makeAppToken` takes one from the environment, because whoever starts the app sets its environment already.
 
 ### 7. MEDIUM: CORS Configuration
 

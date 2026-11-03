@@ -35,17 +35,9 @@ def test_with_a_token_a_request_without_it_is_refused(test_client: TestClient, w
     assert test_client.get("/health", headers={"host": "127.0.0.1:8000"}).status_code == 403
 
 
-@pytest.mark.parametrize(
-    "headers",
-    [
-        {"x-scene-atlas-token": TOKEN},  # Electron's own requests
-        {"cookie": f"scene_atlas_token={TOKEN}"},  # the window's
-        {"cookie": f"theme=dark; scene_atlas_token={TOKEN}; other=1"},
-    ],
-)
-def test_with_a_token_the_app_gets_in(test_client: TestClient, with_token, headers):
-    response = test_client.get("/health", headers={"host": "127.0.0.1:8000", **headers})
-    assert response.status_code == 200
+def test_with_a_token_the_app_gets_in(test_client: TestClient, with_token):
+    headers = {"host": "127.0.0.1:8000", "x-scene-atlas-token": TOKEN}
+    assert test_client.get("/health", headers=headers).status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -53,9 +45,8 @@ def test_with_a_token_the_app_gets_in(test_client: TestClient, with_token, heade
     [
         {"x-scene-atlas-token": "wrong"},
         {"x-scene-atlas-token": TOKEN[:-1]},
-        {"cookie": "scene_atlas_token=wrong"},
-        {"cookie": f"other_token={TOKEN}"},
-        {"cookie": "not a cookie header \\ ;;; ="},
+        {"x-scene-atlas-token": ""},
+        {"cookie": f"scene_atlas_token={TOKEN}"},  # only the header counts
     ],
 )
 def test_with_a_token_a_wrong_one_is_refused(test_client: TestClient, with_token, headers):

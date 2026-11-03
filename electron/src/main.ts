@@ -11,7 +11,7 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
-import { makeAppToken, TOKEN_COOKIE, TOKEN_HEADER } from './appToken'
+import { makeAppToken, TOKEN_HEADER } from './appToken'
 import { portWasTaken } from './backendExit'
 import { findFreePort, spawnSidecar } from './sidecar'
 import {
@@ -76,9 +76,6 @@ const QUIT_GRACE_MS = 15_000
 const LIBRARY_REFUSED = 4
 // Finishing a library move failed (backend/pyinstaller/entry.py MOVE_FAILED)
 const MOVE_FAILED = 5
-
-// For the app's whole run, so the window's cookie stays good across backend restarts
-const appToken = makeAppToken()
 
 let mainWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
@@ -401,11 +398,11 @@ function createMainWindow(): BrowserWindow {
   return win
 }
 
-async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boolean> {
+async function waitForHealth(origin: string, token: string, timeoutMs = 120_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      const headers = { [TOKEN_HEADER]: appToken }
+      const headers = { [TOKEN_HEADER]: token }
       if ((await fetch(`${origin}/health`, { headers })).ok) return true
     } catch {
       // Not accepting connections yet.
@@ -415,9 +412,31 @@ async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boole
   return false
 }
 
-async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
+/**
+ * Give the window's requests to *origin*, and only to it, the backend's launch token
+ * (design/security.md §6d): page loads, fetches, images and downloads alike. Added by
+ * Electron as the requests leave, so the page's scripts never see it and nothing is
+ * stored. A session has one such listener: this replaces the last backend's.
+ */
+function sendTokenTo(origin: string, token: string): void {
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    let sameOrigin = false
+    try {
+      sameOrigin = new URL(details.url).origin === origin
+    } catch {
+      // Not a URL with an origin
+    }
+    callback({
+      requestHeaders: sameOrigin
+        ? { ...details.requestHeaders, [TOKEN_HEADER]: token }
+        : details.requestHeaders,
+    })
+  })
+}
+
+async function showBackendUi(port: number, child: ChildProcess, token: string): Promise<void> {
   const origin = `http://127.0.0.1:${port}`
-  const healthy = await waitForHealth(origin)
+  const healthy = await waitForHealth(origin, token)
   // It exited or was replaced meanwhile, and whatever did that has reported it.
   if (child !== sidecarProcess) return
   if (!healthy) {
@@ -425,16 +444,7 @@ async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
     return
   }
   backendOrigin = origin
-  // The window's requests carry the token as a cookie: images and downloads too, which
-  // can't send a header. HttpOnly keeps it from the page's scripts, SameSite=Strict from
-  // other sites' requests. A cookie is for a host, whatever the port.
-  await session.defaultSession.cookies.set({
-    url: origin,
-    name: TOKEN_COOKIE,
-    value: appToken,
-    httpOnly: true,
-    sameSite: 'strict',
-  })
+  sendTokenTo(origin, token)
   await mainWindow?.loadURL(`${origin}/`)
 }
 
@@ -546,11 +556,14 @@ async function startBackend(dirs: LibraryDirs, anyPort = false): Promise<void> {
   }
 
   let ready = false
+  // A new one for each backend: one that has stopped (and its port, which anything may
+  // take next) is never trusted with the next one's
+  const token = makeAppToken()
   const moveFrom = loadConfig()?.pendingMove
   if (moveFrom) logLine(`[electron] Finishing the library move from ${JSON.stringify(moveFrom)}`)
   const child = spawnSidecar({
     port,
-    token: appToken,
+    token,
     appDataDir,
     imageLibraryDir,
     linkedLibraryDir,
@@ -563,7 +576,9 @@ async function startBackend(dirs: LibraryDirs, anyPort = false): Promise<void> {
         if (config?.pendingMove) saveConfig(withoutMove(config))
       }
       console.log(`[electron] Backend ready on port ${readyPort}`)
-      void showBackendUi(readyPort, child)
+      showBackendUi(readyPort, child, token).catch((err: unknown) => {
+        if (child === sidecarProcess) signalBackendError(`Could not open the app: ${String(err)}`)
+      })
     },
     onLog: logLine,
     onError: (message) => {

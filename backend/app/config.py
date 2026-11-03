@@ -59,9 +59,9 @@ class Settings(BaseSettings):
     # 'server' when running standalone via uvicorn.  Set via SCENE_ATLAS_APP_MODE.
     app_mode: Literal["app", "server"] = "server"
 
-    # Desktop app: a secret Electron makes at each launch and passes in the environment
-    # (never on the command line, which other users can read). When set, every request
-    # must carry it, as the window's cookie or Electron's own header (host_check.py).
+    # Desktop app: a secret Electron makes for each backend it starts and passes in the
+    # environment, not on the command line. When set, every request must carry it in the
+    # X-Scene-Atlas-Token header, which Electron adds to its window's requests (host_check.py).
     app_token: str | None = Field(default=None, repr=False)
 
     # Server mode: ask GitHub once a day whether a newer release is out, to show in

@@ -194,6 +194,22 @@ async function libraryWithMaps(): Promise<Library> {
   keepModel(profile.appData);
   await call(base, "POST", "/models/setup-complete");
   await seedTestData(makeImages(profile.root), base);
+  // An image load can't send a header itself: Electron adds the launch token to it
+  // (design/security.md §6d), so a thumbnail that loads shows it does
+  await page.reload();
+  await expect
+    .poll(
+      () =>
+        page
+          .locator('[data-testid="scene-tile"] img')
+          .first()
+          .evaluate(
+            (img: HTMLImageElement) => img.complete && img.naturalWidth > 0,
+          )
+          .catch(() => false),
+      { timeout: 60_000 },
+    )
+    .toBe(true);
   return { app, page, base };
 }
 

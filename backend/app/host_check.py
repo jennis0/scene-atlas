@@ -1,24 +1,22 @@
 """Guard the desktop app's backend against callers other than the app's own window.
 
 The desktop sidecar listens on 127.0.0.1, and in app mode two checks run on every request
-(design/security.md, sections 6c and 6d):
+(design/security.md §6d):
 
 - DNS rebinding: a web page whose domain re-resolves to 127.0.0.1 becomes same-origin with
   the backend, but its requests still carry that domain in ``Host``. Only loopback names
   are accepted.
 - The launch token: loopback is open to every user and program on the computer. Electron
-  makes a secret at each launch, passes it to the backend in its environment
-  (``SCENE_ATLAS_APP_TOKEN``) and sets it as an HttpOnly, SameSite=Strict cookie on the
-  app's own session, so the window's requests (images and downloads included) carry it.
-  Electron's own requests send it as a header. With no token set (development, the
-  browser E2E tests) this check is off.
+  makes a secret for each backend it starts, passes it in the backend's environment
+  (``SCENE_ATLAS_APP_TOKEN``) and adds it as the ``X-Scene-Atlas-Token`` header to its
+  window's requests to this backend's origin (page loads, images and downloads too), and
+  its own. With no token set (development, the browser E2E tests) this check is off.
 
 Server mode is left to the reverse proxy. Checked per request rather than when the app is
 built, so tests can switch modes.
 """
 
 import hmac
-from http.cookies import CookieError, SimpleCookie
 
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -26,7 +24,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .config import settings
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
-TOKEN_COOKIE = "scene_atlas_token"  # noqa: S105  # the cookie's name, not a secret
 TOKEN_HEADER = b"x-scene-atlas-token"
 
 
@@ -44,24 +41,8 @@ def _host_name(scope: Scope) -> str:
     return host.split(":")[0]
 
 
-def _presented_token(scope: Scope) -> str | None:
-    header = _header(scope, TOKEN_HEADER)
-    if header:
-        return header
-    cookies = _header(scope, b"cookie")
-    if not cookies:
-        return None
-    jar = SimpleCookie()
-    try:
-        jar.load(cookies)
-    except CookieError:
-        return None
-    morsel = jar.get(TOKEN_COOKIE)
-    return morsel.value if morsel else None
-
-
 def _has_token(scope: Scope, token: str) -> bool:
-    presented = _presented_token(scope)
+    presented = _header(scope, TOKEN_HEADER)
     return presented is not None and hmac.compare_digest(
         presented.encode("utf-8"), token.encode("utf-8")
     )

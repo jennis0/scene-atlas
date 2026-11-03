@@ -1,15 +1,14 @@
 /**
- * The launch token (design/security.md §6d): a secret made once per run of the app, that
- * the backend requires on every request. Loopback is open to every user and program on
- * the computer; only this app's window (by its cookie) and this process (by the header)
- * have the token.
+ * The launch token (design/security.md §6d): a secret made for each backend Electron
+ * starts, that the backend requires on every request. Loopback is open to every user and
+ * program on the computer; only this process has the token, and it adds it to its
+ * window's requests (main.ts sendTokenTo).
  */
 
 import { randomBytes } from 'crypto'
 
 /** The backend reads it from its environment (backend/app/host_check.py) */
 export const TOKEN_ENV = 'SCENE_ATLAS_APP_TOKEN'
-export const TOKEN_COOKIE = 'scene_atlas_token'
 export const TOKEN_HEADER = 'X-Scene-Atlas-Token'
 
 /**
