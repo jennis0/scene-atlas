@@ -430,3 +430,15 @@ def test_a_file_that_cant_be_set_aside_stays_held_from_the_sweep(api, backup, mo
     assert maintenance.sweep_orphaned_store_files() == {}
     monkeypatch.setattr(lr, "_move", real)
     assert lr.set_aside()["moved"] == 1 and not lr.set_aside_pending()  # the next start
+
+
+def test_with_no_installed_model_the_check_says_images_are_processed_again(
+    api, backup, monkeypatch
+):
+    """The build keeps the export's vectors only for the installed model's encoder; with
+    none installed it keeps none, so the check must not promise them."""
+    from backend.pipeline import import_metadata
+
+    monkeypatch.setattr(import_metadata, "_installed_model", lambda: (None, 8))
+    with api.SessionLocal() as db:
+        assert lr.check(db).reembed is True

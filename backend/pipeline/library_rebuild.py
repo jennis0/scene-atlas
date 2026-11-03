@@ -329,7 +329,8 @@ def check(db: Session) -> CheckResult:
         created_at=header.created_at.isoformat(),
         app_version=header.app_version,
         different_library=header.library_id is not None and header.library_id != get_library_id(db),
-        reembed=header.model is None or header.model.encoder_sha256 != encoder,
+        # As the build decides (_vector_service): with no installed model, none are kept
+        reembed=header.model is None or encoder is None or header.model.encoder_sha256 != encoder,
         linked_checked=linked_checked,
         missing=missing.report(),
         lost=lost.report(),
