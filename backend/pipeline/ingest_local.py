@@ -18,7 +18,7 @@ import json
 import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -73,7 +73,7 @@ class LocalCounts:
     ignored: int = 0  # OS junk and paths already in the import
     # Scene Atlas metadata files found (in place, or extracted from zips to staging), with
     # their folder: the caller loads them after its transaction (import_metadata)
-    metadata: list[tuple[Path, str]] = field(default_factory=list)
+    metadata: list[Path] = field(default_factory=list)
     extracted: list[Path] = field(default_factory=list)  # of those, the ones to delete
 
 
@@ -210,11 +210,7 @@ def add_local_items(
     archives = [f for f in files if kind_for_path(f.relative_path) == "archive"]
     others = [f for f in files if kind_for_path(f.relative_path) != "archive"]
     counts = _add_files(db, job, others, max_file_size)
-    counts.metadata += [
-        (f.source_path, str(PurePosixPath(f.relative_path).parent))
-        for f in files
-        if is_metadata_file(f.relative_path)
-    ]
+    counts.metadata += [f.source_path for f in files if is_metadata_file(f.relative_path)]
     for archive in archives:
         result = expand_archive(
             db,
@@ -267,4 +263,4 @@ def _add_archive_counts(counts: LocalCounts, result: ArchiveCounts) -> None:
     counts.skipped += result.skipped
     counts.failed += result.failed
     counts.metadata += result.metadata
-    counts.extracted += [path for path, _ in result.metadata]
+    counts.extracted += result.metadata

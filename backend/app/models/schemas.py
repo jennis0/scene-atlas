@@ -12,7 +12,8 @@ GridType = Literal["square", "hex"]
 GridCount = Annotated[int, Field(ge=1, le=10_000)]
 NameText = Annotated[str, Field(max_length=500)]
 GroupName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-TagText = Annotated[str, Field(min_length=1, max_length=100)]
+TAG_MAX_LENGTH = 100
+TagText = Annotated[str, Field(min_length=1, max_length=TAG_MAX_LENGTH)]
 LongText = Annotated[str, Field(max_length=2_000)]
 StyleName = Annotated[str, Field(max_length=50)]  # a colour preset or an icon name
 
@@ -631,6 +632,27 @@ class MetadataExportStarted(BaseModel):
 class MetadataExportStatus(BaseModel):
     job_id: str | None  # the export running now
     latest: str | None  # server: the newest finished export, to download
+
+
+class FullExportRequest(BaseModel):
+    """Where to export the library (design/export-backup-move.md §7). A folder only in the
+    desktop app, which picks it; a server writes to its images folder's ``exports/``, and
+    with ``resume`` carries on its newest export there."""
+
+    path: str | None = Field(default=None, max_length=4096)
+    include_linked: bool = True
+    resume: bool = False
+
+
+class FullExportStarted(BaseModel):
+    job_id: str
+    path: str
+
+
+class FullExportStatus(BaseModel):
+    job_id: str | None  # the export running now
+    folder: str  # server: where exports go; desktop: ""
+    latest: str | None  # server: the newest export's folder, to resume
 
 
 class LibraryScanStarted(BaseModel):

@@ -14,16 +14,23 @@ on the job for its report, and the files import as they would without it.
 ``load_export`` reads the file twice: once to validate all of it (so a bad file stores
 nothing, and leaves the job's other metadata files alone), then to store it in batches,
 each in a short write transaction of its own. A full export's file is a gigabyte; reading
-it inside the import's write transaction would hold SQLite's lock for minutes. Callers
-therefore load after their own transaction, while the job is still unsealed, so nothing
-claims its items meanwhile.
+it inside the import's write transaction would hold SQLite's lock for minutes, and a
+request that waited for it would outlast a proxy's timeout.
+
+So callers hand their files to ``load_in_background`` after their own transaction. It
+marks the job as loading before it returns, and the worker claims none of a loading job's
+items (``loading_jobs``), so a seal can come at any time: the job's files wait for their
+metadata. A load that fails part way deletes what it stored (its rows share a ``source``).
+A restart mid-load loses the mark, and the files import with what had been stored.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -34,13 +41,12 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from backend.app.models import ImportExportEntry, ImportJob, TagCategory
+from backend.app.models.schemas import TAG_MAX_LENGTH
 from backend.pipeline import library_format as lf
 
 logger = logging.getLogger(__name__)
 
 _BATCH = 1_000
-# A tag the API would refuse is cut to its limit (models/schemas.py TagText)
-_TAG_MAX = 100
 
 Opener = Callable[[], TextIO]
 
@@ -82,7 +88,7 @@ def _add_categories(db: Session, categories: Sequence[lf.TagCategoryEntry]) -> N
     """Create the file's tag categories the library doesn't have; never change one it has."""
     have = set(db.scalars(select(TagCategory.name)))
     for category in categories:
-        name = category.name[:_TAG_MAX]
+        name = category.name[:TAG_MAX_LENGTH]
         if name in have:
             continue
         values = [
@@ -119,6 +125,57 @@ def _note(job_id: str, note: str) -> None:
     _write(write)
 
 
+class _JobGone(Exception):
+    """The job was deleted while its metadata loaded."""
+
+
+# Jobs whose metadata is loading, with how many loads each: the worker leaves them be
+_loading: Counter[str] = Counter()
+_loading_lock = threading.Lock()
+_idle = threading.Condition(_loading_lock)
+
+
+def loading_jobs() -> set[str]:
+    with _loading_lock:
+        return set(_loading)
+
+
+def wait_for_loads(timeout: float = 60.0) -> bool:
+    """Wait until no metadata is loading (tests, the worker's ``drain``)."""
+    with _idle:
+        return _idle.wait_for(lambda: not _loading, timeout)
+
+
+def load_in_background(job_id: str, files: Sequence[Path], *, delete: Sequence[Path] = ()) -> None:
+    """Load *files* for the job in a thread of their own, then delete *delete* (staging
+    copies). The job counts as loading from before this returns until the load is done."""
+    if not files:
+        for path in delete:
+            path.unlink(missing_ok=True)
+        return
+    with _loading_lock:
+        _loading[job_id] += 1
+
+    def run() -> None:
+        try:
+            load_exports(job_id, [file_opener(path) for path in files])
+        except Exception:
+            logger.exception("Import %s: loading its metadata failed", job_id)
+        finally:
+            for path in delete:
+                path.unlink(missing_ok=True)
+            with _idle:
+                _loading[job_id] -= 1
+                if _loading[job_id] <= 0:
+                    del _loading[job_id]
+                _idle.notify_all()
+            from backend.pipeline.ingest_worker import get_ingest_worker
+
+            get_ingest_worker().wake()
+
+    threading.Thread(target=run, name=f"metadata-{job_id[:8]}", daemon=True).start()
+
+
 def _header(opener: Opener) -> lf.Header:
     """Validate the whole file (raises ``FormatError``); its header."""
     with opener() as fp:
@@ -131,74 +188,94 @@ def _header(opener: Opener) -> lf.Header:
     return header
 
 
-def load_export(job_id: str, opener: Opener, where: str = "") -> int:
+def _unusable(job_id: str, e: Exception) -> int:
+    note = (
+        f"The Scene Atlas metadata in this import couldn't be read ({e}), so its files "
+        "were imported without it."
+    )
+    _note(job_id, note)
+    logger.warning("Import %s: metadata not used: %s", job_id, e)
+    return 0
+
+
+def load_export(job_id: str, opener: Opener) -> int:
     """Store the entries of a ``scene-atlas.jsonl`` (``opener`` opens it, and is called
-    twice) for the job, in transactions of its own. *where* is the file's folder in the
-    import ("" at its root). Returns how many entries were stored; 0, with a note on the
-    job, when the file can't be used."""
-    where = "" if where in ("", ".") else where
+    twice) for the job, in transactions of its own. Returns how many entries were stored;
+    0, with a note on the job, when the file can't be used (nothing of it is kept)."""
     try:
         header = _header(opener)
-    except (lf.FormatError, OSError, UnicodeError) as e:
-        note = (
-            f"The Scene Atlas metadata in this import couldn't be read ({e}), so its files "
-            "were imported without it."
-        )
-        _note(job_id, note)
-        logger.warning("Import %s: metadata not used: %s", job_id, e)
-        return 0
+    except Exception as e:  # a corrupt gzip raises zlib.error or EOFError, not OSError
+        return _unusable(job_id, e)
 
     source = uuid.uuid4().hex
     encoder = header.model.encoder_sha256 if header.model else None
     stored = 0
     rows: list[dict] = []
 
+    def insert_rows(db: Session, batch: list[dict]) -> None:
+        if db.get(ImportJob, job_id) is None:
+            raise _JobGone
+        db.execute(insert(ImportExportEntry), batch)
+
     def flush() -> None:
         nonlocal stored, rows
         if rows:
             batch = rows
-            _write(lambda db: db.execute(insert(ImportExportEntry), batch))
+            _write(lambda db: insert_rows(db, batch))
             stored, rows = stored + len(batch), []
 
-    with opener() as fp:
-        for line in lf.read_lines(fp):
-            if not isinstance(line, lf.GroupLine):
-                continue
-            group = line.group.model_dump_json(exclude_none=True) if line.group else None
-            for image in line.images:
-                if image.stored_hash is None:
-                    continue  # nothing to match it by
-                path = f"{where}/{image.path}" if where and image.path else image.path
-                rows.append(
-                    {
-                        "job_id": job_id,
-                        "source": source,
-                        "stored_hash": image.stored_hash,
-                        "encoder": encoder if image.vector else None,
-                        "path": path,
-                        "image": image.model_dump_json(exclude_none=True),
-                        "group_entry": group,
-                    }
-                )
-                if len(rows) >= _BATCH:
-                    flush()
-    flush()
-
     def finish(db: Session) -> None:
-        _add_categories(db, header.tag_categories)
         job = db.get(ImportJob, job_id)
-        if job is not None and job.export_model is None:
+        if job is None:
+            raise _JobGone
+        _add_categories(db, header.tag_categories)
+        if job.export_model is None:
             model = header.model.model_dump(exclude_none=True) if header.model else {}
             job.export_model = json.dumps(model)
 
-    _write(finish)
-    logger.info("Import %s: %d metadata entries from %s", job_id, stored, where or "its root")
+    try:
+        with opener() as fp:
+            for line in lf.read_lines(fp):
+                if not isinstance(line, lf.GroupLine):
+                    continue
+                group = line.group.model_dump_json(exclude_none=True) if line.group else None
+                for image in line.images:
+                    if image.stored_hash is None:
+                        continue  # nothing to match it by
+                    rows.append(
+                        {
+                            "job_id": job_id,
+                            "source": source,
+                            "stored_hash": image.stored_hash,
+                            "encoder": encoder if image.vector else None,
+                            "path": image.path,
+                            "image": image.model_dump_json(exclude_none=True),
+                            "group_entry": group,
+                        }
+                    )
+                    if len(rows) >= _BATCH:
+                        flush()
+        flush()
+        _write(finish)
+    except Exception as e:
+        # Changed since it was validated (a local file, edited), a busy database, the job
+        # deleted: what was stored of it goes
+        _write(
+            lambda db: db.execute(
+                delete(ImportExportEntry).where(ImportExportEntry.source == source)
+            )
+        )
+        if isinstance(e, _JobGone):
+            logger.info("Import %s: deleted while its metadata loaded", job_id)
+            return 0
+        return _unusable(job_id, e)
+    logger.info("Import %s: %d metadata entries", job_id, stored)
     return stored
 
 
-def load_exports(job_id: str, files: Iterable[tuple[Opener, str]]) -> int:
-    """``load_export`` for each of an import's metadata files, as (opener, folder)."""
-    return sum(load_export(job_id, opener, where) for opener, where in files)
+def load_exports(job_id: str, openers: Iterable[Opener]) -> int:
+    """``load_export`` for each of an import's metadata files."""
+    return sum(load_export(job_id, opener) for opener in openers)
 
 
 def match_exports(

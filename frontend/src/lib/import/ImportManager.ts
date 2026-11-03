@@ -398,7 +398,10 @@ export class ImportManager {
           }),
         )
       } catch (err) {
-        if (run.controller.signal.aborted) throw err
+        // Cancelled, or the job is gone or sealed: the import can't go on either
+        const error = classifyError(err)
+        if (run.controller.signal.aborted || error.kind === 'aborted') throw err
+        if (error.kind === 'http' && (error.status === 404 || error.status === 409)) throw err
         console.warn('[import] Scene Atlas metadata not sent; importing without it', err)
       }
     }

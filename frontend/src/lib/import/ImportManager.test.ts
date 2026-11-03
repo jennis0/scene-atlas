@@ -88,7 +88,7 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
     }),
     uploadExportMetadata: vi.fn(async () => {
       calls.push('metadata')
-      return { entries: 2, note: null }
+      return { loading: true }
     }),
     seal: vi.fn(async () => {
       calls.push('seal')
@@ -343,6 +343,19 @@ describe('startImport', () => {
     await manager.whenSettled(jobId)
     expect(calls).toContain('seal')
     expect(calls.some((c) => c.startsWith('upload:'))).toBe(true)
+  })
+
+  it('stops the import when the job went while its metadata was sent', async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      uploadExportMetadata: vi.fn(async () => {
+        throw httpError(404, 'Import not found')
+      }),
+    })
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startImport([picked('F/scene-atlas.jsonl'), picked('F/a.png')])
+    await manager.whenSettled(jobId)
+    expect(calls).not.toContain('seal')
   })
 
   it('skips uploading files the server already has (client hash)', async () => {

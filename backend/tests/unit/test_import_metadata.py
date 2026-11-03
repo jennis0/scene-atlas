@@ -1,8 +1,11 @@
 """``import_metadata``: storing an import's Scene Atlas metadata and matching files to it
 (design/export-backup-move.md §6)."""
 
+import gzip
 import io
 import json
+
+from pathlib import Path
 
 import pytest
 
@@ -131,7 +134,7 @@ def test_a_file_that_cant_be_read_stores_nothing_and_leaves_a_note(db):
 
 def test_a_bad_file_leaves_the_jobs_other_metadata_alone(db):
     good = {"group": None, "images": [{"filename": "a", "stored_hash": H1}]}
-    files = [(_opener(_file(lines=[good])), "One"), (_opener("not json\n"), "Two")]
+    files = [_opener(_file(lines=[good])), _opener("not json\n")]
     assert im.load_exports("job1", files) == 1
     db.expire_all()
     assert db.query(ImportExportEntry).count() == 1
@@ -154,3 +157,75 @@ def test_entries_go_with_their_job(db):
 def test_is_metadata_file(path):
     assert im.is_metadata_file(path)
     assert not im.is_metadata_file("Pack/scene-atlas.jsonl.bak")
+
+
+GOOD = {"group": None, "images": [{"filename": "a", "stored_hash": H1}]}
+
+
+def test_a_corrupt_gzip_leaves_a_note_and_doesnt_raise(db, tmp_path):
+    path = tmp_path / "scene-atlas.jsonl.gz"
+    packed = gzip.compress(_file(lines=[GOOD]).encode())
+    path.write_bytes(packed[:20] + b"garbage" * 10 + packed[-8:])
+    assert im.load_export("job1", im.file_opener(path)) == 0
+    db.expire_all()
+    assert "couldn't be read" in db.get(ImportJob, "job1").export_note
+
+
+def test_a_file_that_changes_after_validating_keeps_nothing(db, monkeypatch):
+    monkeypatch.setattr(im, "_BATCH", 1)  # so a batch is stored before it goes wrong
+    reads = iter([_file(lines=[GOOD, GOOD]), _file(lines=[GOOD]) + "{broken\n"])
+    assert im.load_export("job1", lambda: io.StringIO(next(reads))) == 0
+    db.expire_all()
+    assert db.query(ImportExportEntry).count() == 0
+    assert db.get(ImportJob, "job1").export_note is not None
+
+
+def test_a_job_deleted_while_loading_keeps_nothing(db, monkeypatch):
+    monkeypatch.setattr(im, "_BATCH", 1)
+    text = _file(lines=[GOOD, GOOD, GOOD])
+    calls = []
+
+    def opener():
+        calls.append(1)
+        if len(calls) == 2:  # validated; now it goes
+            db.query(ImportJob).filter_by(id="job1").delete()
+            db.commit()
+        return io.StringIO(text)
+
+    assert im.load_export("job1", opener) == 0
+    assert db.query(ImportExportEntry).count() == 0
+
+
+def test_large_files_are_stored_in_batches(db, monkeypatch):
+    monkeypatch.setattr(im, "_BATCH", 2)
+    writes = []
+    real = im._write
+    monkeypatch.setattr(im, "_write", lambda fn: writes.append(1) or real(fn))
+    images = [{"filename": f"{i}.png", "stored_hash": f"{i:064x}"} for i in range(5)]
+    assert im.load_export("job1", _opener(_file(lines=[{"group": None, "images": images}]))) == 5
+    assert len(writes) == 4  # three batches, then the categories and model
+
+
+def test_a_background_load_holds_the_job_until_it_is_done(db, monkeypatch):
+    import threading
+
+    release = threading.Event()
+    started = threading.Event()
+    real = im.load_exports
+
+    def slow(job_id, openers):
+        started.set()
+        release.wait(10)
+        return real(job_id, openers)
+
+    monkeypatch.setattr(im, "load_exports", slow)
+    monkeypatch.setattr(
+        "backend.pipeline.ingest_worker.get_ingest_worker",
+        lambda: type("W", (), {"wake": lambda self: None})(),
+    )
+    im.load_in_background("job1", [Path("missing.jsonl")])
+    started.wait(10)
+    assert im.loading_jobs() == {"job1"}
+    release.set()
+    assert im.wait_for_loads(10)
+    assert im.loading_jobs() == set()

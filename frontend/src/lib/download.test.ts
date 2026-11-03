@@ -52,6 +52,7 @@ describe('postForDownload', () => {
       get: () => {
         throw new DOMException('Blocked a frame from accessing a cross-origin frame')
       },
+      configurable: true,
     })
     frame.dispatchEvent(new Event('load'))
     expect(onError).toHaveBeenCalledTimes(2)

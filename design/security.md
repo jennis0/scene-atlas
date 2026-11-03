@@ -155,7 +155,7 @@ There is no restriction on which absolute paths are accepted, so code running in
 
 ### 6b-3. LOW: Metadata in an import
 
-A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-move.md#6-import)) is untrusted: it goes through the lenient reader, its paths are only compared with file names (never opened), text is cut to the API's limits, and a file that fails validation is ignored. It is applied only to files whose bytes hash to one of its entries. **A file can name any group `uid`**: an image imported with it joins the library's group with that uid, if there is one. Uids are random and not shown in the UI, so naming one needs a copy of an export from this library; whoever can import can already edit groups through the API, so this grants nothing new.
+A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-move.md#6-import)) is untrusted: it goes through the lenient reader, its paths are only compared with file names (never opened), a recorded filename is reduced to a plain name with the file's own extension (`ingest_process.restored_filename`), text is cut to the API's limits, and a file that fails validation is ignored. It is applied only to files whose bytes hash to one of its entries. **A file can name any group `uid`**: an image imported with it joins the library's group with that uid, if there is one. Uids are random and not shown in the UI, so naming one needs a copy of an export from this library; whoever can import can already edit groups through the API, so this grants nothing new.
 
 ### 6c. MEDIUM: Reading the linked folder
 

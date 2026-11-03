@@ -182,8 +182,8 @@ class LocalSourcesResult(BaseModel):
 
 
 class ExportMetadataResult(BaseModel):
-    entries: int  # image entries stored for matching
-    note: str | None  # why the metadata wasn't used, if it wasn't
+    # Loading in the background: the job's files wait for it (import_metadata)
+    loading: bool
 
 
 class ArchiveResult(BaseModel):

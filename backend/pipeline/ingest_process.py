@@ -35,7 +35,7 @@ import shutil
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 from PIL import Image as PILImage
@@ -45,6 +45,7 @@ from backend.app.config import settings
 from backend.app.file_hash import file_sha256
 from backend.app.models import Color, Image, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
+from backend.app.models.schemas import TAG_MAX_LENGTH
 from backend.app.services import (
     get_image_store,
     get_lancedb_service,
@@ -59,6 +60,8 @@ from backend.app.services.linked_files import sync_files
 from backend.app.services.memory_budget import get_memory_budget
 from backend.app.services.originals import OriginalUnavailable, linked_folder
 from backend.app.services.validation import verify_media_mime
+from backend.pipeline import library_format as lf
+from backend.pipeline.naming import sanitize_segment
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .filename_grid import filename_grid_counts
@@ -778,7 +781,37 @@ def embed(decoded: list[DecodedItem]) -> list[ItemFailure]:
 # Scene Atlas metadata (design/export-backup-move.md §6)
 
 
-_TAG_MAX = 100  # models/schemas.py TagText
+_FILENAME_MAX = 255
+
+
+def restored_filename(recorded: str | None, current: str) -> str:
+    """The file name the metadata recorded for a file now named *current*, made safe: a
+    plain name (untrusted text: no folders, no control characters) with the same extension
+    as *current*, or else *current*."""
+    if not recorded:
+        return current
+    name = sanitize_segment(PurePosixPath(recorded.replace("\\", "/")).name)
+    suffix = PurePosixPath(current).suffix.lower()
+    if not name or PurePosixPath(name).suffix.lower() != suffix or len(name) > _FILENAME_MAX:
+        return current
+    return name
+
+
+def _export_tags(image: lf.ImageEntry) -> list[dict]:
+    """The entry's tags, cut to what the API takes (so they can be edited), once each."""
+    tags: dict[tuple[str, str], dict] = {}
+    for t in image.tags:
+        key = (t.category[:TAG_MAX_LENGTH], t.value[:TAG_MAX_LENGTH])
+        tags.setdefault(
+            key,
+            {
+                "category": key[0],
+                "value": key[1],
+                "confidence": 1.0 if t.confidence is None else t.confidence,
+                "source": t.source or "manual",
+            },
+        )
+    return list(tags.values())
 
 
 def _export_parsed(parsed: dict, match: ExportMatch, filename: str) -> dict:
@@ -788,15 +821,7 @@ def _export_parsed(parsed: dict, match: ExportMatch, filename: str) -> dict:
     return {
         **parsed,
         "name": image.name or Path(filename).stem,
-        "tags": [
-            {  # cut to what the API takes, so they can be edited
-                "category": t.category[:_TAG_MAX],
-                "value": t.value[:_TAG_MAX],
-                "confidence": 1.0 if t.confidence is None else t.confidence,
-                "source": t.source or "manual",
-            }
-            for t in image.tags
-        ],
+        "tags": _export_tags(image),
         "export": {
             "group": match.group.model_dump(mode="json", exclude_none=True)
             if match.group
@@ -826,12 +851,13 @@ def apply_exports(decoded: list[DecodedItem]) -> None:
                 match = matches.get(d.item.id)
                 if match is None:
                     continue
+                # Its name in the library it came from, not the export's readable one
+                filename = restored_filename(match.image.filename, d.item.filename)
                 d.item = replace(
                     d.item,
                     image_type=match.image.image_type,
-                    # Its name in the library it came from, not the export's readable one
-                    filename=match.image.filename or d.item.filename,
-                    parsed=_export_parsed(d.item.parsed, match, d.item.filename),
+                    filename=filename,
+                    parsed=_export_parsed(d.item.parsed, match, filename),
                 )
                 d.export = match
                 if match.vector is not None:

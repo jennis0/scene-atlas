@@ -185,7 +185,7 @@ def test_the_browser_sends_a_folders_metadata_before_its_files(api, library):
 
     job_id = api.create("Folder")
     response = api.client.put(f"{BASE}/{job_id}/export-metadata", content=metadata)
-    assert response.status_code == 200 and response.json() == {"entries": 2, "note": None}
+    assert response.status_code == 200 and response.json() == {"loading": True}
     result = api.manifest(
         job_id, [{"relative_path": p, "size": len(d), "client_ref": p} for p, d in files.items()]
     )
@@ -282,3 +282,51 @@ def test_entries_are_deleted_once_the_import_is_grouped(api, library):
     _import_zip(api, body, "Forest.zip")
     with api.SessionLocal() as db:
         assert db.query(ImportExportEntry).count() == 0
+
+
+def test_a_seal_while_the_metadata_loads_waits_for_it(api, library, monkeypatch):
+    """The browser's metadata loads in the background; a seal can arrive first, and the
+    job's files must not import before it's done."""
+    import threading
+
+    images, forest = library
+    body = _download(api, group_ids=[forest])
+    before = {k: v for k, v in _snapshot(api).items() if k != "Harbour"}
+    _delete_all(api)
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        metadata = zf.read(FILENAME)
+        files = {n: zf.read(n) for n in zf.namelist() if n != FILENAME}
+    release = threading.Event()
+    real = import_metadata.load_exports
+    monkeypatch.setattr(
+        import_metadata, "load_exports", lambda j, o: release.wait(10) and real(j, o)
+    )
+
+    job_id = api.create("Folder")
+    api.client.put(f"{BASE}/{job_id}/export-metadata", content=metadata)
+    result = api.manifest(
+        job_id, [{"relative_path": p, "size": len(d), "client_ref": p} for p, d in files.items()]
+    )
+    assert api.client.post(f"{BASE}/{job_id}/seal").status_code == 200
+    for item in result["items"]:
+        assert api.put(job_id, item["item_id"], files[item["relative_path"]]).status_code == 200
+    assert api.worker.run_once() is False  # nothing claimed while it loads
+    release.set()
+    api.worker.drain()
+
+    assert _snapshot(api) == before
+
+
+def test_metadata_deep_in_a_zip_is_found(api, library):
+    _images, forest = library
+    before = {k: v for k, v in _snapshot(api).items() if k != "Harbour"}
+    body = _download(api, group_ids=[forest])
+    _delete_all(api)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(body)) as src, zipfile.ZipFile(buf, "w") as dst:
+        for name in src.namelist():
+            dst.writestr(f"Backups/2026/{name}", src.read(name))
+
+    _import_zip(api, buf.getvalue(), "Backups.zip")
+
+    assert _snapshot(api) == before

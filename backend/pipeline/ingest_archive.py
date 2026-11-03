@@ -49,7 +49,7 @@ class ArchiveCounts:
     # Its Scene Atlas metadata files, extracted to staging, with their folder in the zip:
     # the caller loads them after its transaction (import_metadata.load_export), then
     # deletes them
-    metadata: list[tuple[Path, str]] = field(default_factory=list)
+    metadata: list[Path] = field(default_factory=list)
 
 
 def _new_item(job: ImportJob, relative_path: str, kind: str, size: int | None) -> ImportItem:
@@ -179,7 +179,7 @@ def expand_archive(
                 if is_metadata_file(path):
                     dest = staging / f"metadata-{uuid.uuid4().hex}.jsonl"
                     _extract(zf, member, dest)
-                    counts.metadata.append((dest, str(PurePosixPath(path).parent)))
+                    counts.metadata.append(dest)
             members = [(m, path) for m, path in members if not is_metadata_file(path)]
             placed = place_members([path for _, path in members], archive_name)
             for member, member_path in members:
@@ -230,6 +230,10 @@ def expand_archive(
                 counts.created += 1
         db.flush()
         return counts
+    except BaseException:
+        for path in counts.metadata:  # nobody will load them now
+            path.unlink(missing_ok=True)
+        raise
     finally:
         if not keep_source:
             zip_path.unlink(missing_ok=True)

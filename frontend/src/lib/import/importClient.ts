@@ -111,12 +111,13 @@ export const importClient = {
     jobId: string,
     file: File,
     options: UploadOptions = {},
-  ): Promise<{ entries: number; note: string | null }> {
-    const { data } = await api.put<{ entries: number; note: string | null }>(
-      `${BASE}/${jobId}/export-metadata`,
-      file,
-      { headers: rawBody, timeout: 0, signal: options.signal },
-    )
+  ): Promise<{ loading: boolean }> {
+    // It loads in the background; the server holds the job's files until it's done
+    const { data } = await api.put<{ loading: boolean }>(`${BASE}/${jobId}/export-metadata`, file, {
+      headers: rawBody,
+      timeout: 0,
+      signal: options.signal,
+    })
     return data
   },
 

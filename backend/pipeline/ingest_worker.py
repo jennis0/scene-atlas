@@ -252,7 +252,11 @@ class IngestWorker:
         return True
 
     def drain(self, max_batches: int = 10_000) -> int:
-        """Run batches synchronously until there's no claimable work (tests, CLI)."""
+        """Run batches synchronously until there's no claimable work (tests, CLI), once
+        any metadata loading has finished."""
+        from .import_metadata import wait_for_loads
+
+        wait_for_loads()
         batches = 0
         while batches < max_batches and self.run_once():
             batches += 1
