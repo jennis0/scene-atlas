@@ -352,6 +352,9 @@ class TestReaderRefuses:
             (_header() + '{"group": null, "images": [{"id": ' + "9" * 5_000 + "}]}\n", "JSON"),
             (_header() + "[" * 100_000 + "]" * 100_000 + "\n", "JSON"),
         ],
+        # Short ids: pytest puts the id in PYTEST_CURRENT_TEST, and Windows refuses an
+        # environment variable over 32,767 characters
+        ids=lambda value: value[:60],
     )
     def test_invalid_input(self, text, message):
         with pytest.raises(lf.FormatError, match=message):
