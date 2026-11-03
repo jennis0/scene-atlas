@@ -13,6 +13,10 @@ export const getGroupDownloadUrl = (groupId: number): string => `/api/v1/groups/
 
 export const getLibraryExportUrl = (): string => '/api/v1/export/library'
 
+/** A finished metadata export, waiting in the server's exports folder */
+export const getMetadataExportUrl = (name: string): string =>
+  `/api/v1/library/metadata-export/${encodeURIComponent(name)}`
+
 /** The preview kept for an item Auto sorted out (only when ``has_preview``) */
 export const importPreviewUrl = (item: Pick<ImportItem, 'id' | 'job_id'>): string =>
   `/api/v1/imports/${item.job_id}/items/${item.id}/preview`

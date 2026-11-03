@@ -55,6 +55,18 @@ class TestLanceDBServiceCRUD:
         result = svc.get_embeddings([0, 5, 9])
         assert set(result.keys()) == {0, 5, 9}
 
+    def test_iter_vectors_returns_every_row(self, svc):
+        vectors = {i: _rand_vec() for i in range(10)}
+        assert svc.batch_add_embeddings(
+            [{"image_id": i, "embedding": v, "metadata": {}} for i, v in vectors.items()]
+        )
+        seen = {}
+        for ids, batch in svc.iter_vectors(batch_size=3):
+            assert batch.shape == (len(ids), svc.vector_size)
+            seen.update(zip(ids.tolist(), batch, strict=True))
+        assert set(seen) == set(vectors)
+        np.testing.assert_allclose(seen[4], vectors[4], rtol=1e-6)
+
     def test_upsert_overwrites(self, svc):
         vec1 = _rand_vec()
         vec2 = _rand_vec()

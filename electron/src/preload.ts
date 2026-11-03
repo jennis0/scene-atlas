@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   chooseImportFolders: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-folders'),
   chooseImportFiles: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-files'),
+  // Where to save a metadata export: the backend writes it there
+  chooseExportFile: (defaultName: string): Promise<string | null> =>
+    ipcRenderer.invoke('export:choose-file', defaultName),
 
   setZoom: (percent: number): void => {
     const factor = zoomFactor(percent)

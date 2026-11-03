@@ -51,7 +51,7 @@ MAX_LINE_BYTES = 64 * 1024 * 1024
 _GROUP_BATCH = 500
 _SOURCE_FILE_BATCH = 2_000
 
-VectorLookup = Callable[[Sequence[int]], Mapping[int, Sequence[float]]]
+VectorLookup = Callable[[Sequence[int]], Mapping[int, Sequence[float] | np.ndarray]]
 """Image id → embedding, for the ids asked for. Raises on a read error: an export must
 not silently leave vectors out."""
 
@@ -310,7 +310,11 @@ def iter_groups(
 
 
 def image_entry(
-    img: Image, *, kind: str, path: str | None = None, vector: Sequence[float] | None = None
+    img: Image,
+    *,
+    kind: str,
+    path: str | None = None,
+    vector: Sequence[float] | np.ndarray | None = None,
 ) -> dict[str, Any]:
     """The line entry for *img*."""
     entry: dict[str, Any] = {

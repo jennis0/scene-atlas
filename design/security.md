@@ -58,7 +58,7 @@ Staging is per job: `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}`. `st
 
 `slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 
-- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `POST /library/metadata-export`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
 - **destructive** (`SCENE_ATLAS_RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `SCENE_ATLAS_RATE_LIMIT_ENABLED=false` disables it.
@@ -138,6 +138,15 @@ There is no restriction on which absolute paths are accepted, so code running in
 - Returns an outcome, counts, library IDs and the library's own folder hints; never file names. Paths must be absolute.
 - The folders themselves are never set through the API: they reach the backend only as sidecar arguments or env vars.
 - Admission-controlled (`acquire_heavy_op`), since counting a large folder takes seconds.
+
+### 6b-2. LOW: Metadata export
+
+`POST /library/metadata-export` ([export-backup-move.md §4](export-backup-move.md#4-export-metadata)) starts a background export. Controls:
+
+- **A JSON body**, so a page on another site can't start one: a cross-origin JSON POST needs a CORS preflight, which only configured origins pass. Rate-limited as expensive; one export at a time (409).
+- **A path only in the desktop app** (`app_mode == "app"`; 422 on servers): it must be absolute, in an existing folder, and not a folder itself. On a server the file goes to `{SCENE_ATLAS_DATA_DIR}/exports/` under a name the server makes.
+- **Served back by name only**: `GET /library/metadata-export/{name}` serves a file from that folder only if the name matches the pattern the server writes (`scene-atlas-metadata-<date>-<time>.jsonl.gz`), so no other file can be named. Exports are deleted after 24 hours, and partial files at startup.
+- The export holds the library's metadata and settings, not secrets: there are none in `app_settings`. Server mode's lack of authentication applies as to every other endpoint.
 
 ### 6c. MEDIUM: Reading the linked folder
 

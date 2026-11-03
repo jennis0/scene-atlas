@@ -28,6 +28,7 @@ function makeMockElectronAPI(): NonNullable<Window['electronAPI']> {
     getPathForFile: vi.fn().mockReturnValue(''),
     chooseImportFolders: vi.fn().mockResolvedValue([]),
     chooseImportFiles: vi.fn().mockResolvedValue([]),
+    chooseExportFile: vi.fn().mockResolvedValue(null),
     setZoom: vi.fn(),
     getUpdateState: vi.fn().mockResolvedValue(null),
     checkForUpdates: vi.fn().mockResolvedValue(null),

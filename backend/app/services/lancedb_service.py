@@ -9,6 +9,7 @@ RuntimeError if called after close().
 
 import logging
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import lancedb
@@ -279,6 +280,21 @@ class LanceDBService:
         except Exception as e:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
+
+    @property
+    def vector_size(self) -> int:
+        return self._vector_size
+
+    def iter_vectors(self, batch_size: int = 4096) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Every ``(ids, vectors)`` in the table, a batch at a time, in no particular order.
+
+        Raises on a read error, unlike the lookups above: an export must not lose vectors
+        silently (design/export-backup-move.md §2)."""
+        reader = self._tbl.search().select(["id", "vector"]).limit(None).to_batches(batch_size)
+        for batch in reader:
+            ids = batch.column("id").to_numpy()
+            vectors = batch.column("vector").flatten().to_numpy()
+            yield ids, vectors.reshape(len(ids), self._vector_size)
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""

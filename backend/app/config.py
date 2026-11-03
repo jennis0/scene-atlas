@@ -149,6 +149,10 @@ class Settings(BaseSettings):
         return self.data_dir / "staging"
 
     @cached_property
+    def metadata_exports_dir(self) -> Path:
+        return self.data_dir / "exports"
+
+    @cached_property
     def vector_db_path(self) -> Path:
         return self.data_dir / "lancedb"
 

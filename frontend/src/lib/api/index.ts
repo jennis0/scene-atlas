@@ -12,4 +12,5 @@ export {
   getImageUrlById,
   getGroupDownloadUrl,
   getLibraryExportUrl,
+  getMetadataExportUrl,
 } from './urls'

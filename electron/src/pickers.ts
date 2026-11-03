@@ -1,6 +1,7 @@
-// Native folder and file pickers: the library's folders (setup and Settings) and local
-// imports. main.ts registers the IPC that opens them; each picker opens over the window
+// Native folder and file pickers: the library's folders (setup and Settings), local
+// imports, and where to save a metadata export. main.ts registers the IPC that opens them; each picker opens over the window
 // that asked, or on its own if that window has gone.
+import * as path from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
 import type { FolderKind } from './libraryDirs'
 
@@ -43,6 +44,30 @@ export async function pickLibraryFolder(
     return paths[0] ?? null
   } catch (err) {
     console.error('[electron] Folder picker failed:', err)
+    return null
+  }
+}
+
+/** Where to save a metadata export (design/export-backup-move.md §4). Null when cancelled,
+ * and when the dialog fails. */
+export async function pickExportFile(
+  sender: Electron.WebContents,
+  defaultName: string,
+): Promise<string | null> {
+  const win = BrowserWindow.fromWebContents(sender)
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export metadata',
+    defaultPath: path.join(app.getPath('documents'), defaultName),
+    filters: [{ name: 'Scene Atlas metadata', extensions: ['gz'] }],
+    buttonLabel: 'Export',
+  }
+  try {
+    const result = win
+      ? await dialog.showSaveDialog(win, options)
+      : await dialog.showSaveDialog(options)
+    return result.canceled || !result.filePath ? null : result.filePath
+  } catch (err) {
+    console.error('[electron] Save dialog failed:', err)
     return null
   }
 }

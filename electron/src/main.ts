@@ -35,7 +35,7 @@ import {
   type LibraryDirs,
 } from './libraryDirs'
 import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
-import { pickImportPaths, pickLibraryFolder } from './pickers'
+import { pickExportFile, pickImportPaths, pickLibraryFolder } from './pickers'
 import { Updater } from './updater'
 import { parseUpdateChoice, type UpdateState } from './updatePolicy'
 import {
@@ -190,6 +190,14 @@ handleTrusted('window:set-colors', (event, raw) => {
 
 handleTrusted('imports:choose-folders', (event) => pickImportPaths(event.sender, 'folders'))
 handleTrusted('imports:choose-files', (event) => pickImportPaths(event.sender, 'files'))
+handleTrusted('export:choose-file', (event, defaultName) =>
+  pickExportFile(
+    event.sender,
+    typeof defaultName === 'string' && /^[\w .-]{1,200}$/.test(defaultName)
+      ? defaultName
+      : 'scene-atlas-metadata.jsonl.gz',
+  ),
+)
 
 // The library's folders (design/library-setup.md): the setup wizard's library step and
 // Settings choose them; the backend checks them (POST /library/inspect) before they're applied.

@@ -22,6 +22,17 @@ export async function downloadFile(
   URL.revokeObjectURL(objectUrl)
 }
 
+/** Let the browser download *url* itself, streaming to disk: for files too big for a Blob.
+ * The response must be an attachment, or the page would navigate to it. */
+export function saveUrl(url: string, filename: string): void {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 const sanitizeSegment = (s: string) =>
   s
     .replace(/[/\\:*?"<>|]/g, ' ')

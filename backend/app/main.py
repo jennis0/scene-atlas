@@ -256,6 +256,14 @@ async def lifespan(app: FastAPI):
         get_linked_scanner().start("startup")
         rescan_task = asyncio.create_task(rescan_timer())
 
+    # Metadata exports a download or a crash left behind (design/export-backup-move.md §4)
+    from ..pipeline.metadata_export import clean_exports
+
+    try:
+        clean_exports()
+    except OSError:
+        logger.warning("Could not clean the metadata exports folder", exc_info=True)
+
     # Start scheduler for periodic maintenance. Overdue tasks run shortly after
     # startup, so short desktop sessions still get maintenance.
     from .services.scheduler import Scheduler

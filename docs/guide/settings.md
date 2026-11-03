@@ -9,6 +9,7 @@ On a shared server, Library and Settings apply to everyone; Appearance is per de
 ![The Library tab: image, group and storage totals, the Linked library with Check for changes and How often to check, Export library, and Delete library and Reset tags](/screenshots/settings-library.webp)
 
 - **Images, Groups and Storage**: how much is in the library, and how much disk it uses for images, search data and the rest.
+- **Export metadata**: save the library's names, groups, tags, grids and search data to one file, without the images. See [Backups](/guide/library#backups).
 - **Export library**: download every image as a ZIP. See [Exporting](/guide/library#exporting).
 - **Linked library** (only when [one is linked](/guide/library#linked-library)): whether it's available, **Check for changes**, **How often to check**, **Remove missing images** (when files have gone) and, in the desktop app, **Unlink**. On a server, once `SCENE_ATLAS_LINKED_LIBRARY_DIR` is unset, **Remove its images** clears out its images.
 - **Delete library**: remove every image, tag and search entry. It can't be undone.

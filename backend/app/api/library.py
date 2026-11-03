@@ -3,10 +3,12 @@
 from datetime import UTC
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
+from ...pipeline import metadata_export
 from ...pipeline.ingest_worker import get_ingest_worker
 from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
@@ -24,8 +26,11 @@ from ..models.schemas import (
     LibraryStatus,
     LinkedLibraryStatus,
     LinkedRemoved,
+    MetadataExportRequest,
+    MetadataExportStarted,
 )
 from ..services.app_settings import get_settings as get_app_settings
+from ..services.job_runner import get_job_runner
 from ..services.linked_files import (
     count_linked,
     current_source,
@@ -38,6 +43,7 @@ from ..services.linked_files import (
 )
 from ..services.originals import forget_availability, linked_folder_available
 from .dependencies import acquire_heavy_op, get_db, write_locked
+from .rate_limits import limiter
 
 router = APIRouter()
 
@@ -192,3 +198,53 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
             status_code=409, detail="Finishing the current batch; try again in a moment"
         )
     return LinkedRemoved(removed=_remove(db, linked_image_ids(db, source.id), detach=source))
+
+
+# Metadata export (design/export-backup-move.md §4)
+
+
+def _export_target(raw: str | None) -> Path:
+    """Where the export goes: the desktop app's chosen file, or the exports folder."""
+    if raw is None:
+        return settings.metadata_exports_dir / metadata_export.export_name()
+    if settings.app_mode != "app":
+        # In server mode a client-named path would name the server's own disk.
+        raise HTTPException(status_code=422, detail="A path can only be given in the desktop app")
+    path = Path(raw)
+    if not path.is_absolute():
+        raise HTTPException(status_code=422, detail=f"Not an absolute path: {raw}")
+    if not path.parent.is_dir():
+        raise HTTPException(status_code=422, detail=f"Folder not found: {path.parent}")
+    if path.is_dir():
+        raise HTTPException(status_code=422, detail=f"That's a folder: {path}")
+    return path
+
+
+@router.post("/metadata-export", status_code=202, response_model=MetadataExportStarted)
+@limiter.limit(lambda: settings.rate_limit_expensive)
+def start_metadata_export(request: Request, body: MetadataExportRequest):
+    """Export the library's metadata as a background job. A JSON body, so a page on another
+    site can't start one (it would need a CORS preflight, which is refused)."""
+    runner = get_job_runner()
+    if runner.has_active_job(metadata_export.JOB_NAME):
+        raise HTTPException(status_code=409, detail="An export is already running")
+    target = _export_target(body.path)
+    metadata_export.clean_exports()
+    job_id = runner.submit(metadata_export.export_metadata, target, name=metadata_export.JOB_NAME)
+    return MetadataExportStarted(job_id=job_id)
+
+
+@router.get("/metadata-export/{name}")
+def download_metadata_export(name: str):
+    """A finished export in the exports folder, as a download."""
+    if not metadata_export.EXPORT_NAME.match(name):
+        raise HTTPException(status_code=404, detail="Not Found")
+    path = settings.metadata_exports_dir / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="That export has expired; export again")
+    return FileResponse(
+        path,
+        media_type="application/gzip",
+        filename=name,
+        headers={"X-Accel-Buffering": "no"},
+    )

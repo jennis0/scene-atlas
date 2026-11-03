@@ -99,6 +99,8 @@ export interface ElectronAPI {
   /** Native pickers; resolve to [] when cancelled. */
   chooseImportFolders(): Promise<string[]>
   chooseImportFiles(): Promise<string[]>
+  /** The save dialog for a metadata export; null when cancelled. */
+  chooseExportFile(defaultName: string): Promise<string | null>
 
   // Zoom (lib/zoom.ts)
   /** Zoom the page to this percentage (50–300) */

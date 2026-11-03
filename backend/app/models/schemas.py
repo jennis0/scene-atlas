@@ -601,6 +601,17 @@ class LibraryScanRequest(BaseModel):
     reason: Literal["manual", "focus"]
 
 
+class MetadataExportRequest(BaseModel):
+    """Where to write a metadata export. A path only in the desktop app, which picks it with
+    a save dialog; omitted, the export goes to the exports folder, to be downloaded."""
+
+    path: str | None = Field(default=None, max_length=4096)
+
+
+class MetadataExportStarted(BaseModel):
+    job_id: str
+
+
 class LibraryScanStarted(BaseModel):
     started: bool
 

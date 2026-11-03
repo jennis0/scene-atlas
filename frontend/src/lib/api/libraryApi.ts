@@ -74,6 +74,13 @@ export const libraryApi = {
     return data
   },
 
+  /** Export the library's metadata as a background job (design/export-backup-move.md §4).
+   * The desktop app passes the file it picked; a server writes it for download. */
+  startMetadataExport: async (path?: string): Promise<{ job_id: string }> => {
+    const { data } = await api.post<{ job_id: string }>('/library/metadata-export', { path })
+    return data
+  },
+
   /** Remove the maps whose linked file is missing (never touches files) */
   removeMissing: async (): Promise<{ removed: number }> => {
     const { data } = await api.post<{ removed: number }>('/library/linked/remove-missing')

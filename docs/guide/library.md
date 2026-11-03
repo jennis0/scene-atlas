@@ -58,6 +58,8 @@ If the folder is on a drive or network share that isn't connected, a banner says
 
 Scene Atlas doesn't back up your library by itself. Back up both *Imported images* and *Search data* with your usual backup tool, ideally while Scene Atlas is closed. A linked library is yours to back up.
 
+**Settings → Library → Export metadata** saves your library's metadata to one file: the names, groups, tags and grids of every image, and the search data. It doesn't contain the images themselves, so keep it with a copy of *Imported images*. The desktop app asks where to save it; on a server your browser downloads it. A large library takes a few minutes, and the file is a few KB per image.
+
 Before an update changes the structure of its database, Scene Atlas saves a copy of it in `backups/pre-migration/` inside *Imported images*.
 
 To go back to an older version of Scene Atlas after an update, install the older version and restore the newest backup from `backups/pre-migration/`. A database upgraded by a newer version can't be opened by an older one.

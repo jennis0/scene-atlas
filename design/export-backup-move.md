@@ -1,6 +1,6 @@
 # Export, import and rebuild
 
-**Status:** Design, seventh draft (2026-10-31). In progress: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) is built. Three reviews shaped it; earlier drafts were bigger and are superseded.
+**Status:** Design, seventh draft (2026-10-31). In progress. Built: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) and step 2 (`backend/pipeline/metadata_export.py`, `POST /library/metadata-export`, Settings → Library → Export metadata). Three reviews shaped it; earlier drafts were bigger and are superseded.
 **Target:** 0.2.0.
 
 ## 1. Scope
@@ -109,13 +109,15 @@ The names are for people. The metadata lives in `scene-atlas.jsonl`, so nothing 
 
 ## 4. Export metadata
 
-Settings → Library → **Export metadata**.
+Settings → Library → **Export metadata**. Built as `backend/pipeline/metadata_export.py`.
 
-- **Desktop** writes straight to a path the user picks, as a background job.
-- **Server:** `POST /api/v1/library/metadata-export` writes the file to `{data_dir}/exports/<timestamp>.jsonl.gz` in one SQLite read transaction, then streams it as an attachment and deletes it. Writing it first keeps the read transaction short, whatever the download speed. Stale files there (an aborted download) are deleted at startup.
-- About 1 GB at 200k images (mostly vectors), and a few minutes.
-- The server download uses the mechanism in [§5.2](#52-the-download-mechanism).
-- The UI says what it is: names, groups, tags, grids and search data, **not the image files**, and that rebuilding needs the store folder too.
+- **A background job in both modes** ("Exporting metadata", JobRunner). `POST /api/v1/library/metadata-export` starts it, with a JSON body, so another site can't (a cross-origin JSON POST needs a CORS preflight). One at a time (409).
+  - **Desktop:** the body names the file the save dialog picked (`export:choose-file` in Electron), and the job writes it there. A path is refused on servers.
+  - **Server:** the job writes `{data_dir}/exports/scene-atlas-metadata-<date>-<time>.jsonl.gz`. When it completes, the browser downloads it from `GET /api/v1/library/metadata-export/{name}`, a plain attachment (`saveUrl`, not a `Blob`), and Settings offers "Download again". Exports there are deleted after 24 hours, and partial files at startup and before each export.
+- **One read transaction** for the whole file, so it's a snapshot while imports carry on. It's written to `<name>.part` and renamed when complete.
+- **Vectors** are read in one pass over the LanceDB table (`LanceDBService.iter_vectors`, which raises on a read error) into a scratch file at an offset per image id, then looked up group by group. LanceDB has no index on `id`, so a lookup per group would scan the table each time.
+- **Size:** a few KB per image, mostly the vector (about 1 GB at 200k images with the large model). A few minutes.
+- The UI says what it is: names, groups, tags, grids and search data, **not the image files**.
 
 ## 5. Export groups
 

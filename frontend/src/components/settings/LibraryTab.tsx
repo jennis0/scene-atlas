@@ -15,6 +15,7 @@ import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import { LinkedFolderSection } from './LinkedFolderSection'
+import { MetadataExportRow } from './MetadataExportRow'
 import { downloadFile } from '@/lib/download'
 import { formatBytes } from '@/lib/format'
 
@@ -39,6 +40,7 @@ export function LibraryTab({ open }: { open: boolean }) {
       <LibraryOverview open={open} />
       <LinkedFolderSection open={open} />
       <div className="border-t border-border/50" />
+      <MetadataExportRow />
       <ExportLibraryButton />
       <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
         <DeleteLibraryRow />
