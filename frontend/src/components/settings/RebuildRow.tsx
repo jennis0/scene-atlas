@@ -134,10 +134,22 @@ export function RebuildRow() {
         />
       </div>
 
-      {job.isFailed && !busy && (
-        <p className="text-xs text-destructive" role="alert">
-          {job.error ?? 'That failed.'} Nothing in your library has changed.
-        </p>
+      {(job.isFailed || (data?.check_error && !check)) && !busy && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-destructive" role="alert">
+            {job.error ?? data?.check_error ?? 'That failed.'} Nothing in your library has changed.
+          </p>
+          {data?.staged && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => cancel.mutate()}
+            >
+              Forget that export
+            </Button>
+          )}
+        </div>
       )}
 
       {restarting ? (
@@ -147,8 +159,8 @@ export function RebuildRow() {
       ) : data?.built && !busy ? (
         <div className="rounded-md border border-border/60 p-2.5 space-y-2" role="status">
           <p className="text-xs">
-            The rebuilt library is ready. Scene Atlas restarts to put it in place; your current
-            library is kept as the way back.
+            The rebuilt library is ready. Scene Atlas restarts to put it in place. Changes made from
+            now on won&apos;t be in it.
           </p>
           <div className="flex gap-2">
             <Button size="sm" className="h-7 text-xs" onClick={() => apply.mutate()}>
@@ -177,6 +189,13 @@ export function RebuildRow() {
 
       {data?.summary && !check && !data.built && (
         <p className="text-xs text-muted-foreground" role="status">
+          <button
+            type="button"
+            className="float-right ml-2 underline"
+            onClick={() => cancel.mutate()}
+          >
+            Dismiss
+          </button>
           Rebuilt.{' '}
           {data.summary.moved > 0 && data.summary.folder
             ? `${plural(data.summary.moved, 'file')} the export didn't have ${
@@ -249,6 +268,19 @@ function CheckReport({
         }
         detail="They aren't in the export. Their files are set aside in a folder you can import again."
       />
+      {check.linked_missing > 0 && (
+        <p className="text-muted-foreground">
+          {plural(check.linked_missing, 'linked image')} in the export aren&apos;t in the linked
+          library now. They&apos;re kept, and shown as missing.
+        </p>
+      )}
+      {check.linked_lost > 0 && (
+        <p className="text-muted-foreground">
+          {plural(check.linked_lost, 'linked image')} in your library aren&apos;t in the export.
+          Their files stay in the linked library, which adds them again, without their names, tags
+          and groups.
+        </p>
+      )}
       {!check.linked_checked && (
         <p className="text-muted-foreground">
           The linked library isn&apos;t connected, so its files weren&apos;t checked.

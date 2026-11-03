@@ -221,6 +221,12 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
                 raise HTTPException(
                     status_code=409, detail=f"{what}; try again when it has finished"
                 )
+        if library_rebuild.busy() or runner.has_active_job(library_rebuild.SET_ASIDE_JOB):
+            raise HTTPException(
+                status_code=409,
+                detail="A rebuild is in progress (restarting, or setting files aside); "
+                "try again when it has finished",
+            )
         if get_linked_scanner().running:
             raise HTTPException(
                 status_code=409, detail="The linked library is being checked; try again in a moment"

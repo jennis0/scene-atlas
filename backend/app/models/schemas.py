@@ -660,6 +660,7 @@ class RebuildStatus(BaseModel):
 
     staged: bool  # an export is uploaded
     check: dict | None  # what checking it found (library_rebuild.CheckResult)
+    check_error: str | None  # why checking it failed
     built: bool  # built, waiting to be applied
     job_id: str | None  # the check or build running now
     summary: dict | None  # the last rebuild's set-aside summary

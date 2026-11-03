@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy import create_engine, delete, event, func, insert, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -37,6 +38,9 @@ from backend.app.colorspace import hex_to_lab
 from backend.app.config import settings
 from backend.app.library_identity import LIBRARY_ID_KEY
 from backend.app.models.database import (
+    FILE_DUPLICATE,
+    FILE_IMAGE,
+    FILE_PENDING,
     SETUP_COMPLETED_KEY,
     SOURCE_DETACHED,
     SOURCE_ONLINE,
@@ -60,7 +64,16 @@ SET_ASIDE_JOB = "Setting aside files not in the backup"
 DB_NAME = "battlemap.db"  # in rebuild/new and old-<id>; the live one is live_db()
 _SUFFIXES = ("", "-wal", "-shm")
 # Kept from this install, whatever the file says
-_OWN_SETTINGS = (LIBRARY_ID_KEY, "active_model", SETUP_COMPLETED_KEY)
+_OWN_SETTINGS = (
+    LIBRARY_ID_KEY,
+    "active_model",
+    SETUP_COMPLETED_KEY,
+    "moved_from",  # this install's old folders (library_move)
+    # Sized to this machine's resources
+    "max_concurrent_prepare",
+    "max_concurrent_heavy_requests",
+    "max_job_workers",
+)
 _BATCH = 1_000
 LIST_GROUPS = 500  # groups listed in a check's report
 LIST_IMAGES = 200  # images listed per group
@@ -92,7 +105,17 @@ def _check_path() -> Path:
 
 
 def _new_dir() -> Path:
+    """The finished build; it is written as ``new.part`` and renamed when complete, so a
+    build killed part way is never taken for a finished one."""
     return rebuild_dir() / "new"
+
+
+def _part_dir() -> Path:
+    return rebuild_dir() / "new.part"
+
+
+def is_built() -> bool:
+    return (_new_dir() / DB_NAME).is_file()
 
 
 def _pending_path() -> Path:
@@ -100,10 +123,28 @@ def _pending_path() -> Path:
 
 
 def discard() -> None:
-    """Forget a staged file, its check and an unswapped build (Cancel)."""
+    """Forget a staged file, its check and an unswapped build (Cancel). A swap asked for
+    but not yet done is forgotten too; one done isn't touched (its files are being set
+    aside)."""
     staged_path().unlink(missing_ok=True)
     _check_path().unlink(missing_ok=True)
+    _check_error_path().unlink(missing_ok=True)
     shutil.rmtree(_new_dir(), ignore_errors=True)
+    shutil.rmtree(_part_dir(), ignore_errors=True)
+    pending = _pending()
+    if pending is not None and not pending.get("swapped"):
+        _pending_path().unlink(missing_ok=True)
+
+
+def busy() -> str | None:
+    """Why no rebuild step can start now: a swap waiting for the restart, or files of the
+    last one still being set aside."""
+    pending = _pending()
+    if pending is None:
+        return None
+    if pending.get("swapped"):
+        return "The last rebuild is still setting its files aside; try again when it's done"
+    return "A rebuild is waiting for Scene Atlas to restart"
 
 
 # Check (§8.2)
@@ -136,6 +177,15 @@ class _Listed:
         }
 
 
+def fingerprint(db: Session) -> list:
+    """What changes when the library does: a check is only good for the library it saw."""
+    count, max_id, updated = db.execute(
+        select(func.count(Image.id), func.max(Image.id), func.max(Image.updated_at))
+    ).one()
+    groups = db.scalar(select(func.max(ImageGroup.id)))
+    return [count, max_id, str(updated), groups]
+
+
 @dataclass
 class CheckResult:
     images: int
@@ -148,6 +198,10 @@ class CheckResult:
     missing: dict  # images in the file whose originals aren't there
     lost: dict  # images in the library that aren't in the file
     missing_stored: int  # of the missing, imported ones (left out of the build)
+    # Linked images: kept whatever the check finds, the next scan marking missing files
+    linked_missing: int = 0  # in the export, file not in the linked folder
+    linked_lost: int = 0  # in the library, not in the export: imported again by a scan
+    library: list = field(default_factory=list)  # fingerprint() when checked
 
 
 def _first(lines) -> lf.Header:
@@ -187,6 +241,8 @@ def check(db: Session) -> CheckResult:
     rel_keys: dict[int, str] = {}
     images = 0
     uids: set[str] = set()
+    image_ids: set[int] = set()
+    group_ids: dict[int, str] = {}
     try:
         with lf.open_file(path) as fp:
             lines = lf.read_lines(fp)
@@ -204,13 +260,15 @@ def check(db: Session) -> CheckResult:
                 if not isinstance(line, lf.GroupLine):
                     continue
                 if line.group is not None:
-                    if line.group.id is None:
-                        raise RebuildError("The file is damaged: a group has no id")
+                    gid = line.group.id
+                    if gid is None or group_ids.setdefault(gid, line.group.uid) != line.group.uid:
+                        raise RebuildError("The file is damaged: a group id is missing or reused")
                     uids.add(line.group.uid)
                 label = _group_label(line.group)
                 for image in line.images:
-                    if image.id is None:
-                        raise RebuildError("The file is damaged: an image has no id")
+                    if image.id is None or image.id in image_ids:
+                        raise RebuildError("The file is damaged: an image id is missing or reused")
+                    image_ids.add(image.id)
                     images += 1
                     if image.storage_key:
                         stored_keys.add(image.storage_key)
@@ -230,12 +288,16 @@ def check(db: Session) -> CheckResult:
     linked_dir = settings.linked_library_dir
     linked_checked = linked_dir is not None and linked_folder_available(fresh=True)
     linked_present: set[str] = set()
+    linked_missing = 0
     for source_id, label, name in linked_images:
         rel = rel_keys.get(source_id)
-        if rel is not None:
-            linked_present.add(rel)
-        if rel is None or (linked_checked and not (linked_dir / rel).is_file()):  # type: ignore[operator]
-            missing.add(label, name)
+        if rel is None:
+            missing.add(label, name)  # no file listed for it: the build drops it
+            missing_stored += 1
+            continue
+        linked_present.add(rel)
+        if linked_checked and not _linked_file(linked_dir, rel):  # type: ignore[arg-type]
+            linked_missing += 1
 
     # What the library has that the file doesn't
     rows = db.execute(
@@ -244,8 +306,12 @@ def check(db: Session) -> CheckResult:
         .outerjoin(ImageGroup, ImageGroup.id == Image.group_id)
         .order_by(Image.group_id, Image.id)
     )
+    linked_lost = 0
     for key, rel, name, filename, group in rows:
         if (key and key in stored_keys) or (rel and rel in linked_present):
+            continue
+        if not key:
+            linked_lost += 1  # its file stays in the linked folder; a scan imports it again
             continue
         label = (
             " – ".join(x for x in (group.author, group.base_name) if x)
@@ -266,9 +332,31 @@ def check(db: Session) -> CheckResult:
         missing=missing.report(),
         lost=lost.report(),
         missing_stored=missing_stored,
+        linked_missing=linked_missing,
+        linked_lost=linked_lost,
+        library=fingerprint(db),
     )
+    _check_error_path().unlink(missing_ok=True)
     _check_path().write_text(json.dumps(asdict(result)), encoding="utf-8")
     return result
+
+
+def _linked_file(linked: Path, rel: str) -> bool:
+    """*rel* (from the file: untrusted) names a file inside the linked folder."""
+    path = (linked / rel).resolve()
+    return path.is_relative_to(linked.resolve()) and path.is_file()
+
+
+def _check_error_path() -> Path:
+    return rebuild_dir() / "check-error.txt"
+
+
+def check_error() -> str | None:
+    """Why the staged file's last check failed, for Settings when reopened."""
+    try:
+        return _check_error_path().read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def saved_check() -> CheckResult | None:
@@ -293,11 +381,15 @@ def _engine(path: Path) -> Engine:
     return engine
 
 
-def _settings_rows(header: lf.Header, current: Session) -> list[dict]:
-    own = {
+def _own_settings(current: Session) -> dict[str, str | None]:
+    """This install's own settings (kept whatever the export says), as stored."""
+    return {
         s.key: s.value_json
         for s in current.scalars(select(AppSetting).where(AppSetting.key.in_(_OWN_SETTINGS)))
     }
+
+
+def _settings_rows(header: lf.Header, own: dict[str, str | None]) -> list[dict]:
     rows = {
         key: json.dumps(value)
         for key, value in (header.settings or {}).items()
@@ -401,14 +493,32 @@ def build(current: Session, progress_fn: ProgressFn | None = None) -> dict:
     """Write the rebuilt database (and vectors) into ``rebuild/new/`` from the checked file.
     Stops, leaving nothing, if more imported originals are missing than the check found
     (a folder has probably gone offline since)."""
-    from backend.app.services import get_image_store
-
     checked = saved_check()
     if checked is None:
         raise RebuildError("Check the file first")
-    new = _new_dir()
+    return _build(
+        _own_settings(current),
+        max_missing=checked.missing_stored,
+        total=checked.images,
+        vectors=True,
+        progress_fn=progress_fn,
+    )
+
+
+def _build(
+    own: dict[str, str | None],
+    *,
+    max_missing: int | None,
+    total: int,
+    vectors: bool,
+    progress_fn: ProgressFn | None,
+) -> dict:
+    from backend.app.services import get_image_store
+
+    shutil.rmtree(_new_dir(), ignore_errors=True)
+    new = _part_dir()
     shutil.rmtree(new, ignore_errors=True)
-    new.mkdir(parents=True)
+    new.mkdir(parents=True, exist_ok=True)
     store = get_image_store()
     engine = _engine(new / DB_NAME)
     svc = None
@@ -418,10 +528,19 @@ def build(current: Session, progress_fn: ProgressFn | None = None) -> dict:
         with lf.open_file(staged_path()) as fp:
             lines = lf.read_lines(fp)
             header = _first(lines)
-            db.execute(insert(AppSetting), _settings_rows(header, current))
-            categories = _category_rows(header)
-            if categories:
-                db.execute(insert(TagCategory), categories)
+            # Upserts: a migration may have seeded rows of either
+            for row in _settings_rows(header, own):
+                db.execute(
+                    sqlite_insert(AppSetting)
+                    .values(row)
+                    .on_conflict_do_update(index_elements=["key"], set_=row)
+                )
+            for row in _category_rows(header):
+                db.execute(
+                    sqlite_insert(TagCategory)
+                    .values(row)
+                    .on_conflict_do_update(index_elements=["name"], set_=row)
+                )
             linked = settings.linked_library_dir
             source = LibrarySource(
                 location=str(linked) if linked else "",
@@ -429,8 +548,10 @@ def build(current: Session, progress_fn: ProgressFn | None = None) -> dict:
             )
             db.add(source)
             db.commit()
-            svc = _vector_service(new, header)
-            loaded, left_out = _load(db, lines, source.id, store, svc, checked, progress_fn)
+            svc = _vector_service(new, header) if vectors else None
+            loaded, left_out = _load(
+                db, lines, source.id, store, svc, max_missing, total, progress_fn
+            )
         db.close()
     except BaseException:
         if svc is not None:
@@ -441,11 +562,52 @@ def build(current: Session, progress_fn: ProgressFn | None = None) -> dict:
     if svc is not None:
         svc.close()
     engine.dispose()
+    os.replace(new, _new_dir())  # only now is it a finished build
     logger.info("Rebuild built: %d images, %d left out", loaded, left_out)
     return {"images": loaded, "left_out": left_out}
 
 
-def _load(db, lines, source_id, store, svc, checked, progress_fn) -> tuple[int, int]:
+def build_in_place() -> str | None:
+    """§8.5, at startup before the library check: the app data was lost (no database),
+    and an export has been staged in its place (by the desktop app's "Rebuild from
+    export…", or by hand on a server). Build it straight into place, unchecked: there's
+    no library to lose. The store's library id is kept, so the store opens with it.
+    Vectors aren't loaded (the installed model isn't known yet): images are embedded
+    again after startup. Returns the rebuild id, if it built."""
+    from backend.app.library_identity import read_marker
+
+    live = live_db()
+    if live.exists() or not staged_path().is_file():
+        return None
+    logger.warning("No database, and an export staged: rebuilding the library from it")
+    with lf.open_file(staged_path()) as fp:
+        header = _first(lf.read_lines(fp))
+    marker = read_marker(settings.store_images_dir)
+    library_id = marker.library_id if marker else header.library_id
+    own: dict[str, str | None] = {}
+    if library_id:
+        own[LIBRARY_ID_KEY] = json.dumps(library_id)
+    done = (header.settings or {}).get(SETUP_COMPLETED_KEY)
+    if done is not None:  # the library was set up: the wizard isn't shown again
+        own[SETUP_COMPLETED_KEY] = json.dumps(done)
+    _build(own, max_missing=None, total=0, vectors=False, progress_fn=None)
+    new = _new_dir()
+    for suffix in ("-wal", "-shm", ""):  # the main file last: its arrival marks it done
+        src = new / (DB_NAME + suffix)
+        if src.exists():
+            _move(src, live.with_name(live.name + suffix))
+    shutil.rmtree(new, ignore_errors=True)
+    rebuild_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    # Swapped already: the set-aside runs after startup, as for any rebuild
+    _pending_path().write_text(json.dumps({"id": rebuild_id, "swapped": True}), "utf-8")
+    staged_path().unlink(missing_ok=True)
+    _check_path().unlink(missing_ok=True)
+    return rebuild_id
+
+
+def _load(
+    db, lines, source_id, store, svc, max_missing: int | None, total: int, progress_fn
+) -> tuple[int, int]:
     writer = _Writer(db)
     groups: dict[str, int] = {}  # uid -> id
     counts: dict[int, int] = {}  # group id -> images kept
@@ -460,6 +622,8 @@ def _load(db, lines, source_id, store, svc, checked, progress_fn) -> tuple[int, 
                 row = f.model_dump(exclude={"image_id"})
                 row["source_id"] = source_id
                 row["image_id"] = f.image_id if f.image_id in kept else None
+                if row["image_id"] is None and row["state"] in (FILE_IMAGE, FILE_DUPLICATE):
+                    row["state"] = FILE_PENDING  # as the export does: the next scan queues it
                 writer.add(SourceFile, row)
             continue
         group_id = None
@@ -485,7 +649,7 @@ def _load(db, lines, source_id, store, svc, checked, progress_fn) -> tuple[int, 
                 continue
             if image.storage_key and not store.get_path(image.storage_key).is_file():
                 left_out += 1
-                if left_out > checked.missing_stored:
+                if max_missing is not None and left_out > max_missing:
                     raise RebuildError(
                         "More images are missing than when the file was checked. Is a "
                         "folder offline? Check the file again."
@@ -539,7 +703,7 @@ def _load(db, lines, source_id, store, svc, checked, progress_fn) -> tuple[int, 
                         _add_vectors(svc, vectors)
             loaded += 1
             if progress_fn and loaded % 500 == 0:
-                progress_fn(loaded, checked.images, f"Rebuilt {loaded:,} of {checked.images:,}")
+                progress_fn(loaded, total, f"Rebuilt {loaded:,} of {total:,}")
     writer.flush()
     if svc is not None and vectors:
         _add_vectors(svc, vectors)
@@ -565,14 +729,23 @@ def _load(db, lines, source_id, store, svc, checked, progress_fn) -> tuple[int, 
             )
             if gid is not None
         }
-    # Group sizes and primaries, now that their images are in; groups left empty go
+    # Group sizes and covers, now that their images are in (a cover left out falls back to
+    # the group's first image); groups left empty go
+    firsts = dict(
+        db.execute(
+            select(Image.group_id, func.min(Image.id))
+            .where(Image.group_id.isnot(None))
+            .group_by(Image.group_id)
+        ).all()
+    )
     for group_id in groups.values():
         group = db.get(ImageGroup, group_id)
         if group is None:
             continue
         if counts.get(group_id):
             group.image_count = counts[group_id]
-            group.primary_image_id = primaries.get(group_id)
+            primary = primaries.get(group_id)
+            group.primary_image_id = primary if primary in kept else firsts.get(group_id)
         else:
             db.delete(group)
     db.commit()
@@ -590,8 +763,10 @@ def _add_vectors(svc, vectors: list[dict]) -> None:
 
 def request_swap() -> str:
     """Mark the build to be swapped in at the next start; returns the rebuild id."""
-    if not (_new_dir() / DB_NAME).is_file():
+    if not is_built():
         raise RebuildError("There's no finished rebuild to apply")
+    if _pending() is not None:
+        raise RebuildError(busy() or "A rebuild is already waiting")
     rebuild_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     _pending_path().write_text(json.dumps({"id": rebuild_id, "swapped": False}), "utf-8")
     return rebuild_id
@@ -612,31 +787,68 @@ def set_aside_pending() -> bool:
 
 
 def _move(src: Path, dest: Path) -> None:
-    if src.exists() and not dest.exists():
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(src, dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(src, dest)
+
+
+def _empty_dir(path: Path) -> bool:
+    return path.is_dir() and not any(path.iterdir())
+
+
+def _move_folder(src: Path, dest: Path) -> None:
+    """Move the folder *src* to *dest*, unless done already. *dest* may be an empty folder
+    (startup recreates the vector folder): it's replaced. Anything else there is an
+    error, never overwritten."""
+    if not src.exists():
+        return
+    if _empty_dir(dest):
+        dest.rmdir()
+    if dest.exists():
+        if _empty_dir(src):
+            src.rmdir()
+            return
+        raise RebuildError(f"Can't move {src} to {dest}: something is there already")
+    _move(src, dest)
 
 
 def swap_if_pending() -> str | None:
     """At startup, before the library check: put the built library in place, and the
-    current one in ``rebuild/old-<id>/``. Each step is skipped when already done, so a
-    crash part way is finished by the next start. Returns the rebuild id, if any."""
+    current one in ``rebuild/old-<id>/``. Each part is decided by what's where, so a crash
+    part way is finished by the next start; nothing built is deleted until it's in place.
+    Returns the rebuild id, if any."""
     pending = _pending()
     if pending is None or pending.get("swapped"):
         return None
     rebuild_id = pending["id"]
     new, old = _new_dir(), rebuild_dir() / f"old-{rebuild_id}"
+    if not new.exists() and not old.exists():
+        # Nothing was built for it (cancelled after Apply): forget it, change nothing
+        _pending_path().unlink(missing_ok=True)
+        return None
     for stale in rebuild_dir().glob("old-*"):
-        if stale != old:  # the way back is only kept for the newest rebuild
+        if stale != old:  # the old library is only kept for the newest rebuild
             shutil.rmtree(stale, ignore_errors=True)
     live = live_db()
-    if (new / DB_NAME).exists():
-        for suffix in _SUFFIXES:
-            _move(live.with_name(live.name + suffix), old / (DB_NAME + suffix))
-        _move(settings.vector_db_path, old / "lancedb")
-        for suffix in _SUFFIXES:
-            _move(new / (DB_NAME + suffix), live.with_name(live.name + suffix))
-        _move(new / "lancedb", settings.vector_db_path)
+    old.mkdir(parents=True, exist_ok=True)
+    if (new / DB_NAME).exists():  # the database isn't in place yet
+        if live.exists() and not (old / DB_NAME).exists():
+            for suffix in _SUFFIXES:  # the live database, with its WAL, goes as one
+                src = live.with_name(live.name + suffix)
+                if src.exists():
+                    _move(src, old / (DB_NAME + suffix))
+        for suffix in ("-wal", "-shm"):  # nothing of the old one may stay beside the new
+            live.with_name(live.name + suffix).unlink(missing_ok=True)
+        for suffix in ("-wal", "-shm", ""):  # the main file last: its arrival marks it done
+            src = new / (DB_NAME + suffix)
+            if src.exists():
+                _move(src, live.with_name(live.name + suffix))
+    if (new / "lancedb").exists():
+        if not (old / "lancedb").exists():
+            _move_folder(settings.vector_db_path, old / "lancedb")
+        _move_folder(new / "lancedb", settings.vector_db_path)
+    leftovers = list(new.iterdir()) if new.exists() else []
+    if leftovers:
+        raise RebuildError(f"The rebuilt library couldn't all be put in place: {leftovers}")
     shutil.rmtree(new, ignore_errors=True)
     staged_path().unlink(missing_ok=True)
     _check_path().unlink(missing_ok=True)
@@ -739,9 +951,11 @@ def set_aside(progress_fn: ProgressFn | None = None) -> dict:
         for done, (key, rel) in enumerate(entries, start=1):
             raise_if_shutting_down()
             src = files.get(key)
-            if src is not None and key not in used:
-                _move(src, dest / PurePosixPath(rel))
-                moved += 1
+            target = dest / PurePosixPath(rel)
+            if src is not None and key not in used and not target.exists():
+                _move(src, target)
+            if target.exists():
+                moved += 1  # by this run or one before it
             if progress_fn and done % 200 == 0:
                 progress_fn(done, len(entries), f"Set aside {done:,} of {len(entries):,} files")
     summary = {"id": rebuild_id, "moved": moved, "folder": str(dest) if moved else None}
@@ -749,6 +963,25 @@ def set_aside(progress_fn: ProgressFn | None = None) -> dict:
     _pending_path().unlink(missing_ok=True)
     logger.info("Rebuild %s: %d file(s) set aside in %s", rebuild_id, moved, dest)
     return summary
+
+
+def after_rebuild(progress_fn: ProgressFn | None = None) -> dict:
+    """The job after a swap: set the unused files aside, then make the thumbnails the
+    rebuilt rows name but this app data doesn't have."""
+    from backend.pipeline.backfill_thumbnails import backfill_thumbnails
+
+    summary = set_aside(progress_fn)
+    summary["thumbnails"] = backfill_thumbnails(progress_fn)
+    return summary
+
+
+def set_aside_failed_export() -> None:
+    """A staged export that couldn't be built at startup: kept, but not tried again."""
+    staged = staged_path()
+    if staged.exists():
+        os.replace(staged, staged.with_name("staged-failed.jsonl"))
+    shutil.rmtree(_part_dir(), ignore_errors=True)
+    shutil.rmtree(_new_dir(), ignore_errors=True)
 
 
 def last_summary() -> dict | None:
@@ -767,7 +1000,12 @@ def check_job(progress_fn: ProgressFn | None = None) -> dict:
     if progress_fn:
         progress_fn(0, 0, "Reading the export…")
     with pipeline_db() as db:
-        return asdict(check(db))
+        try:
+            return asdict(check(db))
+        except Exception as e:
+            _check_error_path().parent.mkdir(parents=True, exist_ok=True)
+            _check_error_path().write_text(str(e), encoding="utf-8")
+            raise
 
 
 def build_job(progress_fn: ProgressFn | None = None) -> dict:

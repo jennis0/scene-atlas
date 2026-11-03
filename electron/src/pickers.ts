@@ -94,17 +94,23 @@ export async function pickExportFolder(sender: Electron.WebContents): Promise<st
  * the dialog fails. */
 export async function pickImportPaths(
   sender: Electron.WebContents,
-  kind: 'folders' | 'files',
+  kind: 'folders' | 'files' | 'export',
 ): Promise<string[]> {
   const options: Electron.OpenDialogOptions =
     kind === 'folders'
       ? { title: 'Import folders', properties: ['openDirectory', 'multiSelections'] }
-      : {
-          title: 'Import files',
-          properties: ['openFile', 'multiSelections'],
-          filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
-        }
-  options.buttonLabel = 'Import'
+      : kind === 'export'
+        ? {
+            title: 'Rebuild from a metadata export',
+            properties: ['openFile'],
+            filters: [{ name: 'Scene Atlas metadata', extensions: ['gz', 'jsonl'] }],
+          }
+        : {
+            title: 'Import files',
+            properties: ['openFile', 'multiSelections'],
+            filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
+          }
+  options.buttonLabel = kind === 'export' ? 'Rebuild' : 'Import'
   try {
     return await openDialog(sender, options)
   } catch (err) {

@@ -90,6 +90,9 @@ let backendError: string | null = null
 // The failure is about the folders (refused by the library check, or unusable), so the
 // loading page also offers to choose them again (design/library-setup.md §3.3).
 let backendErrorIsFolders = false
+// The refusal was that the app data isn't there: the loading page offers to rebuild
+// it from a metadata export (design/export-backup-move.md §8.5)
+let backendErrorCanRebuild = false
 
 // The installer's shortcuts carry electron-builder's appId as their AppUserModelID; the
 // process must match, or Windows shows a pinned shortcut and the running app as two
@@ -400,9 +403,10 @@ async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
   await mainWindow?.loadURL(`${origin}/`)
 }
 
-function signalBackendError(message: string, aboutFolders = false): void {
+function signalBackendError(message: string, aboutFolders = false, canRebuild = false): void {
   backendError = message
   backendErrorIsFolders = aboutFolders
+  backendErrorCanRebuild = canRebuild
   const win = mainWindow
   if (!win) return
   // A crash after startup leaves the UI on a dead origin; go back to the loading page,
@@ -425,7 +429,11 @@ function canChooseFoldersAgain(): boolean {
 
 function sendBackendError(win: BrowserWindow): void {
   const chooseFolders = canChooseFoldersAgain()
-  win.webContents.send('backend-error', backendError, { chooseFolders, retry: !isDev })
+  win.webContents.send('backend-error', backendError, {
+    chooseFolders,
+    retry: !isDev,
+    rebuild: backendErrorCanRebuild && !isDev,
+  })
 }
 
 // Backend sidecar
@@ -558,6 +566,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     signalBackendError(
       `${what} (exit code ${code ?? signal}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
       !ready && code === LIBRARY_REFUSED,
+      !ready && recentLines.some((l) => l.includes('SCENE_ATLAS_REFUSAL=app_data_not_here')),
     )
   })
 }
@@ -599,6 +608,19 @@ function stopSidecar(timeoutMs = 5000, force = false): Promise<void> {
 handleTrusted('startup:retry', () => {
   if (restarting || !currentDirs || isDev || backendError === null) return
   restartBackend(currentDirs)
+})
+
+// The app data is gone (§8.5): pick a metadata export, stage it where the backend builds
+// from at startup, and start again on the same folders.
+handleTrusted('startup:rebuild-from-export', async (event) => {
+  if (restarting || !currentDirs || isDev || !backendErrorCanRebuild) return
+  const picked = await pickImportPaths(event.sender, 'export')
+  if (!picked[0]) return
+  const dirs = currentDirs
+  const staged = path.join(dirs.appData, 'rebuild', 'staged.jsonl')
+  await fs.promises.mkdir(path.dirname(staged), { recursive: true })
+  await fs.promises.copyFile(picked[0], staged)
+  restartBackend(dirs)
 })
 
 // Back to the default folders, with the setup wizard's library step to choose the real

@@ -41,7 +41,12 @@ from .api import settings as settings_api
 from .api.rate_limits import limiter
 from .config import settings
 from .host_check import LoopbackHostMiddleware
-from .library_identity import LibraryMismatchError, check_library, open_library
+from .library_identity import (
+    APP_DATA_NOT_HERE,
+    LibraryMismatchError,
+    check_library,
+    open_library,
+)
 from .logging_config import setup_logging
 from .models import (
     get_engine,
@@ -97,7 +102,12 @@ async def lifespan(app: FastAPI):
 
     # A rebuilt library, built while the app ran, goes in place before anything opens the
     # database (design/export-backup-move.md §8.3)
-    from ..pipeline.library_rebuild import swap_if_pending
+    from ..pipeline.library_rebuild import (
+        build_in_place,
+        set_aside_failed_export,
+        staged_path,
+        swap_if_pending,
+    )
 
     try:
         swap_if_pending()
@@ -106,6 +116,12 @@ async def lifespan(app: FastAPI):
             lock.release()
         logger.critical("STARTUP ERROR: Could not put the rebuilt library in place: %s", exc)
         raise
+    # The app data was lost and an export staged in its place: rebuild from it (§8.5)
+    try:
+        build_in_place()
+    except Exception:
+        logger.exception("Rebuilding from the staged export failed; it was set aside")
+        set_aside_failed_export()
 
     # Before anything touches either root: the folders must belong to one library
     # (design/library-setup.md §3.3). Read-only; open_library() below finishes it.
@@ -128,6 +144,14 @@ async def lifespan(app: FastAPI):
             logger.critical("STARTUP ERROR: Could not read the database at %s.", _database_path())
         else:
             logger.critical("STARTUP ERROR: %s", exc)
+            if exc.refusal == APP_DATA_NOT_HERE:
+                # For the desktop app, which offers to rebuild from an export (§8.5)
+                print(f"SCENE_ATLAS_REFUSAL={exc.refusal}", file=sys.stderr, flush=True)
+                logger.critical(
+                    "To rebuild the library from a metadata export, put the export at %s "
+                    "and start again.",
+                    staged_path(),
+                )
         raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
@@ -272,10 +296,10 @@ async def lifespan(app: FastAPI):
                 runner.submit(backfill_stored_hash, name=STORED_HASH_JOB)
 
         # After a rebuild: the store files it doesn't use go to not-in-backup/ (§8.4)
-        from ..pipeline.library_rebuild import SET_ASIDE_JOB, set_aside, set_aside_pending
+        from ..pipeline.library_rebuild import SET_ASIDE_JOB, after_rebuild, set_aside_pending
 
         if set_aside_pending():
-            runner.submit(set_aside, name=SET_ASIDE_JOB)
+            runner.submit(after_rebuild, name=SET_ASIDE_JOB)
 
     # Ingest worker: re-queue items interrupted by the last shutdown (nothing is
     # deleted), then start processing.

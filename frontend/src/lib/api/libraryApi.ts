@@ -82,11 +82,14 @@ export interface RebuildCheck {
   missing: RebuildListed
   lost: RebuildListed
   missing_stored: number
+  linked_missing: number
+  linked_lost: number
 }
 
 export interface RebuildStatus {
   staged: boolean
   check: RebuildCheck | null
+  check_error: string | null
   built: boolean
   job_id: string | null
   summary: { id: string; moved: number; folder: string | null } | null
@@ -182,19 +185,19 @@ export const libraryApi = {
   },
 
   checkRebuild: async (): Promise<{ job_id: string }> => {
-    const { data } = await api.post<{ job_id: string }>('/library/rebuild/check')
+    const { data } = await api.post<{ job_id: string }>('/library/rebuild/check', {})
     return data
   },
 
   buildRebuild: async (): Promise<{ job_id: string }> => {
-    const { data } = await api.post<{ job_id: string }>('/library/rebuild/build')
+    const { data } = await api.post<{ job_id: string }>('/library/rebuild/build', {})
     return data
   },
 
   /** Swap the built library in: the desktop app restarts its backend; a server stops and
    * its service manager starts it again */
   applyRebuild: async (): Promise<{ restart: 'app' | 'server' }> => {
-    const { data } = await api.post<{ restart: 'app' | 'server' }>('/library/rebuild/apply')
+    const { data } = await api.post<{ restart: 'app' | 'server' }>('/library/rebuild/apply', {})
     return data
   },
 

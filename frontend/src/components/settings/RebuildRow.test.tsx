@@ -22,6 +22,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 const EMPTY: RebuildStatus = {
   staged: false,
   check: null,
+  check_error: null,
   built: false,
   job_id: null,
   summary: null,
@@ -43,6 +44,8 @@ const CHECK: RebuildCheck = {
   },
   lost: { images: 3, group_count: 1, groups: [{ name: 'Tom – Harbour', images: ['A', 'B', 'C'] }] },
   missing_stored: 7,
+  linked_missing: 0,
+  linked_lost: 2,
 }
 
 function job(over: Partial<BackgroundJob>): BackgroundJob {
@@ -150,5 +153,23 @@ describe('RebuildRow', () => {
     })
     renderWithProviders(<RebuildRow />)
     expect(await screen.findByText(/3 files the export didn't have are in/)).toBeInTheDocument()
+  })
+  it('shows why the last check failed when Settings is reopened', async () => {
+    vi.mocked(libraryApi.rebuildStatus).mockResolvedValue({
+      ...EMPTY,
+      staged: true,
+      check_error: "The file can't be read: Line 3: not valid JSON.",
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<RebuildRow />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Line 3')
+    await user.click(screen.getByRole('button', { name: 'Forget that export' }))
+    expect(libraryApi.cancelRebuild).toHaveBeenCalled()
+  })
+
+  it('says linked images not in the export come back from the linked library', async () => {
+    vi.mocked(libraryApi.rebuildStatus).mockResolvedValue({ ...EMPTY, staged: true, check: CHECK })
+    renderWithProviders(<RebuildRow />)
+    expect(await screen.findByText(/2 linked images in your library/)).toBeInTheDocument()
   })
 })

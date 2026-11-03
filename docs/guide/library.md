@@ -62,13 +62,15 @@ Scene Atlas doesn't back up your library by itself. Back up both *Imported image
 
 ### Rebuilding from a backup
 
-**Settings → Library → Rebuild from export…** replaces your library's metadata with a file from **Export metadata**: after losing *Search data*, say, or to go back to an earlier state. It doesn't merge: the library becomes what the export holds.
+**Settings → Library → Rebuild from export…** replaces your library's metadata with a file from **Export metadata**, to go back to an earlier state, say. It doesn't merge: the library becomes what the export holds.
+
+**If *Search data* was lost** (a failed drive, a deleted folder), Scene Atlas won't open *Imported images* on its own and says its search data isn't there. The desktop app then offers **Rebuild from export…**: choose your latest metadata export and Scene Atlas builds the library from it as it starts. On a server, put the export at `rebuild/staged.jsonl` inside `SCENE_ATLAS_DATA_DIR` and start it again. Thumbnails are made again afterwards, and images are processed for search again, which takes a while for a large library.
 
 1. Choose the export. Scene Atlas reads it and tells you what would change: images in the export whose files aren't in your library any more (they're left out), and images in your library that aren't in the export (they'll be lost). Open each line to see which groups and images.
 2. Choose **Rebuild**. The new library is built alongside the current one, which you can keep using meanwhile. Nothing changes yet, and **Cancel** still leaves everything as it was.
 3. Choose **Restart now**. Scene Atlas restarts into the rebuilt library. On a server, it stops and your service manager starts it again (Docker Compose does, with `restart: unless-stopped`).
 
-After the restart, image files the export didn't have are moved to `not-in-backup/` inside *Imported images*, in folders named like a download, so you can see what they are and import them again. The previous library's database is kept in `rebuild/` inside *Search data* until the next rebuild. Changes made between choosing **Rebuild** and the restart aren't in the rebuilt library.
+After the restart, image files the export didn't have are moved to `not-in-backup/` inside *Imported images*, in folders named like a download, so you can see what they are and import them again. Thumbnails the rebuilt library needs are made again. The previous library's database is kept in `rebuild/` inside *Search data* until the next rebuild, for support. If the library changes after the check (an import, an edit), check the export again before restarting: Scene Atlas asks you to.
 
 The export can be from another library (a warning says so): what matters is that the image files are here. If the search model has changed since the export, images are processed again afterwards.
 

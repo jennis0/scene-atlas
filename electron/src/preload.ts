@@ -6,9 +6,10 @@ import type { DefaultDirs, FolderKind, LibraryDirs } from './libraryDirs'
 interface StartupActions {
   retry: boolean
   chooseFolders: boolean
+  rebuild: boolean
 }
 type ErrorListener = (message: string, actions: StartupActions) => void
-const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false }
+const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false, rebuild: false }
 
 // Remember the last error so a subscriber that registers after it arrived still
 // receives it. The main process re-sends it on every page load.
@@ -65,6 +66,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // the default folders and the setup wizard's library step. Both replace the page.
   retryStartup: (): Promise<void> => ipcRenderer.invoke('startup:retry'),
   chooseFoldersAgain: (): Promise<void> => ipcRenderer.invoke('startup:choose-folders'),
+  // The app data is gone: rebuild it from a metadata export the user picks (§8.5)
+  rebuildFromExport: (): Promise<void> => ipcRenderer.invoke('startup:rebuild-from-export'),
 
   // The library's folders (design/library-setup.md)
   libraryChosen,
