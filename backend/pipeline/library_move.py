@@ -310,7 +310,7 @@ def _verify(db_path: Path, store: Path, old_store: Path | None) -> None:
 
     images = ImageStore(store)
     old = ImageStore(old_store) if old_store else None
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)  # C:\ too
     try:
         missing, lost_before = [], 0
         for (key,) in conn.execute("SELECT storage_key FROM images WHERE storage_key IS NOT NULL"):

@@ -17,7 +17,7 @@ Tests marked `heavy` (real CLIP ONNX model) are excluded by default (`addopts = 
 | Pre-commit (local) | `.husky/pre-commit` | `lint-staged` on staged files |
 | Pre-push (local) | `.husky/pre-push` | ruff check + format check (`backend/`, `scripts/`), pyright, backend unit tests, ESLint, Prettier check, `tsc --noEmit`, knip, Vitest, Electron `tsc`, Electron unit tests, jscpd duplication threshold |
 | Pull request to `main` | `.github/workflows/ci.yml` | `backend-security` (pip-audit, bandit; blocking, accepted findings in [security.md](security.md#accepted-scanner-findings)), `backend-integration` (unit + integration tests with coverage, small ONNX model), `frontend-build` (`npm audit --omit=dev --audit-level=high`, `npm run build`), `quality` (pyright, knip, jscpd) |
-| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests on Windows and macOS, Playwright E2E, Electron builds per platform with a sidecar smoke test, [packaged-app tests](#packaged-app-tests) and the [upgrade test](#upgrade-test) on Windows, the Docker image with `smoke_docker.py`, optional publish (a draft release, after every build passes and the [update metadata](#update-metadata-check) is checked). A preflight job checks the version first ([releasing.md](releasing.md)) |
+| Release (manual `workflow_dispatch`) | `.github/workflows/release.yml` | full backend suite incl. heavy tests, frontend lint/tests/coverage/build, backend unit tests and the library file tests (export, rebuild, move, import metadata, downloads) on Windows and macOS, Playwright E2E, Electron builds per platform with a sidecar smoke test, [packaged-app tests](#packaged-app-tests) and the [upgrade test](#upgrade-test) on Windows, the Docker image with `smoke_docker.py`, optional publish (a draft release, after every build passes and the [update metadata](#update-metadata-check) is checked). A preflight job checks the version first ([releasing.md](releasing.md)) |
 
 CI does not run lint or unit-only jobs on PRs; the pre-push hook is relied on for those (skippable with `git push --no-verify`).
 
@@ -141,6 +141,8 @@ The report, the snapshots and the updater and backend logs are uploaded as `upgr
 Not covered yet: Linux (AppImage) and macOS (notify only) in CI.
 
 ### Paths on Windows
+
+The export, rebuild and move integration tests run on Windows and macOS in the Release workflow (`test-cross-platform`), because what they do (renaming and syncing files, locks, SQLite files moved between folders) is where those platforms differ: open files can't be replaced on Windows, macOS and exFAT/FAT round or normalise. A database opened by path in SQL URI form must use `Path.as_uri()` (`file:C:\…` is not a URI).
 
 Backend unit tests run on Windows only in the Release workflow, so Windows-only path bugs reach `main`. Two to remember: `str(engine.url)` percent-encodes a Windows path under SQLAlchemy 2.1 (use `engine.url.database`, never parse the string), and a `Path` rejoins with `\` on Windows, so archive names are built with `PurePosixPath`.
 
