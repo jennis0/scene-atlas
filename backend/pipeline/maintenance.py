@@ -126,7 +126,7 @@ def _is_shard_dir(name: str) -> bool:
     return len(name) == 2 and set(name) <= _SHARD_HEX
 
 
-def _store_files(base_dir: Path) -> list[Path]:
+def store_files(base_dir: Path) -> list[Path]:
     """Files at <base>/<xx>/<yy>/<name> where xx and yy are shard directories."""
     files: list[Path] = []
     if not base_dir.exists():
@@ -159,6 +159,13 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
     """
     logger = logging.getLogger(__name__)
 
+    from backend.pipeline.library_rebuild import set_aside_pending
+
+    if set_aside_pending():
+        # They're the files a rebuild is setting aside, not orphans to delete
+        logger.info("Orphan sweep: waiting for a rebuild to set its files aside")
+        return {}
+
     from backend.app.models import Image
     from backend.app.services import get_image_store, get_thumbnail_store
     from backend.app.services.shutdown import raise_if_shutting_down
@@ -175,7 +182,7 @@ def sweep_orphaned_store_files(delete: bool = True) -> dict:
         ("thumbnails", get_thumbnail_store(), lambda p: _thumbnail_stem(p.name) in thumbnail_stems),
     ):
         raise_if_shutting_down()
-        files = _store_files(store.base_dir)
+        files = store_files(store.base_dir)
         orphans = [
             p for p in files if not is_known(p) and now - p.stat().st_mtime > ORPHAN_MIN_AGE_SECONDS
         ]

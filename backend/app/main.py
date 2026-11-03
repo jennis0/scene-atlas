@@ -84,6 +84,18 @@ async def lifespan(app: FastAPI):
         logger.critical("STARTUP ERROR: %s", exc)
         raise
 
+    # A rebuilt library, built while the app ran, goes in place before anything opens the
+    # database (design/export-backup-move.md §8.3)
+    from ..pipeline.library_rebuild import swap_if_pending
+
+    try:
+        swap_if_pending()
+    except OSError as exc:
+        for lock in storage_locks:
+            lock.release()
+        logger.critical("STARTUP ERROR: Could not put the rebuilt library in place: %s", exc)
+        raise
+
     # Before anything touches either root: the folders must belong to one library
     # (design/library-setup.md §3.3). Read-only; open_library() below finishes it.
     library_dirs = {
@@ -247,6 +259,12 @@ async def lifespan(app: FastAPI):
         with SessionLocal() as db:
             if images_missing_stored_hash(db):
                 runner.submit(backfill_stored_hash, name=STORED_HASH_JOB)
+
+        # After a rebuild: the store files it doesn't use go to not-in-backup/ (§8.4)
+        from ..pipeline.library_rebuild import SET_ASIDE_JOB, set_aside, set_aside_pending
+
+        if set_aside_pending():
+            runner.submit(set_aside, name=SET_ASIDE_JOB)
 
     # Ingest worker: re-queue items interrupted by the last shutdown (nothing is
     # deleted), then start processing.
