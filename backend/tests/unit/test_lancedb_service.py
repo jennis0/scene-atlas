@@ -200,3 +200,26 @@ class TestEnsureCollectionExisting:
         )
         assert second.get_collection_info()["points_count"] == 1
         second.close()
+
+
+class TestCacheBounds:
+    def test_metadata_cache_stays_within_its_bound_over_many_writes(self, tmp_path, monkeypatch):
+        """Each write is a table version whose manifest lists every fragment; lance's default
+        session kept them all (1 GiB cap), growing quadratically through a bulk import."""
+        import backend.app.services.lancedb_service as module
+
+        bound = 256 * 1024
+        monkeypatch.setattr(module, "_METADATA_CACHE_BYTES", bound)
+        service = LanceDBService(tmp_path / "lancedb", "bounded", vector_size=8)
+        try:
+            for batch in range(150):  # unbounded, the cache reaches ~6.5 MB here
+                service.batch_add_embeddings(
+                    [
+                        {"image_id": batch * 4 + i, "embedding": _rand_vec(8), "metadata": {}}
+                        for i in range(4)
+                    ]
+                )
+            assert service.session.size_bytes <= bound * 1.1
+            assert len(service.get_embeddings(list(range(600)))) == 600
+        finally:
+            service.close()

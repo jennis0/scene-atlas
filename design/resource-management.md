@@ -139,6 +139,18 @@ The event-loop heartbeat (every 15 s, `main.py`) logs thread count and process R
 
 This is diagnostic only. A `MemoryError` during preparation is classified by `pipeline/error_classifier.py` and recorded on the item. On non-Windows, SIGUSR1 logs a stack dump of every thread.
 
+### Memory of a bulk import
+
+What grows with the size of an import, measured with `stress_tests/ingest_scale.py`:
+
+- **LanceDB's caches** (`lancedb_service._session`). Each vector write (one per ingest batch of
+  16) is a new table version whose manifest lists every fragment; lance's default session keeps
+  every manifest it reads in a metadata cache of up to 1 GiB (and an index cache of up to 6 GiB),
+  so through a first import it grew quadratically: about 120 MB after 11k images, toward 1 GiB
+  at 50k. Both caches are bounded at 64 MiB; writes and searches were no slower with the bound.
+  The table is never compacted, so it still accrues a fragment and a version per batch (time,
+  not memory; a separate concern).
+
 ## Startup and Shutdown
 
 In the `main.py` lifespan:

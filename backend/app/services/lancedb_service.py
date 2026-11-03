@@ -1,7 +1,7 @@
 """LanceDB vector database service (embedded disk-backed mode).
 
 Uses lancedb.connect(path=...) for memory-mapped disk storage — no separate
-server process needed.  A threading.RLock serialises write operations (upsert,
+server process needed.  The connection's caches are bounded (``_session``).  A threading.RLock serialises write operations (upsert,
 delete, table management).  Read operations (search, retrieve) snapshot the
 table reference and are safe to call concurrently with writes, but will raise
 RuntimeError if called after close().
@@ -21,6 +21,20 @@ from lancedb.table import Table
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# Bounds on the connection's caches (lance's defaults: 1 GiB metadata, 6 GiB index). Every
+# write (one per ingest batch of 16) is a new table version whose manifest lists every fragment,
+# and the metadata cache keeps them all: about 120 MB after 700 batches (11k images), growing
+# quadratically up to the 1 GiB default (design/resource-management.md, "Memory"). Searches scan
+# a few tables' fragments, whose metadata fits easily in this; there are no vector indexes.
+_METADATA_CACHE_BYTES = 64 * 1024 * 1024
+_INDEX_CACHE_BYTES = 64 * 1024 * 1024
+
+
+def _session() -> lancedb.Session:
+    return lancedb.Session(
+        index_cache_size_bytes=_INDEX_CACHE_BYTES, metadata_cache_size_bytes=_METADATA_CACHE_BYTES
+    )
 
 
 def _table_schema(vector_size: int) -> pa.Schema:
@@ -49,7 +63,8 @@ class LanceDBService:
         self._lock = threading.RLock()
         self._path = Path(path)
         self._vector_size = vector_size or settings.vector_size
-        self.db: DBConnection | None = lancedb.connect(str(self._path))
+        self.session = _session()  # its caches, bounded
+        self.db: DBConnection | None = lancedb.connect(str(self._path), session=self.session)
         self._table: Table | None = None
         self.collection_name = collection_name
         self.ensure_collection()
