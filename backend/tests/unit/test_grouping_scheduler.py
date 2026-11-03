@@ -250,3 +250,23 @@ def test_a_held_worker_does_not_sweep(monkeypatch):
     with worker.held("Paused while the search model changes"):
         assert worker.is_held() and worker.run_once() is False
     assert sweeps == []
+
+
+def test_freed_memory_is_released_after_a_run_that_computed(db_url, monkeypatch):
+    """A run's features, pairs and plan are freed, but glibc keeps the pages (~300 MB at 10k
+    images): runs that grouped or failed hand them back; cheap outcomes don't pay for it."""
+    released: list[str] = []
+    monkeypatch.setattr(gj, "_release_memory", lambda: released.append("x"))
+    done = make_job(db_url)
+    assert inline().schedule() == [done]
+    assert len(released) == 1
+    busy = make_job(db_url, created=1)
+    assert inline(lambda: Readiness.DEFER).schedule() == [busy]  # deferred: nothing computed
+    assert len(released) == 1
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(gj, "_proposals", broken)
+    assert inline().schedule() == [busy]
+    assert len(released) == 2

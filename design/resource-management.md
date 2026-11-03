@@ -150,6 +150,26 @@ What grows with the size of an import, measured with `stress_tests/ingest_scale.
   at 50k. Both caches are bounded at 64 MiB; writes and searches were no slower with the bound.
   The table is never compacted, so it still accrues a fragment and a version per batch (time,
   not memory; a separate concern).
+- **The grouping phase** (`group_jobs.group_job`), measured on a 10k-image import grouped alone
+  (RSS above the process before the run):
+
+  | | peak | held after | held after `malloc_trim` |
+  |---|---|---|---|
+  | before | +990 MB | +470 MB | +160 MB |
+  | after | +270 MB | +230 MB | +140 MB |
+
+  Two allocations made it: the pair signals gathered the feature rows of 65536 pairs at a time
+  (`evidence._rowwise_dot`: 2 × 256 MB of 1024-float edge rows; now chunks of 8 MB), and the
+  job's vectors were read by twenty `id IN (500 ids)` LanceDB queries, each scanning every
+  fragment and leaving ~300 MB of native buffers held (`LanceDBService.get_embedding_arrays`
+  now reads a whole job's by one streaming scan: ~30 MB, and faster). What is left of the peak
+  is linear in the import: the feature matrix (4 KB of edge map and 2 KB of embedding per image,
+  float32), the candidate pairs and the walk's Python state.
+- **Freed but held.** glibc keeps freed pages in its arenas. After a grouping run that computed
+  (grouped, failed, or waiting for vectors), `GroupingScheduler._run` calls
+  `process_utils.release_freed_memory` (`gc.collect`, then `malloc_trim(0)` on Linux): ~90 MB
+  back at 10k. macOS and Windows allocators return memory on their own terms; there it only
+  collects.
 
 ## Startup and Shutdown
 

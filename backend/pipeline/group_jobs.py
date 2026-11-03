@@ -873,6 +873,17 @@ _MAX_FAILED_RUNS = 3
 _VECTOR_WAIT_SECONDS = 300.0
 
 
+def _release_memory() -> None:
+    """After a run: give the memory its features, pairs and plan used back to the OS
+    (``process_utils.release_freed_memory``); never raises."""
+    from backend.app.process_utils import release_freed_memory
+
+    try:
+        release_freed_memory()
+    except Exception:
+        logger.debug("Couldn't release freed memory", exc_info=True)
+
+
 class GroupingScheduler:
     """Starts the grouping phase of due jobs, at most one run per job at a time.
 
@@ -963,6 +974,8 @@ class GroupingScheduler:
                 elif outcome != Outcome.DEFERRED:
                     self._failures.pop(job_id, None)
                     self._waiting_since.pop(job_id, None)
+        if outcome in (None, Outcome.GROUPED, Outcome.NO_VECTORS):  # it read and computed
+            _release_memory()
 
 
 _scheduler: GroupingScheduler | None = None
