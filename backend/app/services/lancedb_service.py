@@ -10,6 +10,7 @@ RuntimeError if called after close().
 import logging
 import shutil
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 
 import lancedb
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 # a few tables' fragments, whose metadata fits easily in this; there are no vector indexes.
 _METADATA_CACHE_BYTES = 64 * 1024 * 1024
 _INDEX_CACHE_BYTES = 64 * 1024 * 1024
+# get_embedding_arrays: more ids than this are read by a streaming scan, in batches of rows
+_LOOKUP_MAX_IDS = 500
+_SCAN_BATCH_ROWS = 4096
 
 
 def _session() -> lancedb.Session:
@@ -295,6 +299,37 @@ class LanceDBService:
         except Exception as e:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
+
+    def get_embedding_arrays(self, image_ids: Iterable[int]) -> dict[int, np.ndarray]:
+        """float32 vectors of many images (missing IDs are absent; a failed read finds none).
+
+        Up to ``_LOOKUP_MAX_IDS`` ids are looked up by an ``id IN (...)`` filter. More are
+        read by one streaming scan of ``(image_id, vector)``, kept if wanted: repeated
+        filtered lookups each scan every fragment and left ~300 MB of native buffers held
+        for 10k ids, where the scan holds one batch at a time (~30 MB) and is faster.
+        """
+        wanted = np.unique(np.fromiter(image_ids, dtype=np.int64))
+        if len(wanted) == 0:
+            return {}
+        if len(wanted) <= _LOOKUP_MAX_IDS:
+            found = self.get_embeddings(wanted.tolist())
+            return {i: np.asarray(v, dtype=np.float32) for i, v in found.items()}
+        out: dict[int, np.ndarray] = {}
+        try:
+            query = self._tbl.search().select(["image_id", "vector"]).limit(None)
+            for batch in query.to_batches(_SCAN_BATCH_ROWS):
+                ids = batch.column("image_id").to_numpy()
+                keep = np.flatnonzero(np.isin(ids, wanted))
+                if not len(keep):
+                    continue
+                flat = batch.column("vector").flatten().to_numpy(zero_copy_only=False)
+                vectors = flat.reshape(len(batch), -1)
+                for row in keep.tolist():
+                    out[int(ids[row])] = np.array(vectors[row], dtype=np.float32)
+        except Exception as e:
+            logger.warning("Error retrieving embeddings for %d ids: %s", len(wanted), e)
+            return {}
+        return out
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""

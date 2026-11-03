@@ -223,3 +223,35 @@ class TestCacheBounds:
             assert len(service.get_embeddings(list(range(600)))) == 600
         finally:
             service.close()
+
+
+class TestGetEmbeddingArrays:
+    def _fill(self, svc, n):
+        vectors = {i: _rand_vec() for i in range(1, n + 1)}
+        for start in range(1, n + 1, 50):  # several fragments, as an ingest writes them
+            svc.batch_add_embeddings(
+                [
+                    {"image_id": i, "embedding": vectors[i], "metadata": {}}
+                    for i in range(start, min(start + 50, n + 1))
+                ]
+            )
+        return vectors
+
+    @pytest.mark.parametrize("max_ids", [10_000, 3])  # filtered lookup; streaming scan
+    def test_returns_float32_vectors_of_the_ids_found(self, svc, monkeypatch, max_ids):
+        import backend.app.services.lancedb_service as module
+
+        monkeypatch.setattr(module, "_LOOKUP_MAX_IDS", max_ids)
+        monkeypatch.setattr(module, "_SCAN_BATCH_ROWS", 64)  # batches cut across fragments
+        vectors = self._fill(svc, 300)
+        wanted = [5, 77, 150, 299, 299, 1000]  # a duplicate and a missing id
+        found = svc.get_embedding_arrays(wanted)
+        assert sorted(found) == [5, 77, 150, 299]
+        for i, v in found.items():
+            assert v.dtype == np.float32 and v.shape == (32,)
+            assert np.array_equal(v, np.asarray(vectors[i], dtype=np.float32))
+        reference = svc.get_embeddings([5, 77, 150, 299])
+        assert all(np.array_equal(found[i], np.float32(reference[i])) for i in reference)
+
+    def test_no_ids_reads_nothing(self, svc):
+        assert svc.get_embedding_arrays([]) == {}

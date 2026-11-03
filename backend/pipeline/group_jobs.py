@@ -93,7 +93,6 @@ from .ingest_queue import (
 
 logger = logging.getLogger(__name__)
 
-_EMBEDDING_CHUNK = 500  # ids per LanceDB lookup
 MAPS = BATTLEMAP  # the bucket grouped by the tree walk
 UNKNOWN_AUTHOR = "Unknown"
 # The map and scene groupings of a run: their decisions are logged at DEBUG
@@ -358,15 +357,12 @@ def _is_due(db: Session, job: ImportJob) -> bool:
 
 
 def _lookup_vectors(image_ids: list[int]) -> dict[int, np.ndarray]:
-    """The images' vectors; a failed lookup finds none (``get_embeddings`` logs it)."""
+    """The images' float32 vectors; a failed lookup finds none (``get_embedding_arrays``
+    logs it). A whole job's are read by one streaming scan, not chunks of ``id IN`` lookups,
+    which held hundreds of MB of native memory (design/resource-management.md)."""
     from backend.app.services import get_lancedb_service
 
-    service = get_lancedb_service()
-    vectors: dict[int, np.ndarray] = {}
-    for chunk in chunks(image_ids, _EMBEDDING_CHUNK):
-        for image_id, vector in service.get_embeddings(list(chunk)).items():
-            vectors[image_id] = np.asarray(vector, dtype=np.float32)
-    return vectors
+    return get_lancedb_service().get_embedding_arrays(image_ids)
 
 
 def _load_embeddings(
