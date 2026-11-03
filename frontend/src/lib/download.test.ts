@@ -2,9 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { postForDownload, saveUrl } from './download'
 
 describe('postForDownload', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
 
-  it('submits the fields as a hidden form and leaves nothing behind', () => {
+  it('submits the fields into a hidden frame of its own, and leaves no form behind', () => {
     const submit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
     postForDownload('/api/v1/downloads', { group_ids: '1,2', image_ids: '' })
     expect(submit).toHaveBeenCalledTimes(1)
@@ -12,7 +15,24 @@ describe('postForDownload', () => {
     expect(form.method).toBe('post')
     expect(form.action).toMatch(/\/api\/v1\/downloads$/)
     expect(Object.fromEntries(new FormData(form))).toEqual({ group_ids: '1,2', image_ids: '' })
+    const frame = document.querySelector('iframe')
+    expect(frame?.hidden).toBe(true)
+    expect(form.target).toBe(frame?.name)
     expect(document.querySelector('form')).toBeNull()
+    postForDownload('/api/v1/downloads', {})
+    expect(document.querySelectorAll('iframe')).toHaveLength(1) // one frame, reused
+  })
+
+  it('passes an error that loads into the frame to onError, and nothing for a download', () => {
+    vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
+    const onError = vi.fn()
+    postForDownload('/api/v1/downloads', {}, onError)
+    const frame = document.querySelector('iframe')!
+    frame.dispatchEvent(new Event('load')) // an empty frame: a download, or nothing yet
+    expect(onError).not.toHaveBeenCalled()
+    frame.contentDocument!.body.textContent = "That's 1,200 images; download at most 999"
+    frame.dispatchEvent(new Event('load'))
+    expect(onError).toHaveBeenCalledWith("That's 1,200 images; download at most 999")
   })
 })
 

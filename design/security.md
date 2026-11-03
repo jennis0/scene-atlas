@@ -58,7 +58,7 @@ Staging is per job: `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}`. `st
 
 `slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 
-- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `POST /downloads`, `POST /library/metadata-export`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `POST /library/metadata-export`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
 - **destructive** (`SCENE_ATLAS_RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `SCENE_ATLAS_RATE_LIMIT_ENABLED=false` disables it.
@@ -141,7 +141,7 @@ There is no restriction on which absolute paths are accepted, so code running in
 
 ### 6b-1. LOW: Downloads
 
-`POST /downloads` ([export-backup-move.md §5](export-backup-move.md#5-export-groups)) streams the chosen groups' originals as a zip. It is a form POST, a request any site can send, so it refuses one another site sent: `Sec-Fetch-Site` must be `same-origin` (or `none`), or, from a browser that doesn't send it, `Origin` must match `Host`. Ids are numbers only; the selection is capped (999 files, 2 GB, 10,000 ids) and rate-limited as expensive. Files are read through `originals.original_path`, so the linked folder's containment check applies; zip member names come from `ReadableLayout`, never from stored paths. `POST /downloads/check` takes JSON and only counts.
+`POST /downloads` ([export-backup-move.md §5](export-backup-move.md#5-export-groups)) streams the chosen groups' originals as a zip. It is a form POST, a request any site can send, so it refuses one another site sent: `Sec-Fetch-Site` must be `same-origin` (or `none`), or, from a browser that doesn't send it, `Origin` must match `Host`. A request with neither header comes from no browser (a browser sends `Origin` with every cross-origin POST), so it can't be another site's page, and is allowed. Behind a proxy, `Host` must be passed through (`proxy_set_header Host $host`) for the `Origin` comparison. Ids are numbers only; the selection is capped (999 files, 2 GB, 10,000 ids). Not rate-limited: the caps bound a download's cost. Its error responses are plain text and may be framed by the app's own origin (`X-Frame-Options: SAMEORIGIN`), so the app can show them; every other response keeps `DENY`. Files are read through `originals.original_path`, so the linked folder's containment check applies; zip member names come from `ReadableLayout`, never from stored paths. `POST /downloads/check` takes JSON and only counts.
 
 ### 6b-2. LOW: Metadata export
 

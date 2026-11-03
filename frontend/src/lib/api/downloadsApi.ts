@@ -9,6 +9,8 @@ export interface DownloadSelection {
 export interface DownloadCheck {
   image_count: number
   bytes: number
+  /** Images whose file can't be read: left out */
+  missing: number
   ok: boolean
   reason: string | null
 }

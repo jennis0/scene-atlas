@@ -18,21 +18,33 @@ interface SessionLike {
   on(event: 'will-download', listener: (event: unknown, item: DownloadItemLike) => void): unknown
 }
 
-/** Show each download's progress on the icon of the window *getWindow* returns. A size
- * the server didn't send shows as indeterminate (progress > 1). */
+/** Show the downloads' progress on the icon of the window *getWindow* returns: all of the
+ * running ones together, cleared when the last ends (finished, cancelled or failed). A
+ * size the server didn't send shows as indeterminate (progress > 1). */
 export function showDownloadProgress(
   session: SessionLike,
   getWindow: () => ProgressWindow | null,
 ): void {
-  const show = (progress: number) => {
+  const running = new Set<DownloadItemLike>()
+  const show = () => {
     const win = getWindow()
-    if (win && !win.isDestroyed()) win.setProgressBar(progress)
+    if (!win || win.isDestroyed()) return
+    if (running.size === 0) return win.setProgressBar(-1)
+    let received = 0
+    let total = 0
+    for (const item of running) {
+      if (item.getTotalBytes() <= 0) return win.setProgressBar(2)
+      received += item.getReceivedBytes()
+      total += item.getTotalBytes()
+    }
+    win.setProgressBar(received / total)
   }
   session.on('will-download', (_event, item) => {
-    item.on('updated', () => {
-      const total = item.getTotalBytes()
-      show(total > 0 ? item.getReceivedBytes() / total : 2)
+    running.add(item)
+    item.on('updated', show)
+    item.once('done', () => {
+      running.delete(item)
+      show()
     })
-    item.once('done', () => show(-1))
   })
 }

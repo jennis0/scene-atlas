@@ -39,8 +39,9 @@ from ..services.bulk_edit_service import (
 from ..services.image_scope import resolve_scope, scope_facets
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
-from .downloads import attachment
+from .downloads import tag_category_order
 from .rate_limits import limiter
+from .responses import attachment
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,7 @@ def get_image_file(image_id: int, download: bool = False, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Image not found")
     response = _original_response(image)
     if download:
-        (name,) = ReadableLayout().place_images(image.group, [image])
+        (name,) = ReadableLayout().place_images(image.group, [image], tag_category_order(db))
         response.headers["Content-Disposition"] = attachment(name)
     return response
 

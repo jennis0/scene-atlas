@@ -92,7 +92,20 @@ class TestCheck:
         result = client.post("/api/v1/downloads/check", json=body).json()
         sizes = [store.get_path(k).stat().st_size for k in ("aa/bb/night.jpg", "aa/bb/day.jpg")]
         loose = store.get_path("ee/ff/loose.jpg").stat().st_size
-        assert result == {"image_count": 3, "bytes": sum(sizes) + loose, "ok": True, "reason": None}
+        assert result == {
+            "image_count": 3,
+            "bytes": sum(sizes) + loose,
+            "missing": 0,
+            "ok": True,
+            "reason": None,
+        }
+
+    def test_counts_files_that_cant_be_read(self, library):
+        client, _ids, group_ids, store = library
+        store.get_path("aa/bb/day.jpg").unlink()
+        result = client.post("/api/v1/downloads/check", json={"group_ids": [group_ids["forest"]]})
+        assert result.json()["image_count"] == 1 and result.json()["missing"] == 1
+        assert result.json()["ok"] is True
 
     def test_refuses_nothing_and_too_much(self, library, monkeypatch):
         client, ids, group_ids, _ = library
@@ -152,10 +165,54 @@ class TestDownload:
         client, ids, _group_ids, _ = library
         assert _download(client, image_ids=[ids["waiting"]]).status_code == 404
 
-    def test_too_much_is_refused(self, library, monkeypatch):
+    def test_too_much_is_refused_as_text_the_apps_frame_can_show(self, library, monkeypatch):
         client, _ids, group_ids, _ = library
         monkeypatch.setattr(downloads, "MAX_FILES", 1)
+        response = _download(client, group_ids=[group_ids["forest"]])
+        assert response.status_code == 413
+        assert response.headers["content-type"].startswith("text/plain")
+        assert response.headers["x-frame-options"] == "SAMEORIGIN"
+        assert "at most 1" in response.text
+
+    def test_the_zip_itself_must_fit_the_import_limit(self, library, monkeypatch):
+        client, _ids, group_ids, _ = library
+        monkeypatch.setattr(downloads, "MAX_ZIP_BYTES", 100)
         assert _download(client, group_ids=[group_ids["forest"]]).status_code == 413
+
+    def test_a_vectors_read_error_is_an_error_not_a_zip(
+        self, library, lancedb_service, monkeypatch
+    ):
+        client, _ids, group_ids, _ = library
+
+        def broken(ids):
+            raise OSError("disk read error")
+
+        monkeypatch.setattr(lancedb_service, "get_vectors", broken)
+        response = _download(client, group_ids=[group_ids["forest"]])
+        assert response.status_code == 500
+        assert response.headers["x-frame-options"] == "SAMEORIGIN"
+
+    def test_other_responses_still_refuse_framing(self, library):
+        client, ids, _group_ids, _ = library
+        response = _download(client, image_ids=[ids["Loose"]])
+        assert response.headers["x-frame-options"] == "DENY"
+
+    def test_an_image_chosen_twice_is_in_the_zip_once(self, library):
+        client, ids, group_ids, _ = library
+        zf = _zip(_download(client, group_ids=[group_ids["forest"]], image_ids=[ids["Night"]]))
+        assert len(zf.namelist()) == 3
+
+    def test_a_name_that_isnt_ascii(self, library, tmp_db):
+        client, _ids, group_ids, _ = library
+        _engine, SessionLocal = tmp_db
+        with SessionLocal() as db:
+            db.get(ImageGroup, group_ids["cave"]).base_name = "Höhle des Drachen"
+            db.commit()
+        disposition = _download(client, group_ids=[group_ids["cave"]]).headers[
+            "content-disposition"
+        ]
+        assert 'filename="AuthorA_H_hle des Drachen.zip"' in disposition
+        assert "filename*=UTF-8''AuthorA_H%C3%B6hle%20des%20Drachen.zip" in disposition
 
     @pytest.mark.parametrize(
         "headers",
@@ -173,6 +230,12 @@ class TestDownload:
         client, ids, _group_ids, _ = library
         headers = {"Origin": "http://127.0.0.1:8000"}
         assert _download(client, image_ids=[ids["Loose"]], headers=headers).status_code == 200
+
+    def test_a_request_from_no_browser_is_allowed(self, library):
+        """No Sec-Fetch-Site and no Origin: not a browser (curl, a script). A browser sends
+        Origin with every cross-origin POST, so this can't be another site's page."""
+        client, ids, _group_ids, _ = library
+        assert _download(client, image_ids=[ids["Loose"]], headers={}).status_code == 200
 
     def test_ids_must_be_numbers(self, library):
         client, _ids, _group_ids, _ = library

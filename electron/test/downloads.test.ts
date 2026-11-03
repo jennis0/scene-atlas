@@ -39,6 +39,19 @@ describe('showDownloadProgress', () => {
     assert.deepEqual(progress, [0.25, 1, -1])
   })
 
+  test('two downloads show together, and the bar clears only when both have ended', () => {
+    const { progress, start } = setup()
+    const first = fakeItem(100)
+    const second = fakeItem(300)
+    start(first.item)
+    start(second.item)
+    first.receive(100)
+    first.finish()
+    second.receive(150)
+    second.finish()
+    assert.deepEqual(progress, [100 / 400, 0, 150 / 300, -1])
+  })
+
   test('an unknown size shows as indeterminate', () => {
     const { progress, start } = setup()
     const download = fakeItem(0)

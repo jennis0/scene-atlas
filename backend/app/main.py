@@ -421,7 +421,10 @@ class SecurityHeadersMiddleware:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers.extend(_SECURITY_HEADERS)
+                # A response may set its own framing rule (downloads' errors, shown in
+                # the app's own hidden frame: api/downloads.py); the rest are added
+                own = {name.lower() for name, _ in headers}
+                headers.extend(h for h in _SECURITY_HEADERS if h[0] not in own)
                 message = {**message, "headers": headers}
             await send(message)
 

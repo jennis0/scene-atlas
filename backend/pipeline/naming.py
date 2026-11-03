@@ -32,7 +32,8 @@ def download_filename(img: Image, group_name: str) -> str:
 
     Format: [Group - ][Subgroup - ]Name - Grid WxH | Hex WxH | No Grid + ext
 
-    Mirrors the frontend ``buildDownloadFilename`` function exactly.
+    The older layout, kept for the ``export_library`` CLI until the folder export
+    replaces it (design/export-backup-move.md §7).
     """
     parts: list[str] = []
     if group_name and group_name != (img.name or ""):

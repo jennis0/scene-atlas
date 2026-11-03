@@ -8,7 +8,8 @@ import { getApiErrorMessage } from '@/lib/getErrorMessage'
 /**
  * Download groups and images as a zip (design/export-backup-move.md §5). The size is
  * checked first, so a refusal shows as a toast; then the browser downloads the zip itself,
- * streaming it to disk. `busy` covers only the check: the browser shows the download.
+ * streaming it to disk, and an error after all is a toast too. `busy` covers only the
+ * check: the browser shows the download.
  */
 export function useDownload() {
   const [busy, setBusy] = useState(false)
@@ -21,10 +22,18 @@ export function useDownload() {
         toast.error(check.reason ?? failure)
         return
       }
-      postForDownload(getDownloadUrl(), {
-        group_ids: (selection.group_ids ?? []).join(','),
-        image_ids: (selection.image_ids ?? []).join(','),
-      })
+      if (check.missing > 0) {
+        const files = check.missing === 1 ? "1 file can't" : `${check.missing} files can't`
+        toast.warning(`${files} be read and will be left out`)
+      }
+      postForDownload(
+        getDownloadUrl(),
+        {
+          group_ids: (selection.group_ids ?? []).join(','),
+          image_ids: (selection.image_ids ?? []).join(','),
+        },
+        (message) => toast.error(message),
+      )
     } catch (err) {
       toast.error(getApiErrorMessage(err, failure))
     } finally {

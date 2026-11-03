@@ -31,7 +31,9 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/download', () => ({ saveUrl: vi.fn(), postForDownload: vi.fn() }))
 vi.mock('@/lib/api/downloadsApi', () => ({
   downloadsApi: {
-    check: vi.fn().mockResolvedValue({ image_count: 2, bytes: 10, ok: true, reason: null }),
+    check: vi
+      .fn()
+      .mockResolvedValue({ image_count: 2, bytes: 10, missing: 0, ok: true, reason: null }),
   },
 }))
 
@@ -267,10 +269,11 @@ describe('ImageViewer', () => {
       const { user } = setup(makeImage())
       await user.click(screen.getByRole('button', { name: /Download group/ }))
       await waitFor(() =>
-        expect(postForDownload).toHaveBeenCalledWith('/api/v1/downloads', {
-          group_ids: '10',
-          image_ids: '',
-        }),
+        expect(postForDownload).toHaveBeenCalledWith(
+          '/api/v1/downloads',
+          { group_ids: '10', image_ids: '' },
+          expect.any(Function),
+        ),
       )
       expect(downloadsApi.check).toHaveBeenCalledWith({ group_ids: [10] })
     })
@@ -279,6 +282,7 @@ describe('ImageViewer', () => {
       vi.mocked(downloadsApi.check).mockResolvedValueOnce({
         image_count: 1200,
         bytes: 1,
+        missing: 0,
         ok: false,
         reason: "That's 1,200 images; download at most 999 at a time",
       })

@@ -14,6 +14,15 @@ const baseClass =
 const defaultClass = `w-11 px-1.5 py-0.5 text-2xs ${baseClass}`
 const compactClass = `w-[30px] h-[18px] px-1 py-0 text-3xs font-mono ${baseClass}`
 
+// The tile counts the API accepts (backend/app/models/schemas.py GridCount); anything else
+// means no size
+const MAX_GRID_COUNT = 10_000
+
+function gridCount(draft: string): number | null {
+  const n = parseInt(draft)
+  return n >= 1 && n <= MAX_GRID_COUNT ? n : null
+}
+
 export function GridSizeInput({ width, height, onChange, disabled, compact }: GridSizeInputProps) {
   const [wDraft, setWDraft] = useState(width?.toString() ?? '')
   const [hDraft, setHDraft] = useState(height?.toString() ?? '')
@@ -28,12 +37,12 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
   }, [height])
 
   const commitWidth = () => {
-    const w = parseInt(wDraft) || null
+    const w = gridCount(wDraft)
     if (w !== width) onChange(w, height)
   }
 
   const commitHeight = () => {
-    const h = parseInt(hDraft) || null
+    const h = gridCount(hDraft)
     if (h !== height) onChange(width, h)
   }
 
@@ -57,6 +66,7 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
         onKeyDown={handleKeyDown}
         placeholder="W"
         min={1}
+        max={MAX_GRID_COUNT}
         disabled={disabled}
         className={inputClass}
       />
@@ -69,6 +79,7 @@ export function GridSizeInput({ width, height, onChange, disabled, compact }: Gr
         onKeyDown={handleKeyDown}
         placeholder="H"
         min={1}
+        max={MAX_GRID_COUNT}
         disabled={disabled}
         className={inputClass}
       />

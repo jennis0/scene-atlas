@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 # What clients may write. Anything longer or odder would be cut short or dropped when the
 # library is exported (pipeline/library_format.py), so it's refused here instead. Response
@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 GridType = Literal["square", "hex"]
 GridCount = Annotated[int, Field(ge=1, le=10_000)]
 NameText = Annotated[str, Field(max_length=500)]
+GroupName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 TagText = Annotated[str, Field(min_length=1, max_length=100)]
 LongText = Annotated[str, Field(max_length=2_000)]
 StyleName = Annotated[str, Field(max_length=50)]  # a colour preset or an icon name
@@ -402,7 +403,7 @@ MAX_GROUP_EDIT_DELETES = 100_000
 class NewGroupPayload(BaseModel):
     """A split-off group to create during a group edit."""
 
-    base_name: NameText
+    base_name: GroupName
     author: NameText | None = None
     image_ids: list[int]
 
@@ -410,7 +411,7 @@ class NewGroupPayload(BaseModel):
 class GroupEditRequest(BaseModel):
     """Full edit payload for a group."""
 
-    base_name: NameText
+    base_name: GroupName
     author: NameText | None = None
     images: list[ImageEditPayload]  # metadata updates for images in the group
     new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
