@@ -11,6 +11,7 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
+import { portWasTaken } from './backendExit'
 import { findFreePort, spawnSidecar } from './sidecar'
 import {
   getDefaultDirs,
@@ -472,8 +473,11 @@ function launchApp(dirs: LibraryDirs): void {
   void startBackend(dirs)
 }
 
-/** Start the sidecar on *dirs*; the main window shows its UI once it is ready. */
-async function startBackend(dirs: LibraryDirs): Promise<void> {
+/**
+ * Start the sidecar on *dirs*; the main window shows its UI once it is ready. With
+ * *anyPort*, on whatever port the OS gives rather than the usual one (that one was taken).
+ */
+async function startBackend(dirs: LibraryDirs, anyPort = false): Promise<void> {
   currentDirs = dirs
   backendOrigin = null
   backendError = null
@@ -492,7 +496,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
 
   let port: number
   try {
-    port = await findFreePort(PREFERRED_PORT)
+    port = await findFreePort(anyPort ? undefined : PREFERRED_PORT)
   } catch (err) {
     console.error('Failed to find a free port:', err)
     signalBackendError('Could not find a free port')
@@ -565,6 +569,13 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     // Before ready, any exit is a startup failure (even code 0). After ready, only a
     // non-zero code is a crash.
     if (ready && (code === 0 || code === null)) return
+    if (!ready && !anyPort && portWasTaken(code, recentLines)) {
+      // Taken between findFreePort and the backend binding it: once, on another port.
+      // A pending move is still pending, and finishing it again is safe.
+      console.log(`[electron] Port ${port} was taken as the backend started; trying another`)
+      void startBackend(dirs, true)
+      return
+    }
     const tail = recentLines.slice(-10).join('\n')
     const config = loadConfig()
     if (!ready && config?.pendingMove) {
