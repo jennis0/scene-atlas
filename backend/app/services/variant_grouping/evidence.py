@@ -33,8 +33,10 @@ _BLOCK_ROWS = 1024
 _KNN_BLOCK_ROWS = 512
 # Extra neighbours a k-NN row may keep when they tie with its k-th (identical renditions).
 _KNN_TIES = 16
-# Pairs per chunk when computing pair signals (bounds the gathered feature rows).
-_PAIR_CHUNK = 65536
+# Bytes of gathered feature rows per chunk when computing pair signals: each chunk gathers
+# x[a] and x[b], two chunk × dim float32 arrays. (A fixed 65536 pairs gathered 2 × 256 MB of
+# edge rows, the peak of an import's grouping phase.)
+_PAIR_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -224,12 +226,19 @@ class PairSignals:
     agree: np.ndarray  # edge correlation and embedding cosine both high, same aspect: probable
 
 
+def _pair_chunk(x: np.ndarray) -> int:
+    """Pairs per chunk of ``_rowwise_dot``: ``_PAIR_CHUNK_BYTES`` of gathered rows of x."""
+    return max(1, _PAIR_CHUNK_BYTES // max(1, x.shape[1] * x.itemsize))
+
+
 def _rowwise_dot(x: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Dot products x[a] · x[b], chunked to bound memory."""
+    """Dot products x[a] · x[b], chunked to bound memory (each row's product is computed
+    alone, so the result doesn't depend on the chunk size)."""
     out = np.empty(len(a), dtype=np.float32)
-    for s in range(0, len(a), _PAIR_CHUNK):
-        sa, sb = a[s : s + _PAIR_CHUNK], b[s : s + _PAIR_CHUNK]
-        out[s : s + _PAIR_CHUNK] = np.einsum("ij,ij->i", x[sa], x[sb])
+    step = _pair_chunk(x)
+    for s in range(0, len(a), step):
+        sa, sb = a[s : s + step], b[s : s + step]
+        out[s : s + step] = np.einsum("ij,ij->i", x[sa], x[sb])
     return out
 
 

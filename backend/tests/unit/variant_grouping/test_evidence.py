@@ -162,6 +162,41 @@ class TestPairSignals:
         assert len(E.pair_signals(fm, np.array([[0, 1]]), GroupingParams()).a) == 0
 
 
+class TestPairSignalMemory:
+    """Pair signals gather feature rows in chunks of bounded bytes: a fixed 65536 pairs per
+    chunk gathered 2 × 256 MB of edge rows, the peak of an import's grouping phase."""
+
+    def test_rowwise_dot_does_not_depend_on_the_chunk_size(self, monkeypatch):
+        rng = np.random.default_rng(3)
+        x = rng.normal(size=(300, E.EDGE_DIM)).astype(np.float32)
+        a, b = rng.integers(0, 300, 5000), rng.integers(0, 300, 5000)
+        whole = np.einsum("ij,ij->i", x[a], x[b])
+        for chunk_bytes in (1, 4096 * 7, 1 << 30):
+            monkeypatch.setattr(E, "_PAIR_CHUNK_BYTES", chunk_bytes)
+            assert np.array_equal(E._rowwise_dot(x, a, b), whole)
+
+    def test_pair_signals_allocate_a_bounded_amount_whatever_the_pair_count(self):
+        import tracemalloc
+
+        n, pairs = 2000, 400_000
+        fm = FeatureMatrix(random_features(n, dim=512), use_embeddings=True)
+        fm.log_aspect[:] = 0.0  # every pair reaches both dot products
+        rng = np.random.default_rng(4)
+        p = np.stack([rng.integers(0, n, pairs), rng.integers(0, n, pairs)], axis=1)
+        loose = GroupingParams(embedding=EmbeddingThresholds(agree=-1.0), agree_edge=-1.0)
+        tracemalloc.start()
+        try:
+            base = tracemalloc.get_traced_memory()[0]
+            sig = E.pair_signals(fm, p, loose)
+            peak = tracemalloc.get_traced_memory()[1] - base
+        finally:
+            tracemalloc.stop()
+        assert sig.agree.all()
+        # ~25 bytes per pair of flags and indices (10 MB here) plus 2 × 8 MB of gathered rows;
+        # the old chunks gathered 2 × 256 MB
+        assert peak < 64 * 1024 * 1024, f"{peak / 2**20:.0f} MB"
+
+
 class TestCohesion:
     def themed(self, theme: int, layout: int, aspect: float = 0.0) -> ContentFeatures:
         rng_t = np.random.default_rng(100 + theme)
