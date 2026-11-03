@@ -514,7 +514,7 @@ def delete_old(db) -> dict:
             shutil.rmtree(folder, onerror=_writable_then_retry)
             deleted += 1
         except OSError as e:
-            kept.append(f"{folder} ({e.strerror or e})")
+            kept.append(f"{folder} ({e.strerror or type(e).__name__})")
     if not kept:
         row = db.get(AppSetting, MOVED_FROM_KEY)
         if row is not None:
