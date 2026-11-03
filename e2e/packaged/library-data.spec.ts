@@ -13,6 +13,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { tokenHeader } from "../helpers/appToken";
 import { seedTestData } from "../helpers/seed";
 import { activateSearchModel, readIntegrity } from "../upgrade/library";
 import {
@@ -131,14 +132,16 @@ async function call<T>(
   const raw = body instanceof Buffer;
   const res = await fetch(`${base}/api/v1${route}`, {
     method,
-    headers:
-      body === undefined
-        ? undefined
+    headers: {
+      ...tokenHeader(),
+      ...(body === undefined
+        ? {}
         : {
             "Content-Type": raw
               ? "application/octet-stream"
               : "application/json",
-          },
+          }),
+    },
     body:
       body === undefined
         ? undefined

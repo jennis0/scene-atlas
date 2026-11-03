@@ -2,6 +2,7 @@
  * Building a library in a running app and reading it back through its API, for the
  * upgrade test (design/testing.md#upgrade-test). The comparison itself is in checks.ts.
  */
+import { tokenHeader } from "../helpers/appToken";
 import { seedTestData } from "../helpers/seed";
 import type {
   GroupRecord,
@@ -23,8 +24,10 @@ async function call<T>(
 ): Promise<T> {
   const res = await fetch(`${base}/api/v1${path}`, {
     method,
-    headers:
-      json === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...tokenHeader(),
+      ...(json === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     body: json === undefined ? undefined : JSON.stringify(json),
   });
   if (!res.ok)
@@ -187,7 +190,7 @@ async function listGroups(
 
 async function readable(base: string, path: string): Promise<boolean> {
   try {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, { headers: tokenHeader() });
     return res.ok && (await res.arrayBuffer()).byteLength > 0;
   } catch {
     return false;

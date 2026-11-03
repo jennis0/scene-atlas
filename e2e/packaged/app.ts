@@ -17,6 +17,7 @@ import net from "net";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
+import { useAppToken } from "../helpers/appToken";
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -158,6 +159,8 @@ async function freePort(): Promise<number> {
  * point it at a closed loopback port instead, so a check fails at once and nothing is
  * downloaded; the upgrade test passes its own feed. */
 const NO_UPDATES = { SCENE_ATLAS_UPDATE_FEED: "http://127.0.0.1:9/" };
+// Every app these tests start takes this run's launch token from its environment.
+useAppToken();
 
 export interface LaunchOptions {
   /** Another build of the app, e.g. an installed copy (default: the unpacked build) */

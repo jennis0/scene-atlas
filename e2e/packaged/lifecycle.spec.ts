@@ -8,6 +8,7 @@
 import { expect, test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
+import { tokenHeader } from "../helpers/appToken";
 import {
   applyLibrary,
   applyLibraryAndRestart,
@@ -165,9 +166,14 @@ test("serves the UI from the backend; closing the window stops the backend", asy
   const app = await launch(profile);
   const page = await waitForBackendUi(app.browser);
   await expect(page.locator("h1").first()).toBeVisible({ timeout: 60_000 });
+  // The launch token (design/security.md §6d): the window's own requests carry it as
+  // its cookie; a caller without it, any other program on the computer, is refused.
+  const health = new URL("/health", page.url()).href;
   expect(
-    (await page.request.get(new URL("/health", page.url()).href)).ok(),
-  ).toBe(true);
+    await page.evaluate(async (url) => (await fetch(url)).status, health),
+  ).toBe(200);
+  expect((await fetch(health)).status).toBe(403);
+  expect((await fetch(health, { headers: tokenHeader() })).status).toBe(200);
 
   const [sidecar, ...extra] = await sidecars(profile.appData);
   expect(extra).toHaveLength(0);

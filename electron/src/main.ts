@@ -11,6 +11,7 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
+import { makeAppToken, TOKEN_COOKIE, TOKEN_HEADER } from './appToken'
 import { portWasTaken } from './backendExit'
 import { findFreePort, spawnSidecar } from './sidecar'
 import {
@@ -75,6 +76,9 @@ const QUIT_GRACE_MS = 15_000
 const LIBRARY_REFUSED = 4
 // Finishing a library move failed (backend/pyinstaller/entry.py MOVE_FAILED)
 const MOVE_FAILED = 5
+
+// For the app's whole run, so the window's cookie stays good across backend restarts
+const appToken = makeAppToken()
 
 let mainWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
@@ -401,7 +405,8 @@ async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boole
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${origin}/health`)).ok) return true
+      const headers = { [TOKEN_HEADER]: appToken }
+      if ((await fetch(`${origin}/health`, { headers })).ok) return true
     } catch {
       // Not accepting connections yet.
     }
@@ -420,6 +425,16 @@ async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
     return
   }
   backendOrigin = origin
+  // The window's requests carry the token as a cookie: images and downloads too, which
+  // can't send a header. HttpOnly keeps it from the page's scripts, SameSite=Strict from
+  // other sites' requests. A cookie is for a host, whatever the port.
+  await session.defaultSession.cookies.set({
+    url: origin,
+    name: TOKEN_COOKIE,
+    value: appToken,
+    httpOnly: true,
+    sameSite: 'strict',
+  })
   await mainWindow?.loadURL(`${origin}/`)
 }
 
@@ -535,6 +550,7 @@ async function startBackend(dirs: LibraryDirs, anyPort = false): Promise<void> {
   if (moveFrom) logLine(`[electron] Finishing the library move from ${JSON.stringify(moveFrom)}`)
   const child = spawnSidecar({
     port,
+    token: appToken,
     appDataDir,
     imageLibraryDir,
     linkedLibraryDir,
