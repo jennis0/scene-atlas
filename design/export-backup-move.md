@@ -111,7 +111,7 @@ scene-atlas.jsonl
   - Nothing when it isn't known whether there is a grid (most scenes).
 - **Length:** folder names are capped at 80 characters. Tags are values only, comma-separated with no spaces, in category order; they are dropped from the end until the file name is at most 150 characters, and then the name segments are shortened (name first, then group). The desktop folder export also counts the chosen folder's own path length, so the whole path stays under Windows' 260.
 - **Characters:** `sanitize_segment` replaces `/\:*?"<>|` and `_` inside a segment (with a space, so the separators stay unambiguous). It also avoids Windows reserved names (`CON`, `NUL`…) and trailing dots and spaces.
-- **Collisions:** compared case-insensitively. A second group with the same folder name gets ` (2)`, in group-id order, and a second file with the same name in a folder gets ` (2)` in image-id order. A resumed export also checks the folder names already on disk, since groups can be deleted or renamed between runs.
+- **Collisions:** compared case-insensitively. A second group with the same folder name gets "(2)" after a space, in group-id order, and a second file with the same name in a folder gets the same, in image-id order. A resumed export also checks the folder names already on disk, since groups can be deleted or renamed between runs.
 
 The names are for people. The metadata lives in `scene-atlas.jsonl`, so nothing is parsed back out of them.
 

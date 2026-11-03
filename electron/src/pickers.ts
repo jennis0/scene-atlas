@@ -58,7 +58,8 @@ export async function pickExportFile(
   const win = BrowserWindow.fromWebContents(sender)
   const options: Electron.SaveDialogOptions = {
     title: 'Export metadata',
-    defaultPath: path.join(app.getPath('documents'), defaultName),
+    // A file name only: the renderer suggests it, the dialog's folder is ours
+    defaultPath: path.join(app.getPath('documents'), path.basename(defaultName)),
     filters: [{ name: 'Scene Atlas metadata', extensions: ['gz'] }],
     buttonLabel: 'Export',
   }
