@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from ...pipeline import ingest_queue as q
 from ...pipeline.group_jobs import schedule_grouping
+from ...pipeline.import_metadata import load_export
 from ...pipeline.ingest_archive import expand_archive
 from ...pipeline.ingest_local import (
     ArchiveLimits,
@@ -50,6 +51,7 @@ from ..models.import_schemas import (
     ContentResult,
     CreateImportRequest,
     DismissedResult,
+    ExportMetadataResult,
     HashRequest,
     HashResponse,
     HashResult,
@@ -263,6 +265,8 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         completed_at=job.completed_at,
         last_upload_at=job.last_upload_at,
         grouped_at=job.grouped_at,
+        with_metadata=job.export_model is not None,
+        metadata_note=job.export_note,
     )
 
 
@@ -635,6 +639,44 @@ async def upload_archive(
     result = await asyncio.to_thread(_expand)
     _changed()
     return result
+
+
+@router.put("/{job_id}/export-metadata", response_model=ExportMetadataResult)
+async def upload_export_metadata(
+    job_id: str,
+    request: Request,
+    _admission: None = Depends(acquire_heavy_op),
+):
+    """Upload the ``scene-atlas.jsonl`` of a folder the browser is importing (raw body), so
+    its files import with their metadata (design/export-backup-move.md §6). Only before
+    seal; the client sends it before the manifest. A file that can't be used imports
+    nothing and leaves a note on the job; the import goes on without it."""
+
+    def _limits():
+        with _open_session(request) as db:
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            return get_app_settings(db)
+
+    app_settings = await asyncio.to_thread(_limits)
+    tmp = q.staging_dir_for(job_id) / f".{uuid.uuid4().hex}.jsonl.part"
+    await _stream_body(request, tmp, app_settings.max_import_file_size)
+
+    def _load() -> ExportMetadataResult:
+        db = _open_session(request)
+        try:
+            q.begin_immediate(db)
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            with tmp.open(encoding="utf-8", errors="replace") as fp:
+                entries = load_export(db, job, fp)
+            db.commit()
+            return ExportMetadataResult(entries=entries, note=job.export_note)
+        finally:
+            tmp.unlink(missing_ok=True)
+            db.close()
+
+    return await asyncio.to_thread(_load)
 
 
 @router.post("/{job_id}/local-sources", response_model=LocalSourcesResult)

@@ -15,6 +15,7 @@ from backend.app.config import settings
 from backend.app.models import ImportGroup, ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.import_metadata import delete_entries
 
 from .ingest_queue import (
     KIND_SORTED_OUT,
@@ -162,6 +163,7 @@ def prune_dismissed_jobs(now=None) -> int:
         for job_id in job_ids:
             db.query(ImportItem).filter(ImportItem.job_id == job_id).delete()
             db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete()
+            delete_entries(db, [job_id])
             db.query(ImportJob).filter(ImportJob.id == job_id).delete()
             shutil.rmtree(settings.staging_dir / job_id, ignore_errors=True)
     if job_ids:

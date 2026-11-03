@@ -349,6 +349,10 @@ Each sweep is one query for the jobs due. A run that raises is retried by later 
 
 **Imports from before migration 029** are already grouped: the migration stamps `grouped_at` on every sealed job with nothing open. One still running is left unstamped; its remaining images commit ungrouped and, when it finishes, join the groups its seal planned (their files' import groups).
 
+### 5.9 Scene Atlas metadata
+
+An import can carry a `scene-atlas.jsonl` (a download or an export of a Scene Atlas library): its files then import with their names, types, grids, tags, groups and vectors. Loading, matching and grouping: [export-backup-move.md §6](export-backup-move.md#6-import). In short: the file is read where it arrives (a zip, a local folder, or `PUT /imports/{id}/export-metadata` before the manifest) into `import_export_entries`; the job's items stop after decoding and are matched by hash (`ingest_process.apply_exports`); matched files skip Auto, grid detection and (when the vector fits) embedding; the grouping phase puts them in their group by `uid`.
+
 ## 6. Duplicate detection
 
 | Tier | Hash | Where | Catches | Action |
@@ -370,6 +374,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports` | `{label, default_image_type}` → job summary (201) |
 | `POST /imports/{id}/manifest` | Chunk of ≤2,000 `{client_ref, relative_path, size, last_modified, image_type?}`. OS junk (`._*`, `__MACOSX`, `.DS_Store`, `Thumbs.db`, `desktop.ini`) is ignored; unsupported files become `skipped`, oversized ones `failed`. Paths already in the job are ignored. 413 above `max_import_items` per import; 409 after seal. |
 | `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `name` is the zip's relative path, so its folder is known ([Archive member paths](#archive-member-paths)). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
+| `PUT /imports/{id}/export-metadata` | Raw body: a picked folder's `scene-atlas.jsonl` ([§5.9](#59-scene-atlas-metadata)), stored as the job's metadata entries. `{entries, note}`; a file that can't be read stores nothing and leaves a note. Size limit `max_import_file_size`. Gated by the heavy-op semaphore. 409 after seal. |
 | `POST /imports/{id}/local-sources` | Desktop app only (404 in server mode). `{paths}` (≤1,000 absolute roots): the server lists them and adds `ready` items with `source_path`; zips are expanded in place and kept. 422 for a bad path, 413 above `max_local_import_items` (250k). Listing runs before the write lock. See [local-ingest.md §4](local-ingest.md#4-backend). |
 | `POST /imports/{id}/seal` | Parse each path (no grouping: [§5.8](#58-identifying-groups)), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Parsing runs before the write lock is taken (about 3.4 s for 20k maps); a file list that changed meanwhile is parsed again under the lock. Idempotent. Gated by the heavy-op semaphore. |
 | `POST /imports/{id}/hashes` | Chunk of ≤2,000 `{item_id, sha256}`. Items whose hash matches the library become `duplicate` without uploading. The client hash is only used to skip. |

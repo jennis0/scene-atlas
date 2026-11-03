@@ -16,6 +16,7 @@ from ..models import (
     Image,
     ImageGroup,
     ImageGroupingFeatures,
+    ImportExportEntry,
     ImportGroup,
     ImportItem,
     ImportJob,
@@ -159,6 +160,7 @@ def _purge_library(
         _step("Deleting import records")
         db.query(ImportItem).delete()
         db.query(ImportGroup).delete()
+        db.query(ImportExportEntry).delete()
         db.query(ImportJob).delete()
         db.query(SourceFile).delete()
         db.query(LibrarySource).delete()

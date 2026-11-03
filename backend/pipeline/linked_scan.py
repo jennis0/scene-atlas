@@ -71,6 +71,7 @@ from backend.app.services.originals import (
     linked_folder,
 )
 from backend.app.services.shutdown import raise_if_shutting_down
+from backend.pipeline.import_metadata import delete_entries
 
 from .error_classifier import KIND_FILE
 from .ingest_queue import (
@@ -462,6 +463,7 @@ def _discard_unsealed(db: Session, source_id: int) -> None:
             )
         ]
         db.query(ImportItem).filter(ImportItem.job_id == job_id).delete()
+        delete_entries(db, [job_id])
         db.query(ImportJob).filter(ImportJob.id == job_id).delete()
         for chunk in chunks(file_ids):
             db.execute(

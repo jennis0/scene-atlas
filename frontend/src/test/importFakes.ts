@@ -145,6 +145,7 @@ export function fakeImportClient(state: FakeImportState) {
     ),
     manifest: vi.fn(async () => ({ items: [], ignored: 0 })),
     uploadArchive: vi.fn(),
+    uploadExportMetadata: vi.fn(async () => ({ entries: 0, note: null })),
     seal: vi.fn(async () => ({})),
     localSources: vi.fn(async () => ({ created: 1, skipped: 0, failed: 0, ignored: 0 })),
     hashes: vi.fn(async () => []),

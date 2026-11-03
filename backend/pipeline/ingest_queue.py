@@ -44,6 +44,7 @@ from backend.app.services import ingest_state as st
 from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.linked_files import Version, sync_files
 from backend.app.timeutil import utcnow
+from backend.pipeline.import_metadata import delete_entries, is_metadata_file
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, KIND_TRANSIENT
 from .linked_refresh import (
@@ -247,7 +248,9 @@ def add_manifest_items(
     seen: set[str] = set()
     for entry in entries:
         path = normalise_relative_path(entry.relative_path)
-        if not path or path in seen or is_os_junk(path):
+        # A scene-atlas.jsonl is the import's metadata, read where it arrives
+        # (pipeline/import_metadata.py), not a file to import or report skipped
+        if not path or path in seen or is_os_junk(path) or is_metadata_file(path):
             continue
         seen.add(path)
         item = ImportItem(
@@ -682,6 +685,7 @@ def undo_job(db: Session, job_id: str):
     db.flush()
     db.query(ImportItem).filter(ImportItem.job_id == job_id).delete(synchronize_session=False)
     db.query(ImportGroup).filter(ImportGroup.job_id == job_id).delete(synchronize_session=False)
+    delete_entries(db, [job_id])
     db.query(ImportJob).filter(ImportJob.id == job_id).delete(synchronize_session=False)
     shutil.rmtree(staging_dir_for(job_id), ignore_errors=True)
     return len(images), pending
@@ -720,6 +724,9 @@ class ClaimedItem:
     # Grid sizes (NxM) named by sibling files (set at seal), both orientations.
     # Candidates for size-only grid detection, never truth (design/grid-detection-v3.md).
     sibling_grid_counts: tuple[tuple[int, int], ...] = ()
+    # Its job carried Scene Atlas metadata: prepare stops after decoding, so the item can be
+    # matched to its entry first (design/export-backup-move.md §6, pipeline/import_metadata.py)
+    export_job: bool = False
 
 
 @dataclass(frozen=True)
@@ -735,6 +742,7 @@ def _snapshot(
     item: ImportItem,
     source_roots: tuple[str, ...] = (),
     linked: _LinkedSources | None = None,
+    export_job: bool = False,
 ) -> ClaimedItem:
     file_id = item.source_file_id
     refresh = linked.targets.get(file_id) if linked and file_id is not None else None
@@ -761,6 +769,7 @@ def _snapshot(
         source_file_id=file_id,
         source_key=linked.keys.get(file_id) if linked and file_id is not None else None,
         refresh=refresh,
+        export_job=export_job,
     )
 
 
@@ -824,7 +833,9 @@ def claim_next_batch(
         db.flush()
         roots = tuple(available[job_id])
         linked = _linked_sources(db, items)
-        return job_id, [_snapshot(item, roots, linked) for item in items]
+        has_export = db.scalar(select(ImportJob.export_model).where(ImportJob.id == job_id))
+        export_job = has_export is not None
+        return job_id, [_snapshot(item, roots, linked, export_job) for item in items]
 
 
 def _claimable_jobs(db: Session, now: datetime) -> dict[str, list[str]]:

@@ -9,6 +9,7 @@ claimed type, and becomes an item with its bytes already received.
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import uuid
@@ -26,6 +27,7 @@ from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.validation import check_zip_safety, verify_media_mime
 
 from .error_classifier import KIND_FILE
+from .import_metadata import is_metadata_file, load_export
 from .ingest_queue import (
     ManifestSealedError,
     is_os_junk,
@@ -168,6 +170,14 @@ def expand_archive(
                 path = normalise_relative_path(member.filename)
                 if path and not is_os_junk(path):
                     members.append((member, path))
+            # The zip's metadata (at its root, or one folder down for a zipped export
+            # folder) is read, not imported (pipeline/import_metadata.py)
+            for member, path in members:
+                if is_metadata_file(path) and path.count("/") <= 1:
+                    with zf.open(member) as raw:
+                        text = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
+                        load_export(db, job, text, str(PurePosixPath(path).parent))
+            members = [(m, path) for m, path in members if not is_metadata_file(path)]
             placed = place_members([path for _, path in members], archive_name)
             for member, member_path in members:
                 path = placed[member_path]

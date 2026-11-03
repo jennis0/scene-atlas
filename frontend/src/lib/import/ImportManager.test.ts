@@ -86,6 +86,10 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
       calls.push(`archive:${archive.relativePath}`)
       return { name: archive.relativePath, created: 1, skipped: 0, failed: 0 }
     }),
+    uploadExportMetadata: vi.fn(async () => {
+      calls.push('metadata')
+      return { entries: 2, note: null }
+    }),
     seal: vi.fn(async () => {
       calls.push('seal')
       return {}
@@ -312,6 +316,18 @@ describe('startImport', () => {
     // Sent with its folder, which names the zip's contents
     expect(calls.indexOf('archive:Creator/Pack.zip')).toBeLessThan(calls.indexOf('seal'))
     expect(calls).toContain('manifest:1') // the zip isn't in the manifest
+  })
+
+  it("sends a folder's Scene Atlas metadata before its manifest, and not as a file", async () => {
+    const calls: Calls = []
+    const { manager } = track(makeManager(fakeClient(calls)))
+    const jobId = await manager.startImport([
+      picked('Czepeku_Forest/scene-atlas.jsonl'),
+      picked('Czepeku_Forest/Czepeku_Forest_Day_G.png'),
+    ])
+    await manager.whenSettled(jobId)
+    expect(calls.indexOf('metadata')).toBeLessThan(calls.indexOf('manifest:1'))
+    expect(calls).not.toContain('manifest:2')
   })
 
   it('skips uploading files the server already has (client hash)', async () => {

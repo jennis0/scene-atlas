@@ -18,7 +18,7 @@ import json
 import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from backend.app.models import ImportItem, ImportJob
 from backend.app.services import ingest_state as st
 from backend.app.storage_lock import LOCK_FILENAME
 
+from .import_metadata import is_metadata_file, load_export
 from .ingest_archive import ArchiveCounts, expand_archive
 from .ingest_queue import (
     ManifestEntry,
@@ -202,6 +203,10 @@ def add_local_items(
     """
     if job.planned_at is not None:
         raise ManifestSealedError(job.id)
+    for f in files:
+        if is_metadata_file(f.relative_path):
+            with f.source_path.open(encoding="utf-8", errors="replace") as fp:
+                load_export(db, job, fp, str(PurePosixPath(f.relative_path).parent))
     archives = [f for f in files if kind_for_path(f.relative_path) == "archive"]
     others = [f for f in files if kind_for_path(f.relative_path) != "archive"]
     counts = _add_files(db, job, others, max_file_size)
