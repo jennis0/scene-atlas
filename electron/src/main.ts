@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, nativeTheme, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  IpcMainInvokeEvent,
+  nativeTheme,
+  session,
+  shell,
+} from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
@@ -36,6 +44,7 @@ import {
 } from './libraryDirs'
 import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
 import { pickExportFile, pickImportPaths, pickLibraryFolder } from './pickers'
+import { showDownloadProgress } from './downloads'
 import { Updater } from './updater'
 import { parseUpdateChoice, type UpdateState } from './updatePolicy'
 import {
@@ -601,6 +610,7 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   if (!hasInstanceLock) return
+  showDownloadProgress(session.defaultSession, () => mainWindow)
   setMacMenu()
   startUpdater()
   start()

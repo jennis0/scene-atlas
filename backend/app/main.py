@@ -24,7 +24,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import NoResultFound
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from .api import export, groups, images, imports, jobs, library, search, system, tags
+from .api import downloads, groups, images, imports, jobs, library, search, system, tags
 from .api import models as models_api
 from .api import settings as settings_api
 from .api.rate_limits import limiter
@@ -450,7 +450,7 @@ app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tag
 app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
 app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"])
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
-app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
+app.include_router(downloads.router, prefix=f"{settings.api_prefix}/downloads", tags=["downloads"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
 app.include_router(library.router, prefix=f"{settings.api_prefix}/library", tags=["library"])
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])

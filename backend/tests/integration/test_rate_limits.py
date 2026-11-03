@@ -59,7 +59,8 @@ _RATE_LIMITED_ENDPOINTS = [
     ("POST", "/api/v1/tags/retag-all"),
     ("POST", "/api/v1/images/backfill-grids"),
     ("PATCH", "/api/v1/settings/"),
-    ("GET", "/api/v1/export/library"),
+    ("POST", "/api/v1/downloads"),
+    ("POST", "/api/v1/library/metadata-export"),
 ]
 
 
@@ -84,6 +85,6 @@ def test_rate_limiting_disabled_allows_unlimited(test_client: TestClient):
 
     # Even rapid repeated calls to a rate-limited endpoint should succeed
     for _ in range(5):
-        resp = test_client.get("/api/v1/export/library")
+        resp = test_client.post("/api/v1/downloads/check", json={})
         # 200 = success, not 429 = rate-limited
         assert resp.status_code != 429

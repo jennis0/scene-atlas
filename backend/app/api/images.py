@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from ...pipeline.naming import ReadableLayout
 from ..config import settings
 from ..models import (
     Image,
@@ -38,6 +39,7 @@ from ..services.bulk_edit_service import (
 from ..services.image_scope import resolve_scope, scope_facets
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
+from .downloads import attachment
 from .rate_limits import limiter
 
 logger = logging.getLogger(__name__)
@@ -198,12 +200,17 @@ def _original_response(image: Image) -> FileResponse:
 
 
 @router.get("/{image_id}/file")
-def get_image_file(image_id: int, db: Session = Depends(get_db)):
-    """Serve the original image file."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+def get_image_file(image_id: int, download: bool = False, db: Session = Depends(get_db)):
+    """Serve the original image file. With ``download``, as an attachment named in the
+    readable layout (design/export-backup-move.md §3), for the browser to save."""
+    image = db.query(Image).options(*_WITH_RELATIONS).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    return _original_response(image)
+    response = _original_response(image)
+    if download:
+        (name,) = ReadableLayout().place_images(image.group, [image])
+        response.headers["Content-Disposition"] = attachment(name)
+    return response
 
 
 @router.get("/{image_id}/thumbnail")

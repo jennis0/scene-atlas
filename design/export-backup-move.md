@@ -1,6 +1,6 @@
 # Export, import and rebuild
 
-**Status:** Design, seventh draft (2026-10-31). In progress. Built: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) and step 2 (`backend/pipeline/metadata_export.py`, `POST /library/metadata-export`, Settings → Library → Export metadata). Three reviews shaped it; earlier drafts were bigger and are superseded.
+**Status:** Design, seventh draft (2026-10-31). In progress. Built: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) step 2 (`backend/pipeline/metadata_export.py`, `POST /library/metadata-export`, Settings → Library → Export metadata) and step 3 (`backend/app/api/downloads.py`, `hooks/useDownload.ts`). Three reviews shaped it; earlier drafts were bigger and are superseded.
 **Target:** 0.2.0.
 
 ## 1. Scope
@@ -139,7 +139,7 @@ POST /api/v1/downloads/check  JSON {group_ids, image_ids}  → {image_count, byt
 POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → zip attachment
 ```
 
-- **One endpoint** for every download of files: multi-select in the gallery and group view, the group card's Download (replacing `api/groups.py`'s zip), and the image viewer's single file. The old `GET /export/library`, `download.ts:downloadFile`, and `naming.download_filename` with its frontend mirror `buildDownloadFilename` go.
+- **One endpoint** for every download of groups (`backend/app/api/downloads.py`): the group card's Download and the viewer's Download group (replacing `api/groups.py`'s zip), and the groups selected in the group editor. The gallery has no multi-select yet; when it gets one, it uses this endpoint. A single image is `GET /images/{id}/file?download=1`, the original as an attachment named in the readable layout (no zip). Removed: `GET /export/library` and Settings → Export library (until the full export, §7), `download.ts:downloadFile` (the `Blob` download) and the frontend's `imageDownloadFilename`. `naming.download_filename` and `export_path` stay until the folder export replaces the CLI that uses them.
 - **The zip** is `ZIP_STORED`, streamed with `zipstream-ng` (sized, zip64): `scene-atlas.jsonl` (`kind: groups`) first, then the files in the readable layout ([§3](#3-the-readable-layout)).
 - **Limits:** at most 999 files, and 2 GiB minus the size of `scene-atlas.jsonl` (`check_zip_safety` counts it against `max_import_total_size`), so any download re-imports as a zip under the default import limits. `check` refuses larger selections with the reason; the UI shows count and size first. A single file over that size is refused by `check`, pointing to Export library.
 - **Linked-library images** are included: the user asked for those files.
@@ -147,10 +147,10 @@ POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → 
 
 ### 5.2 The download mechanism
 
-- `check` runs first (JSON), so limits and errors show in the app. Then a hidden `<form method="post">` is submitted. An attachment response doesn't navigate the page, and the browser streams it straight to disk with its own progress. Nothing is held server-side between the two requests.
+- `check` runs first (JSON, `hooks/useDownload.ts`), so limits and errors show in the app. Then a hidden `<form method="post">` is submitted in the page (`lib/download.ts:postForDownload`; not in an iframe, which `X-Frame-Options: DENY` would block). An attachment response doesn't navigate the page, and the browser streams it straight to disk with its own progress. Nothing is held server-side between the two requests.
 - **Cross-site requests are refused:** a form POST is a simple request any site can send, so `/downloads` requires `Sec-Fetch-Site: same-origin`, or `Origin` matching `Host` where that header is absent. (`POST /library/metadata-export` takes a JSON body instead, which another site can't send without a CORS preflight.)
 - `X-Accel-Buffering: no` is set, so nginx doesn't spool the stream to disk.
-- **Electron** gets a minimal `will-download` handler: the default save dialog, and progress on the window's taskbar icon (`setProgressBar`). Electron has no download UI of its own.
+- **Electron** gets a minimal `will-download` handler (`electron/src/downloads.ts`): the default save dialog, and progress on the window's taskbar icon (`setProgressBar`). Electron has no download UI of its own.
 
 ## 6. Import
 

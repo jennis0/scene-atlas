@@ -118,6 +118,8 @@ backend/tests/
 │   ├── test_parser.py             # ImageParser.parse() and group_files()
 │   ├── test_schemas.py            # Pydantic model validation and round-trips
 │   ├── test_naming.py             # export_path, download_filename, sanitize_segment
+│   ├── test_readable_layout.py    # ReadableLayout: export file names, grid codes, limits, clashes
+│   ├── test_library_format.py     # scene-atlas.jsonl: writer, lenient reader, hostile input
 │   ├── test_pipeline_tasks.py     # color_extraction, image_processing, grid_detection, embedding
 │   ├── test_pipeline_db.py        # pipeline_db() session helper
 │   ├── test_video_utils.py        # verify_video_mime, extract_first_frame, get_video_dimensions
@@ -159,9 +161,10 @@ backend/tests/
 │   ├── test_imports_api.py        # /imports API: manifest, seal, hashes, content PUT, archives, control, undo
 │   ├── test_search_endpoint.py    # GET /api/v1/search/ + facets
 │   ├── test_images_endpoint.py    # GET/PATCH/DELETE /api/v1/images/ + scenes + file serving
-│   ├── test_groups_endpoint.py    # Groups CRUD, merge, move-images, download
+│   ├── test_groups_endpoint.py    # Groups CRUD, merge, move-images
 │   ├── test_tags_endpoint.py      # Tags/categories CRUD + cascading
-│   ├── test_export_endpoint.py    # GET /api/v1/export/library (ZIP structure + metadata)
+│   ├── test_downloads.py          # POST /api/v1/downloads (ZIP, metadata, limits, cross-site guard)
+│   ├── test_metadata_export.py    # Export metadata: snapshot, vectors, API
 │   ├── test_models_api.py         # /api/v1/models/ endpoints
 │   ├── test_rate_limits.py        # Rate limiting
 │   ├── test_system_admin.py       # Library purge, tag reset

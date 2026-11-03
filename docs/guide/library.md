@@ -83,9 +83,13 @@ Scene Atlas checks that *Search data* and *Imported images* belong to the same l
 
 On a new computer or after a reinstall, point the desktop setup's library step at an existing *Imported images* or *Search data* folder. Scene Atlas recognises it, fills in the other folder and offers **Open library**.
 
-## Exporting
+## Downloading
 
-**Settings → Library → Export library** downloads every image as a ZIP, in folders by author and group, with readable file names and a `metadata.json` of each image's name, tags and grid. It includes images from a linked library. For a very large library, the [`export_library` command](/reference/cli#export-the-library) writes the same thing straight to a folder.
+**Download** on a group's menu, in the image viewer, or for the groups selected in the group editor saves them as a ZIP. Inside, each group of two or more images has a folder named `Author_Group`, and each file is named from its group, name, grid and tags, for example `Czepeku_Golden Forest_Day_G30x30[forest,summer].webp` (`G30x30` is a square grid, `HG` a hex grid, `GL` no grid). A `scene-atlas.jsonl` file holds each image's name, group, tags, grid and search data.
+
+A download holds at most 999 images and 2 GB. Downloading a single image from the viewer or its menu saves just that file, named the same way.
+
+For a very large library, the [`export_library` command](/reference/cli#export-the-library) writes every image straight to a folder.
 
 ## Starting over
 

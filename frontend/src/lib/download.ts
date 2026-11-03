@@ -1,24 +1,5 @@
-import axios, { type AxiosRequestConfig } from 'axios'
-import type { Image } from '@/types'
-
-/**
- * Fetches `url` as a blob and saves it via a temporary <a download>. Fetching first
- * (rather than linking straight to the URL) lets callers show a busy state and toast
- * on failure instead of the browser navigating to an error response.
- */
-export async function downloadFile(
-  url: string,
-  filename: string,
-  axiosOpts?: AxiosRequestConfig,
-): Promise<void> {
-  const resp = await axios.get<Blob>(url, { ...axiosOpts, responseType: 'blob' })
-  const objectUrl = URL.createObjectURL(resp.data)
-  saveUrl(objectUrl, filename)
-  URL.revokeObjectURL(objectUrl)
-}
-
-/** Let the browser download *url* itself, streaming to disk: for files too big for a Blob.
- * The response must be an attachment, or the page would navigate to it. */
+/** Let the browser download *url* itself, streaming to disk. The response must be an
+ * attachment, or the page would navigate to it. An empty *filename* takes the server's. */
 export function saveUrl(url: string, filename: string): void {
   const a = document.createElement('a')
   a.href = url
@@ -28,28 +9,21 @@ export function saveUrl(url: string, filename: string): void {
   document.body.removeChild(a)
 }
 
-const sanitizeSegment = (s: string) =>
-  s
-    .replace(/[/\\:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-/** "Group - Subgroup - Name - Grid 20x15.ext", so downloaded files sort and read well. */
-export function imageDownloadFilename(img: Image): string {
-  const parts: string[] = []
-  if (img.group_name && img.group_name !== img.name) parts.push(sanitizeSegment(img.group_name))
-  if (img.subgroup) parts.push(sanitizeSegment(img.subgroup))
-  parts.push(sanitizeSegment(img.name))
-
-  if (img.gridded === true) {
-    const label = img.grid_type === 'hex' ? 'Hex' : 'Grid'
-    const dims = img.grid_width && img.grid_height ? ` ${img.grid_width}x${img.grid_height}` : ''
-    parts.push(`${label}${dims}`)
-  } else {
-    parts.push('No Grid')
+/** POST *fields* as a form whose attachment response the browser saves itself (a form,
+ * not a fetch, so nothing is held in memory: design/export-backup-move.md §5.2). */
+export function postForDownload(url: string, fields: Record<string, string>): void {
+  const form = document.createElement('form')
+  form.method = 'post'
+  form.action = url
+  form.hidden = true
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    form.appendChild(input)
   }
-
-  // The stored file's extension, which differs from the upload's after conversion.
-  const ext = (img.storage_key || img.filename).match(/\.[^.]+$/)?.[0] ?? ''
-  return parts.join(' - ') + ext
+  document.body.appendChild(form)
+  form.submit()
+  document.body.removeChild(form)
 }

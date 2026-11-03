@@ -23,17 +23,21 @@ vi.mock('@/lib/api', () => ({
   },
   getThumbnailUrlById: vi.fn((id: number) => `/thumb/${id}`),
   getImageUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/file`),
+  getImageDownloadUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/file?download=1`),
+  getDownloadUrl: vi.fn(() => '/api/v1/downloads'),
   getThumbnailUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/thumbnail`),
-  getGroupDownloadUrl: vi.fn((id: number) => `/api/v1/groups/${id}/download`),
 }))
 
-vi.mock('@/lib/download', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/download')>()),
-  downloadFile: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/lib/download', () => ({ saveUrl: vi.fn(), postForDownload: vi.fn() }))
+vi.mock('@/lib/api/downloadsApi', () => ({
+  downloadsApi: {
+    check: vi.fn().mockResolvedValue({ image_count: 2, bytes: 10, ok: true, reason: null }),
+  },
 }))
 
 import { imageApi, tagApi } from '@/lib/api'
-import { downloadFile } from '@/lib/download'
+import { downloadsApi } from '@/lib/api/downloadsApi'
+import { postForDownload, saveUrl } from '@/lib/download'
 
 function makeImage(overrides: Partial<Image> = {}): Image {
   return {
@@ -253,28 +257,35 @@ describe('ImageViewer', () => {
   })
 
   describe('downloads', () => {
-    it('names the image download from group, subgroup, name and grid', async () => {
-      const { user } = setup(makeImage({ subgroup: 'night', name: 'Gate: North' }))
+    it('downloads the image under the name the server gives it', async () => {
+      const { user } = setup(makeImage())
       await user.click(screen.getByTitle('Download image'))
-      expect(downloadFile).toHaveBeenCalledWith(
-        '/api/v1/images/1/file',
-        'Forest Pack - night - Gate North - Grid 20x15.webp',
-      )
+      expect(saveUrl).toHaveBeenCalledWith('/api/v1/images/1/file?download=1', '')
     })
 
-    it('labels gridless and hex maps', async () => {
-      const { user } = setup(makeImage({ gridded: false, storage_key: '', group_name: null }))
-      await user.click(screen.getByTitle('Download image'))
-      expect(downloadFile).toHaveBeenCalledWith(
-        '/api/v1/images/1/file',
-        'Forest Clearing - No Grid.png',
-      )
-    })
-
-    it('downloads the group as a zip', async () => {
+    it('downloads the group as a zip, checking its size first', async () => {
       const { user } = setup(makeImage())
       await user.click(screen.getByRole('button', { name: /Download group/ }))
-      expect(downloadFile).toHaveBeenCalledWith('/api/v1/groups/10/download', 'Forest Pack.zip')
+      await waitFor(() =>
+        expect(postForDownload).toHaveBeenCalledWith('/api/v1/downloads', {
+          group_ids: '10',
+          image_ids: '',
+        }),
+      )
+      expect(downloadsApi.check).toHaveBeenCalledWith({ group_ids: [10] })
+    })
+
+    it('says why when a group is too big to download', async () => {
+      vi.mocked(downloadsApi.check).mockResolvedValueOnce({
+        image_count: 1200,
+        bytes: 1,
+        ok: false,
+        reason: "That's 1,200 images; download at most 999 at a time",
+      })
+      const { user } = setup(makeImage())
+      await user.click(screen.getByRole('button', { name: /Download group/ }))
+      await waitFor(() => expect(downloadsApi.check).toHaveBeenCalled())
+      expect(postForDownload).not.toHaveBeenCalled()
     })
   })
 

@@ -281,6 +281,24 @@ class LanceDBService:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
 
+    def get_vectors(self, image_ids: list[int]) -> dict[int, np.ndarray]:
+        """Like ``get_embeddings``, but raises on a read error rather than returning
+        nothing: for exports, which must not leave vectors out silently. Scans the table,
+        so it's for small id lists (a download); a full export uses ``iter_vectors``."""
+        if not image_ids:
+            return {}
+        ids = ", ".join(str(int(i)) for i in image_ids)
+        rows = (
+            self._tbl.search()
+            .where(f"id IN ({ids})")
+            .select(["id", "vector"])
+            .limit(len(image_ids))
+            .to_arrow()
+        )
+        flat = rows.column("vector").combine_chunks().flatten().to_numpy()
+        vectors = flat.reshape(rows.num_rows, self._vector_size)
+        return dict(zip(rows.column("id").to_pylist(), vectors, strict=True))
+
     @property
     def vector_size(self) -> int:
         return self._vector_size

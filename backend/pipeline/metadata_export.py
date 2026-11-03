@@ -111,7 +111,7 @@ def clean_exports_when_idle() -> int:
         return clean_exports()
 
 
-def _model_info(svc: LanceDBService) -> dict:
+def model_info(svc: LanceDBService) -> dict:
     """The active model, as the header records it: the one whose table *svc* is."""
     from backend.app.services.clip_service import get_effective_model_name
     from backend.app.services.image_type_classifier import vision_encoder_sha256
@@ -191,7 +191,7 @@ def export_metadata(target: Path, progress_fn: ProgressFn | None = None) -> dict
                     db,
                     app_version=settings.app_version,
                     library_id=get_library_id(db),
-                    model=_model_info(svc),
+                    model=model_info(svc),
                     vectors=vectors,
                     on_group=on_group,
                 ):

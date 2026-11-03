@@ -9,9 +9,12 @@ export const getImageUrl = (image: Image): string => `/api/v1/images/${image.id}
 
 export const getImageUrlById = (id: number): string => `/api/v1/images/${id}/file`
 
-export const getGroupDownloadUrl = (groupId: number): string => `/api/v1/groups/${groupId}/download`
+/** The original as an attachment, named in the readable layout */
+export const getImageDownloadUrl = (image: Image): string =>
+  `/api/v1/images/${image.id}/file?download=1`
 
-export const getLibraryExportUrl = (): string => '/api/v1/export/library'
+/** Groups and images as a zip: a form POST (lib/download.ts:postForDownload) */
+export const getDownloadUrl = (): string => '/api/v1/downloads'
 
 /** A finished metadata export, waiting in the server's exports folder */
 export const getMetadataExportUrl = (name: string): string =>

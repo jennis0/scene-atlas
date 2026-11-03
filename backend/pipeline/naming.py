@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backend.app.models.database import Image
+    from backend.app.models.database import Image, ImageGroup
 
 # Also control characters, which Windows refuses in names
 _UNSAFE = re.compile(r'[/\\:*?"<>|\x00-\x1f\x7f]')
@@ -248,6 +248,22 @@ class ReadableLayout:
         folder = self._top.claim(_safe_stem(joined, folder_limit), "", folder_limit)
         names = self._in_folder.setdefault(folder, _Names())
         return [f"{folder}/{self._file(folder, names, author, group_name, img)}" for img in images]
+
+    def place_images(
+        self,
+        group: ImageGroup | None,
+        images: Sequence[Image],
+        category_order: Mapping[str, int] | None = None,
+    ) -> list[str]:
+        """``place_group`` for ORM images: under their group's name and author, or, for
+        ungrouped images, each under its own author."""
+        if group is None:
+            return [
+                self.place_group(None, img.author, [layout_image(img, category_order)])[0]
+                for img in images
+            ]
+        layout = [layout_image(img, category_order) for img in images]
+        return self.place_group(group.base_name, group.author, layout)
 
     def _file(
         self,
