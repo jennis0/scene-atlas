@@ -302,21 +302,28 @@ def _copy_tree(source: Path, target: Path) -> None:
         _copy(src, target / rel)
 
 
-def _verify(db_path: Path, store: Path) -> None:
+def _verify(db_path: Path, store: Path, old_store: Path | None) -> None:
+    """Every imported image whose file was in the old store is in *store*. (Ones missing
+    from the old store already are logged, not held against the move: they were lost
+    before it, and would stop it for ever.)"""
     from backend.app.services.image_store import ImageStore
 
     images = ImageStore(store)
+    old = ImageStore(old_store) if old_store else None
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        missing = [
-            key
-            for (key,) in conn.execute(
-                "SELECT storage_key FROM images WHERE storage_key IS NOT NULL"
-            )
-            if not images.get_path(key).is_file()
-        ]
+        missing, lost_before = [], 0
+        for (key,) in conn.execute("SELECT storage_key FROM images WHERE storage_key IS NOT NULL"):
+            if images.get_path(key).is_file():
+                continue
+            if old is not None and not old.get_path(key).is_file():
+                lost_before += 1
+            else:
+                missing.append(key)
     finally:
         conn.close()
+    if lost_before:
+        logger.warning("%d imported image(s) were already missing before the move", lost_before)
     if missing:
         raise MoveError(
             f"{len(missing)} imported image(s) aren't in the new folder, e.g. {missing[0]}"
@@ -377,7 +384,8 @@ def finish_move(
                 _copy_tree(old / "lancedb", new / "lancedb")
         data_dir = to_do["app_data"][1] if "app_data" in to_do else settings.data_dir  # type: ignore[index]
         new_store = to_do["store"][1] if "store" in to_do else settings.store_images_dir  # type: ignore[index]
-        _verify(data_dir / DB_NAME, new_store)
+        old_store = to_do["store"][0] if "store" in to_do else new_store  # type: ignore[index]
+        _verify(data_dir / DB_NAME, new_store, old_store)
         retire = {kind: [str(p) for p in pair] for kind, pair in to_do.items()}  # type: ignore[union-attr]
         (data_dir / RETIRE_FILE).write_text(json.dumps(retire), "utf-8")
         for kind, (old, new) in to_do.items():  # type: ignore[misc]
@@ -402,6 +410,16 @@ def retire_finished(db) -> None:
         retire = json.loads(path.read_text("utf-8"))
     except (OSError, ValueError):
         return
+    live = {"app_data": settings.data_dir, "store": settings.store_images_dir}
+    if not all(_same_folder(Path(new), live[kind]) for kind, (_old, new) in retire.items()):
+        # Started on the old folders after all (a failed start went back to them): the move
+        # isn't done. Its copies wait to be restarted onto, or cancelled, again.
+        for kind, (old, new) in retire.items():
+            if _our_copy(Path(new), Path(old)):
+                _write_record(Path(new), Path(old), kind, COPIED)
+        path.unlink(missing_ok=True)
+        logger.warning("Library move not applied: the app started on the old folders")
+        return
     moved_from: dict[str, str] = {}
     for kind, (old, new) in retire.items():
         old_path, new_path = Path(old), Path(new)
@@ -424,6 +442,34 @@ def retire_finished(db) -> None:
     path.unlink(missing_ok=True)
     (settings.data_dir / STATE_FILE).unlink(missing_ok=True)
     logger.info("Library moved; the old folders are kept until deleted: %s", moved_from)
+
+
+def _same_folder(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def unretire_live(db) -> None:
+    """A folder in use with a moved note was gone back to (a move's start failed after it
+    was retired): it's the library again, so the note and the record go."""
+    from backend.app.config import settings
+    from backend.app.models.database import AppSetting
+
+    for folder in (settings.data_dir, settings.store_images_dir):
+        note = folder / MOVED_NOTE
+        if not note.is_file():
+            continue
+        note.unlink()
+        marker = folder / (_marker_name() + ".moved")
+        if marker.exists() and not (folder / _marker_name()).exists():
+            os.replace(marker, folder / _marker_name())
+        row = db.get(AppSetting, MOVED_FROM_KEY)
+        if row is not None and str(folder) in json.loads(row.value_json or "{}").values():
+            db.delete(row)
+            db.commit()
+        logger.warning("%s was a moved library's old folder, and is in use again", folder)
 
 
 # The old folders

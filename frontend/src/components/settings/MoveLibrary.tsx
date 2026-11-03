@@ -75,7 +75,8 @@ export function MoveStatus({ move }: { move: ReturnType<typeof useLibraryMove> }
         <p>
           Copied to{' '}
           <span className="font-mono break-all">{Object.values(copied).join(' and ')}</span>. Scene
-          Atlas restarts to switch over, copying anything that changed meanwhile.
+          Atlas restarts to switch over, copying anything that changed meanwhile and checking every
+          image, which can take a while for a large library.
         </p>
         {error && (
           <p role="alert" className="text-destructive">

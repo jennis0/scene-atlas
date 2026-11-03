@@ -409,3 +409,24 @@ def test_dismissing_the_summary_leaves_a_staged_export(api, backup):
     (lr.rebuild_dir() / "summary.json").write_text('{"moved": 0}')
     assert api.client.delete("/api/v1/library/rebuild/summary").status_code == 200
     assert lr.last_summary() is None and lr.staged_path().exists()
+
+
+def test_a_file_that_cant_be_set_aside_stays_held_from_the_sweep(api, backup, monkeypatch):
+    from backend.pipeline import maintenance
+
+    _built(api)
+    _restart(api, monkeypatch)
+    real = lr._move
+
+    def locked(src, dest):
+        if "not-in-backup" in str(dest):
+            raise PermissionError(13, "in use")
+        real(src, dest)
+
+    monkeypatch.setattr(lr, "_move", locked)
+    summary = lr.set_aside()
+    assert summary["not_moved_count"] == 1
+    assert lr.set_aside_pending()  # still held: the sweep waits
+    assert maintenance.sweep_orphaned_store_files() == {}
+    monkeypatch.setattr(lr, "_move", real)
+    assert lr.set_aside()["moved"] == 1 and not lr.set_aside_pending()  # the next start

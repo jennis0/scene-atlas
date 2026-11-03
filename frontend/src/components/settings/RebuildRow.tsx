@@ -91,6 +91,7 @@ export function RebuildRow() {
   })
 
   const data = status.data
+  const notMoved = data?.summary?.not_moved_count ?? data?.summary?.not_moved?.length ?? 0
   const busy = job.isRunning || upload.isPending || build.isPending
   const check = data?.check ?? null
 
@@ -207,11 +208,11 @@ export function RebuildRow() {
             ? `${plural(data.summary.moved, 'file')} the export didn't have ${
                 data.summary.moved === 1 ? 'is' : 'are'
               } in ${data.summary.folder}: import that folder to bring them back.`
-            : 'Every file in the library was in the export.'}
-          {!!data.summary.not_moved?.length &&
-            ` ${plural(data.summary.not_moved.length, 'file')} couldn't be moved and ${
-              data.summary.not_moved.length === 1 ? 'is' : 'are'
-            } still in the library's folder (see the log).`}
+            : notMoved === 0 && 'Every file in the library was in the export.'}
+          {notMoved > 0 &&
+            ` ${plural(notMoved, 'file')} couldn't be set aside yet (in use?) and ${
+              notMoved === 1 ? 'is' : 'are'
+            } still in the library's folder: Scene Atlas tries again when it next starts.`}
         </p>
       )}
       {data?.set_aside_running && (

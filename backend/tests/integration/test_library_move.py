@@ -80,7 +80,8 @@ def test_copy_finish_and_retire(api, folders, monkeypatch):
     # The old folders are untouched until the new ones have opened
     assert {"data": _tree(old_data), "store": _tree(old_store)} == before
 
-    monkeypatch.setattr(settings, "data_dir", new_data)
+    monkeypatch.setattr(settings, "data_dir", new_data)  # the start on the new folders
+    monkeypatch.setattr(settings, "store_images_dir", new_store)
     with api.SessionLocal() as db:
         lm.retire_finished(db)
         row = db.get(AppSetting, lm.MOVED_FROM_KEY)
@@ -125,14 +126,19 @@ def test_the_finish_refuses_a_folder_that_isnt_this_moves_copy(api, folders, tmp
     assert (other / "precious.txt").exists()
 
 
-def test_a_file_missing_from_the_new_store_fails_the_finish(api, folders, library):
+def test_a_file_missing_from_the_new_store_fails_the_finish(api, folders, library, monkeypatch):
     old_data, old_store, new_data, new_store = folders
     lm.copy_job(_moves(*folders))
     images, _forest = library
     with api.SessionLocal() as db:
         key = db.get_one(Image, images["Harbour.png"]).storage_key
-    ImageStore(old_store).get_path(key).unlink()  # gone from both: the database still has it
-    ImageStore(new_store).get_path(key).unlink()
+    real = lm._sync
+    # The copy lost it, though the old store has it
+    monkeypatch.setattr(
+        lm,
+        "_sync",
+        lambda a, b: real(a, b) or ImageStore(new_store).get_path(key).unlink(missing_ok=True),
+    )
 
     with pytest.raises(lm.MoveError, match="aren't in the new folder"):
         lm.finish_move(app_data=(old_data, new_data), store=(old_store, new_store))
@@ -239,3 +245,38 @@ def _wait(api, job_id):
             return job
         time.sleep(0.05)
     raise AssertionError("job did not finish")
+
+
+def test_a_store_move_gone_back_from_leaves_the_store_in_use_alone(api, folders):
+    """The finish succeeded, the start on the new store failed, the app went back to the
+    old one: the old store, in use again, mustn't be retired."""
+    old_data, old_store, _new_data, new_store = folders
+    lm.copy_job([lm.Move("store", old_store, new_store)])
+    lm.finish_move(store=(old_store, new_store))
+    before = _tree(old_store)
+    with api.SessionLocal() as db:  # settings still on the old store
+        lm.retire_finished(db)
+        assert db.get(AppSetting, lm.MOVED_FROM_KEY) is None
+    assert _tree(old_store) == before and not (old_store / lm.MOVED_NOTE).exists()
+    assert lm.copy_status() == {"store": str(new_store)}  # Restart now / Cancel again
+
+
+def test_a_folder_gone_back_to_after_its_retire_is_the_library_again(api, folders):
+    old_data, old_store, _new_data, _new_store = folders
+    (old_store / lm.MOVED_NOTE).write_text("moved")
+    with api.SessionLocal() as db:
+        db.add(AppSetting(key=lm.MOVED_FROM_KEY, value_json=json.dumps({"store": str(old_store)})))
+        db.commit()
+        lm.unretire_live(db)
+        assert db.get(AppSetting, lm.MOVED_FROM_KEY) is None
+    assert not (old_store / lm.MOVED_NOTE).exists()
+
+
+def test_an_original_missing_before_the_move_doesnt_stop_it(api, folders, library):
+    old_data, old_store, new_data, new_store = folders
+    images, _forest = library
+    with api.SessionLocal() as db:
+        key = db.get_one(Image, images["Harbour.png"]).storage_key
+    ImageStore(old_store).get_path(key).unlink()  # lost long ago
+    lm.copy_job(_moves(*folders))
+    lm.finish_move(app_data=(old_data, new_data), store=(old_store, new_store))  # no error

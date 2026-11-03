@@ -208,9 +208,13 @@ async def lifespan(app: FastAPI):
 
         # A move's first start on its new folders: now they've opened, the old ones are
         # retired (design/export-backup-move.md §10)
-        from ..pipeline.library_move import retire_finished
+        from ..pipeline.library_move import retire_finished, unretire_live
 
-        retire_finished(session)
+        try:
+            unretire_live(session)
+            retire_finished(session)
+        except OSError:  # an old folder that can't be written: it stays, and says nothing
+            logger.exception("Could not retire the folders the library was moved from")
 
         from ..pipeline.linked_scan import reconcile_linked_source
 

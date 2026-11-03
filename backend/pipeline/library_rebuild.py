@@ -980,8 +980,13 @@ def set_aside(progress_fn: ProgressFn | None = None) -> dict:
         "moved": moved,
         "folder": str(dest) if moved else None,
         "not_moved": failed[:50],
+        "not_moved_count": len(failed),
     }
     (rebuild_dir() / "summary.json").write_text(json.dumps(summary), "utf-8")
+    if failed:
+        # Kept, so the orphan sweep stays held off them; the next start tries them again
+        logger.warning("Rebuild %s: %d file(s) not set aside yet", rebuild_id, len(failed))
+        return summary
     _pending_path().unlink(missing_ok=True)
     logger.info("Rebuild %s: %d file(s) set aside in %s", rebuild_id, moved, dest)
     return summary

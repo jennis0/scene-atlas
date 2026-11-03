@@ -92,7 +92,13 @@ export interface RebuildStatus {
   check_error: string | null
   built: boolean
   job_id: string | null
-  summary: { id: string; moved: number; folder: string | null; not_moved?: string[] } | null
+  summary: {
+    id: string
+    moved: number
+    folder: string | null
+    not_moved?: string[]
+    not_moved_count?: number
+  } | null
   set_aside_running: boolean
 }
 
