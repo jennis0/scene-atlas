@@ -235,6 +235,19 @@ async def lifespan(app: FastAPI):
         target=_reconcile_embeddings_when_ready, daemon=True, name="embedding-reconcile"
     ).start()
 
+    # Images from before stored_hash existed get it once (design/export-backup-move.md §2)
+    from ..pipeline.backfill_content_hash import (
+        STORED_HASH_JOB,
+        backfill_stored_hash,
+        images_missing_stored_hash,
+    )
+
+    # (background work, so only with the worker: tests drive it by hand)
+    if settings.ingest_worker_enabled:
+        with SessionLocal() as db:
+            if images_missing_stored_hash(db):
+                runner.submit(backfill_stored_hash, name=STORED_HASH_JOB)
+
     # Ingest worker: re-queue items interrupted by the last shutdown (nothing is
     # deleted), then start processing.
     from ..pipeline.ingest_worker import get_ingest_worker
@@ -272,11 +285,13 @@ async def lifespan(app: FastAPI):
     if app_config.scheduler_enabled:
         from ..pipeline.ingest_maintenance import run_ingest_maintenance
         from ..pipeline.maintenance import sweep_orphaned_store_files
+        from ..pipeline.metadata_export import clean_exports_when_idle
         from ..pipeline.vector_reconcile import reconcile_vectors
 
         scheduler.register(run_ingest_maintenance, hours=1, name="ingest_maintenance")
         scheduler.register(sweep_orphaned_store_files, hours=24, name="sweep_orphaned_store_files")
         scheduler.register(reconcile_vectors, hours=24, name="reconcile_vectors")
+        scheduler.register(clean_exports_when_idle, hours=1, name="clean_metadata_exports")
         await scheduler.start()
         logger.info("Scheduler started")
 

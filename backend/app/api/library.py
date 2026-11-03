@@ -1,5 +1,6 @@
 """Library identity and the linked folder (design/library-setup.md)."""
 
+import threading
 from datetime import UTC
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from ...pipeline import metadata_export
 from ...pipeline.ingest_worker import get_ingest_worker
 from ...pipeline.linked_scanner import get_linked_scanner
 from ..config import settings
-from ..library_identity import get_library_id, inspect_folders
+from ..library_identity import get_library_id, inside_any, inspect_folders
 from ..models import LibrarySource
 from ..models.database import SOURCE_DETACHED, SOURCE_OFFLINE, SOURCE_ONLINE
 from ..models.schemas import (
@@ -28,6 +29,7 @@ from ..models.schemas import (
     LinkedRemoved,
     MetadataExportRequest,
     MetadataExportStarted,
+    MetadataExportStatus,
 )
 from ..services.app_settings import get_settings as get_app_settings
 from ..services.job_runner import get_job_runner
@@ -203,6 +205,13 @@ def stop_using_linked_folder(db: Session = Depends(get_db)):
 # Metadata export (design/export-backup-move.md §4)
 
 
+# Jobs that rewrite the vectors: an export during one would mix two models' vectors.
+_REEMBEDDING_JOBS = ("Rebuilding image embeddings", "Activate model:")
+# Check-and-start is one step, so two clicks can't start two exports (or clean the first's
+# partial files).
+_export_lock = threading.Lock()
+
+
 def _export_target(raw: str | None) -> Path:
     """Where the export goes: the desktop app's chosen file, or the exports folder."""
     if raw is None:
@@ -217,7 +226,20 @@ def _export_target(raw: str | None) -> Path:
         raise HTTPException(status_code=422, detail=f"Folder not found: {path.parent}")
     if path.is_dir():
         raise HTTPException(status_code=422, detail=f"That's a folder: {path}")
+    if inside_any(path, [settings.data_dir, settings.images_dir, settings.linked_library_dir]):
+        raise HTTPException(status_code=422, detail="Save it outside the library's own folders")
     return path
+
+
+@router.get("/metadata-export", response_model=MetadataExportStatus)
+def metadata_export_status():
+    """The export running now, if any, and (on a server) the newest one waiting to be
+    downloaded, so Settings can pick up where it was when it was closed."""
+    latest = metadata_export.latest_export() if settings.app_mode != "app" else None
+    return MetadataExportStatus(
+        job_id=get_job_runner().get_active_job_id(metadata_export.JOB_NAME),
+        latest=latest.name if latest else None,
+    )
 
 
 @router.post("/metadata-export", status_code=202, response_model=MetadataExportStarted)
@@ -225,19 +247,30 @@ def _export_target(raw: str | None) -> Path:
 def start_metadata_export(request: Request, body: MetadataExportRequest):
     """Export the library's metadata as a background job. A JSON body, so a page on another
     site can't start one (it would need a CORS preflight, which is refused)."""
-    runner = get_job_runner()
-    if runner.has_active_job(metadata_export.JOB_NAME):
-        raise HTTPException(status_code=409, detail="An export is already running")
     target = _export_target(body.path)
-    metadata_export.clean_exports()
-    job_id = runner.submit(metadata_export.export_metadata, target, name=metadata_export.JOB_NAME)
+    runner = get_job_runner()
+    with _export_lock:
+        if runner.has_active_job(metadata_export.JOB_NAME):
+            raise HTTPException(status_code=409, detail="An export is already running")
+        if any(
+            job.status in ("queued", "running") and job.name.startswith(_REEMBEDDING_JOBS)
+            for job in runner.list_jobs()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The search data is being rebuilt; export when that has finished",
+            )
+        metadata_export.clean_exports()
+        job_id = runner.submit(
+            metadata_export.export_metadata, target, name=metadata_export.JOB_NAME
+        )
     return MetadataExportStarted(job_id=job_id)
 
 
 @router.get("/metadata-export/{name}")
 def download_metadata_export(name: str):
     """A finished export in the exports folder, as a download."""
-    if not metadata_export.EXPORT_NAME.match(name):
+    if not metadata_export.is_export_name(name):
         raise HTTPException(status_code=404, detail="Not Found")
     path = settings.metadata_exports_dir / name
     if not path.is_file():

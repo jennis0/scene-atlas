@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from backend.app.models.database import Image
 
-_UNSAFE = re.compile(r'[/\\:*?"<>|]')
+# Also control characters, which Windows refuses in names
+_UNSAFE = re.compile(r'[/\\:*?"<>|\x00-\x1f\x7f]')
 _SPACES = re.compile(r"\s+")
 
 
@@ -118,12 +119,22 @@ def layout_segment(s: str | None) -> str:
     return sanitize_segment((s or "").replace(_SEP, " "))
 
 
-def _safe_stem(stem: str) -> str:
-    """Windows refuses trailing dots and spaces, and reserved device names."""
-    stem = stem.rstrip(". ")
+def _safe_stem(stem: str, limit: int = FILE_MAX) -> str:
+    """Windows refuses trailing dots and spaces, and reserved device names. At most
+    *limit* characters."""
+    stem = stem[:limit].rstrip(". ")
     if stem.split(".", 1)[0].upper() in _RESERVED:
-        stem += "-"
+        stem = stem[: limit - 1] + "-"
     return stem or "image"
+
+
+_EXT = re.compile(r"\.[A-Za-z0-9]{1,10}")
+
+
+def _extension(name: str) -> str:
+    """*name*'s extension when it is a plain one (``.webp``), else none."""
+    suffix = PurePosixPath(name.replace("\\", "/")).suffix
+    return suffix if _EXT.fullmatch(suffix) else ""
 
 
 def grid_code(
@@ -167,7 +178,7 @@ def layout_image(img: Image, category_order: Mapping[str, int] | None = None) ->
         grid=grid_code(img.gridded, img.grid_type, img.grid_width, img.grid_height),
         tags=tuple(dict.fromkeys(_tag_text(t.value) for t in tags)),
         # The stored file's extension, which differs from the upload's after conversion.
-        ext=Path(img.storage_key or img.filename).suffix,
+        ext=_extension(img.storage_key or img.filename),
     )
 
 
@@ -205,7 +216,7 @@ def readable_stem(
         excess = len(build()) - limit
         if excess > 0 and parts[key]:
             parts[key] = parts[key][: max(1, len(parts[key]) - excess)].rstrip()
-    return _safe_stem(build()[:limit])
+    return _safe_stem(build(), limit)
 
 
 class ReadableLayout:
@@ -222,8 +233,8 @@ class ReadableLayout:
 
     def __init__(self, *, root_len: int = 0, taken: Iterable[str] = ()):
         self._root_len = root_len
-        self._top: set[str] = {t.casefold() for t in taken}
-        self._in_folder: dict[str, set[str]] = {}
+        self._top = _Names(taken)
+        self._in_folder: dict[str, _Names] = {}
 
     def place_group(
         self, group_name: str | None, author: str | None, images: Sequence[LayoutImage]
@@ -234,14 +245,14 @@ class ReadableLayout:
         folder_limit = min(FOLDER_MAX, PATH_MAX - self._root_len - 1 - _MIN_STEM)
         folder_limit = max(folder_limit, _MIN_STEM)
         joined = _SEP.join(p for p in (layout_segment(author), layout_segment(group_name)) if p)
-        folder = _unique(self._top, _safe_stem(joined[:folder_limit]), "", folder_limit)
-        names = self._in_folder.setdefault(folder, set())
+        folder = self._top.claim(_safe_stem(joined, folder_limit), "", folder_limit)
+        names = self._in_folder.setdefault(folder, _Names())
         return [f"{folder}/{self._file(folder, names, author, group_name, img)}" for img in images]
 
     def _file(
         self,
         folder: str | None,
-        names: set[str],
+        names: _Names,
         author: str | None,
         group_name: str | None,
         img: LayoutImage,
@@ -249,16 +260,29 @@ class ReadableLayout:
         used = self._root_len + 1 + (len(folder) + 1 if folder else 0)
         limit = max(min(FILE_MAX, PATH_MAX - used) - len(img.ext), _MIN_STEM)
         stem = readable_stem(author, group_name, img.subgroup, img.name, img.grid, img.tags, limit)
-        return _unique(names, stem, img.ext, limit)
+        return names.claim(stem, img.ext, limit)
 
 
-def _unique(taken: set[str], stem: str, ext: str, limit: int) -> str:
-    """``stem + ext``, or ``stem (n) + ext`` for the first n that isn't in *taken* (compared
-    case-insensitively), shortening *stem* so the result keeps within *limit*; records it."""
-    candidate, n = stem, 1
-    while (candidate + ext).casefold() in taken:
-        n += 1
-        suffix = f" ({n})"
-        candidate = _safe_stem(stem[: limit - len(suffix)]) + suffix
-    taken.add((candidate + ext).casefold())
-    return candidate + ext
+class _Names:
+    """The names taken in one folder, compared case-insensitively."""
+
+    def __init__(self, taken: Iterable[str] = ()):
+        self._taken = {t.casefold() for t in taken}
+        self._next: dict[str, int] = {}  # a name → the next ` (n)` to try for it
+
+    def claim(self, stem: str, ext: str, limit: int) -> str:
+        """``stem + ext``, or ``stem (n) + ext`` for the first n not taken, shortening
+        *stem* so the result keeps within *limit*; records it."""
+        base = (stem + ext).casefold()
+        candidate = stem
+        if base in self._taken:
+            n = self._next.get(base, 2)
+            while True:
+                suffix = f" ({n})"
+                candidate = _safe_stem(stem, limit - len(suffix)) + suffix
+                n += 1
+                if (candidate + ext).casefold() not in self._taken:
+                    break
+            self._next[base] = n
+        self._taken.add((candidate + ext).casefold())
+        return candidate + ext

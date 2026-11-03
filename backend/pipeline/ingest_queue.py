@@ -102,6 +102,17 @@ def begin_immediate(db: Session) -> None:
     db.execute(text("BEGIN IMMEDIATE"))
 
 
+def begin_read(db: Session) -> None:
+    """Start a read transaction now, so every query after it sees one snapshot.
+
+    Must be the first statement executed in the session. Without it each SELECT sees the
+    latest commit: the driver only begins a transaction before a write. In WAL mode the
+    snapshot is fixed by the first read after this and blocks no writer, but it keeps the
+    WAL from being checkpointed past it until the session ends.
+    """
+    db.execute(text("BEGIN"))
+
+
 @contextmanager
 def write_session() -> Iterator[Session]:
     """A session whose transaction holds the write lock from the start.

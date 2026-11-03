@@ -74,6 +74,14 @@ export const libraryApi = {
     return data
   },
 
+  /** The export running now, and (on a server) the newest one waiting to be downloaded */
+  metadataExportStatus: async (): Promise<{ job_id: string | null; latest: string | null }> => {
+    const { data } = await api.get<{ job_id: string | null; latest: string | null }>(
+      '/library/metadata-export',
+    )
+    return data
+  },
+
   /** Export the library's metadata as a background job (design/export-backup-move.md §4).
    * The desktop app passes the file it picked; a server writes it for download. */
   startMetadataExport: async (path?: string): Promise<{ job_id: string }> => {

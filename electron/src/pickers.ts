@@ -1,6 +1,7 @@
 // Native folder and file pickers: the library's folders (setup and Settings), local
-// imports, and where to save a metadata export. main.ts registers the IPC that opens them; each picker opens over the window
-// that asked, or on its own if that window has gone.
+// imports, and where to save a metadata export. main.ts registers the IPC that opens
+// them; each picker opens over the window that asked, or on its own if that window has
+// gone.
 import * as path from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
 import type { FolderKind } from './libraryDirs'

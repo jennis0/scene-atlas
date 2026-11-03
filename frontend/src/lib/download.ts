@@ -13,12 +13,7 @@ export async function downloadFile(
 ): Promise<void> {
   const resp = await axios.get<Blob>(url, { ...axiosOpts, responseType: 'blob' })
   const objectUrl = URL.createObjectURL(resp.data)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  saveUrl(objectUrl, filename)
   URL.revokeObjectURL(objectUrl)
 }
 

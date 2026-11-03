@@ -612,6 +612,11 @@ class MetadataExportStarted(BaseModel):
     job_id: str
 
 
+class MetadataExportStatus(BaseModel):
+    job_id: str | None  # the export running now
+    latest: str | None  # server: the newest finished export, to download
+
+
 class LibraryScanStarted(BaseModel):
     started: bool
 

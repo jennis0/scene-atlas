@@ -144,8 +144,9 @@ There is no restriction on which absolute paths are accepted, so code running in
 `POST /library/metadata-export` ([export-backup-move.md §4](export-backup-move.md#4-export-metadata)) starts a background export. Controls:
 
 - **A JSON body**, so a page on another site can't start one: a cross-origin JSON POST needs a CORS preflight, which only configured origins pass. Rate-limited as expensive; one export at a time (409).
-- **A path only in the desktop app** (`app_mode == "app"`; 422 on servers): it must be absolute, in an existing folder, and not a folder itself. On a server the file goes to `{SCENE_ATLAS_DATA_DIR}/exports/` under a name the server makes.
-- **Served back by name only**: `GET /library/metadata-export/{name}` serves a file from that folder only if the name matches the pattern the server writes (`scene-atlas-metadata-<date>-<time>.jsonl.gz`), so no other file can be named. Exports are deleted after 24 hours, and partial files at startup.
+- **A path only in the desktop app** (`app_mode == "app"`; 422 on servers): it must be absolute, in an existing folder, not a folder itself, and not inside the library's own folders (app data, the store, the linked library: `library_identity.inside_any`), so an export can't replace the live database. On a server the file goes to `{SCENE_ATLAS_DATA_DIR}/exports/` under a name the server makes.
+- **`GET /library/metadata-export`** reports the running export's job id and the newest finished file's name, nothing else.
+- **Served back by name only**: `GET /library/metadata-export/{name}` serves a file from that folder only if the name matches the pattern the server writes (`scene-atlas-metadata-<date>-<time>.jsonl.gz`), so no other file can be named. The name is matched in full (`fullmatch`, ASCII digits). Exports are deleted after 24 hours (an hourly task), and partial files at startup.
 - The export holds the library's metadata and settings, not secrets: there are none in `app_settings`. Server mode's lack of authentication applies as to every other endpoint.
 
 ### 6c. MEDIUM: Reading the linked folder

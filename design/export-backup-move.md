@@ -77,11 +77,19 @@ Ungrouped images are lines with `"group": null`. Images still awaiting grouping 
 
 **Other lines, `library` files only:** `{"source_files": [...]}` in batches, holding every row of the linked library with its `id`, `image_id`, state, size, mtime and hash, so removed, duplicate and sorted-out files stay that way after a rebuild.
 
+**Lenient reading, validated writing.** The reader accepts anything the database can hold: an unknown grid type, an out-of-range number or a malformed hash becomes null, and text over 4,000 characters (200 for tag values and short fields) is cut short. It refuses only what protects it or the filesystem: a line over 64 M characters, non-finite numbers, ids and sizes outside SQLite's 64-bit range, and a storage or thumbnail key that isn't plain names. The writer passes every line through the same models (`ExportError` names a row it can't write), so it writes exactly what the reader returns. A vector that isn't the header model's size is dropped by the reader.
+
+**Big groups** are split over lines of at most 2,000 images, each with the same `group.uid`; `primary` is an index into the line that holds it. Readers join a group's lines by `uid`.
+
+**`source_files` rows** whose image isn't in the file (it was awaiting grouping) are written as `pending` with no `image_id`, so the scan after a rebuild imports the file again rather than skipping it.
+
+**`stored_hash`** is written as stored; rows from before it existed get it from `backfill_stored_hash`, a job that runs at startup while any image lacks one (it hashes the file the image reads from, and fills a missing `content_hash` too).
+
 **Reading vectors:** the metadata export and full export stream the LanceDB table once, in id order, alongside the image query; downloads (≤ 999 images) read their ids in one `id IN (…)` query. Neither uses `get_embeddings` as it is, because it swallows errors and returns `{}`: a read error fails the export rather than silently leaving vectors out. No scalar index is needed.
 
 ## 3. The readable layout
 
-User decision (2026-10-31). One function, `pipeline/naming.py:readable_path`, used by every writer of files.
+User decision (2026-10-31). One class, `pipeline/naming.py:ReadableLayout`, used by every writer of files.
 
 ```
 Czepeku_Golden Forest/
@@ -113,9 +121,12 @@ Settings → Library → **Export metadata**. Built as `backend/pipeline/metadat
 
 - **A background job in both modes** ("Exporting metadata", JobRunner). `POST /api/v1/library/metadata-export` starts it, with a JSON body, so another site can't (a cross-origin JSON POST needs a CORS preflight). One at a time (409).
   - **Desktop:** the body names the file the save dialog picked (`export:choose-file` in Electron), and the job writes it there. A path is refused on servers.
-  - **Server:** the job writes `{data_dir}/exports/scene-atlas-metadata-<date>-<time>.jsonl.gz`. When it completes, the browser downloads it from `GET /api/v1/library/metadata-export/{name}`, a plain attachment (`saveUrl`, not a `Blob`), and Settings offers "Download again". Exports there are deleted after 24 hours, and partial files at startup and before each export.
-- **One read transaction** for the whole file, so it's a snapshot while imports carry on. It's written to `<name>.part` and renamed when complete.
-- **Vectors** are read in one pass over the LanceDB table (`LanceDBService.iter_vectors`, which raises on a read error) into a scratch file at an offset per image id, then looked up group by group. LanceDB has no index on `id`, so a lookup per group would scan the table each time.
+  - **Desktop paths** inside the library's own folders (app data, the store, the linked library) are refused (`library_identity.inside_any`), so the export can't replace the live database. A crash mid-export can leave `<name>.part` beside the chosen file; nothing cleans that up.
+  - **Server:** the job writes `{data_dir}/exports/scene-atlas-metadata-<date>-<time>.jsonl.gz`. When it completes, the browser downloads it from `GET /api/v1/library/metadata-export/{name}`, a plain attachment (`saveUrl`, not a `Blob`), and Settings offers "Download". Exports there are deleted after 24 hours (hourly, `clean_exports_when_idle`), and partial files at startup and before each export.
+  - **Settings reopened** asks `GET /api/v1/library/metadata-export` for the export running now (it re-attaches to its progress) and, on a server, the newest finished one (offered for download).
+  - **Refused (409) while vectors are being rewritten** ("Rebuilding image embeddings", "Activate model: …"), which would mix two models' vectors.
+- **One read transaction** for the whole file (`ingest_queue.begin_read`: an explicit `BEGIN`, since the driver begins a transaction only before a write), so it's a snapshot while imports carry on. In WAL mode it blocks no writer, but the WAL can't be checkpointed past it until the export ends, so it grows during a long export alongside imports. It's written to `<name>.part` and renamed when complete.
+- **Vectors** are read in one pass over the LanceDB table (`LanceDBService.iter_vectors`, which raises on a read error) into a scratch file, packed (the file holds only the vectors there are; an offset per image id is kept in memory, 8 bytes each), then looked up group by group. LanceDB has no index on `id`, so a lookup per group would scan the table each time. The service is fetched once, so the header's model and the vectors are the same table's. A table that can't be opened fails the export: vectors are never left out silently.
 - **Size:** a few KB per image, mostly the vector (about 1 GB at 200k images with the large model). A few minutes.
 - The UI says what it is: names, groups, tags, grids and search data, **not the image files**.
 
@@ -137,7 +148,7 @@ POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → 
 ### 5.2 The download mechanism
 
 - `check` runs first (JSON), so limits and errors show in the app. Then a hidden `<form method="post">` is submitted. An attachment response doesn't navigate the page, and the browser streams it straight to disk with its own progress. Nothing is held server-side between the two requests.
-- **Cross-site requests are refused:** a form POST is a simple request any site can send, so `/downloads` and `/library/metadata-export` require `Sec-Fetch-Site: same-origin`, or `Origin` matching `Host` where that header is absent.
+- **Cross-site requests are refused:** a form POST is a simple request any site can send, so `/downloads` requires `Sec-Fetch-Site: same-origin`, or `Origin` matching `Host` where that header is absent. (`POST /library/metadata-export` takes a JSON body instead, which another site can't send without a CORS preflight.)
 - `X-Accel-Buffering: no` is set, so nginx doesn't spool the stream to disk.
 - **Electron** gets a minimal `will-download` handler: the default save dialog, and progress on the window's taskbar icon (`setProgressBar`). Electron has no download UI of its own.
 
@@ -176,7 +187,7 @@ Settings → Library → **Export library**: a folder of readable files plus `sc
 - **A background job** in the activity dock: the **folder writer** (`pipeline/folder_writer.py`), which writes chosen images in the readable layout.
   - Groups go in id order; each group's files are written, then its line is appended to `scene-atlas.jsonl`, so the metadata is never ahead of the files.
   - Each file is copied to `<name>.part` with an inline SHA-256, checked against `stored_hash`, then renamed.
-  - **Resume:** a run into an unfinished export's folder reads its `scene-atlas.jsonl` and carries on after the last group listed.
+  - **Resume:** a run into an unfinished export's folder reads its `scene-atlas.jsonl` and carries on after the last group listed. The group being written when it stopped has a folder but no line: the resumed run must reuse that folder (or empty it), not treat its name as taken, or it orphans it as `X (2)`. Ungrouped images have no group id, so the resume point is the last image id listed, not the last group.
   - **Free space** is checked before each group. Too little fails the job with its progress kept; running it again resumes.
   - **Per-file problems** (an unreadable original, a name the target refuses) are skipped and listed at the end. A full or failing disk stops the job.
 - **Linked-library images** are included, with a checkbox to leave them out: the user has those files already.

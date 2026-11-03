@@ -299,6 +299,13 @@ def _contains(outer: Path, inner: Path) -> bool:
     return _key(inner).is_relative_to(_key(outer))
 
 
+def inside_any(path: Path, folders: list[Path | None]) -> bool:
+    """Whether *path* is one of *folders* or inside one (all resolved). Exports and moves
+    use it to refuse writing into the library's own folders."""
+    target = path.resolve()
+    return any(folder is not None and _contains(folder.resolve(), target) for folder in folders)
+
+
 def _same(a: Path, b: Path) -> bool:
     return _key(a) == _key(b)
 

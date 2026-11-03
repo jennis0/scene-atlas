@@ -56,7 +56,7 @@ class TestLanceDBServiceCRUD:
         assert set(result.keys()) == {0, 5, 9}
 
     def test_iter_vectors_returns_every_row(self, svc):
-        vectors = {i: _rand_vec() for i in range(10)}
+        vectors = {i: _rand_vec() for i in range(25)}  # more than LanceDB's default limit (10)
         assert svc.batch_add_embeddings(
             [{"image_id": i, "embedding": v, "metadata": {}} for i, v in vectors.items()]
         )

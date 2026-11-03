@@ -53,6 +53,41 @@ def test_backfill_content_hash(library):
         assert all(img.content_hash for img in db.query(Image))
 
 
+def test_backfill_stored_hash_hashes_the_stored_file(library):
+    from backend.app.file_hash import file_sha256
+    from backend.app.services import get_image_store
+    from backend.pipeline.backfill_content_hash import backfill_stored_hash
+
+    with library() as db:
+        kept = db.query(Image).filter_by(filename="Cave.jpg").one()
+        kept.content_hash = "ab" * 32  # the upload's hash: a converted file differs from it
+        db.commit()
+    progress = []
+
+    result = backfill_stored_hash(lambda *args: progress.append(args))
+
+    assert result == {"total": 2, "updated": 2, "skipped": 0}
+    assert progress[-1][:2] == (2, 2)
+    with library() as db:
+        for img in db.query(Image):
+            assert img.stored_hash == file_sha256(get_image_store().get_path(img.storage_key))
+        assert db.query(Image).filter_by(filename="Cave.jpg").one().content_hash == "ab" * 32
+    assert backfill_stored_hash()["total"] == 0  # nothing left to do
+
+
+def test_backfill_stored_hash_leaves_missing_files_for_later(library):
+    from backend.app.services import get_image_store
+    from backend.pipeline.backfill_content_hash import backfill_stored_hash
+
+    with library() as db:
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        get_image_store().get_path(cave.storage_key).unlink()
+
+    assert backfill_stored_hash() == {"total": 2, "updated": 1, "skipped": 1}
+    with library() as db:
+        assert db.query(Image).filter_by(filename="Cave.jpg").one().stored_hash is None
+
+
 def test_retag_all_images_replaces_auto_tags(library):
     from backend.pipeline.retag_all_images import retag_all_images
 

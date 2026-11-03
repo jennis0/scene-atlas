@@ -1,7 +1,10 @@
-"""Backfill content_hash for existing images.
+"""Backfill content_hash and stored_hash for existing images.
 
 Reads each image file from the ImageStore, computes its SHA-256 digest,
 and writes the hash back to the database.
+
+``backfill_stored_hash`` runs at startup when any image lacks a ``stored_hash`` (rows from
+before it existed): exports name the stored file by it (design/export-backup-move.md §2).
 
 Usage:
     uv run python -m backend.pipeline.backfill_content_hash
@@ -12,6 +15,7 @@ import logging
 
 from sqlalchemy.orm import selectinload
 
+from backend.app.file_hash import file_sha256
 from backend.app.models.database import Image
 from backend.app.services.originals import OriginalUnavailable, original_path
 from backend.app.services.shutdown import raise_if_shutting_down
@@ -91,6 +95,47 @@ def backfill_content_hash():
 
     print(f"Backfill complete: {totals}")
     return {"total": total, **totals}
+
+
+STORED_HASH_JOB = "Computing file hashes"
+
+
+def images_missing_stored_hash(db) -> int:
+    return db.query(Image.id).filter(Image.stored_hash.is_(None)).count()
+
+
+def backfill_stored_hash(progress_fn=None) -> dict:
+    """Hash the file each image reads from (the stored file, or the linked file) where
+    ``stored_hash`` is NULL; set ``content_hash`` too where that is NULL, since then the
+    file is all there is to go by. Images whose file is missing are left for a later run."""
+    with pipeline_db() as db:
+        image_ids = [i for (i,) in db.query(Image.id).filter(Image.stored_hash.is_(None))]
+    totals = {"total": len(image_ids), "updated": 0, "skipped": 0}
+    for start in range(0, len(image_ids), BATCH_SIZE):
+        raise_if_shutting_down()
+        with pipeline_db() as db:
+            batch = (
+                db.query(Image)
+                .options(selectinload(Image.source_file))
+                .filter(Image.id.in_(image_ids[start : start + BATCH_SIZE]))
+                .all()
+            )
+            for image in batch:
+                try:
+                    digest = file_sha256(original_path(image))
+                except (OriginalUnavailable, OSError) as exc:
+                    logger.warning("Image %s: can't hash its file: %s", image.id, exc)
+                    totals["skipped"] += 1
+                    continue
+                image.stored_hash = digest
+                if image.content_hash is None:
+                    image.content_hash = digest
+                totals["updated"] += 1
+        if progress_fn:
+            done = min(start + BATCH_SIZE, len(image_ids))
+            progress_fn(done, len(image_ids), f"Hashed {done:,} of {len(image_ids):,} files")
+    logger.info("Stored-hash backfill: %s", totals)
+    return totals
 
 
 if __name__ == "__main__":

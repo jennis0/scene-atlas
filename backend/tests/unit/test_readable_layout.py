@@ -69,6 +69,9 @@ class TestReadableStem:
         tiny = readable_stem("A", "A Long Group Name", None, "A Long Name", "G", [], 10)
         assert len(tiny) <= 10
 
+    def test_control_characters_are_removed(self):
+        assert readable_stem(None, None, None, "Bad\x00Name\x1f\x7f", "", [], 150) == "Bad Name"
+
     def test_windows_reserved_names_and_trailing_dots(self):
         assert readable_stem(None, None, None, "CON", "", [], 150) == "CON-"
         assert readable_stem(None, None, None, "Ends with dots...", "", [], 150) == "Ends with dots"
@@ -111,6 +114,13 @@ class TestReadableLayout:
             "Forest_Day_G30x30 (3).webp",
         ]
 
+    def test_many_clashes_number_on_without_rescanning(self):
+        layout = ReadableLayout()
+        paths = [layout.place_group(None, None, [_img("Map")])[0] for _ in range(5_000)]
+        assert len({p.casefold() for p in paths}) == 5_000
+        assert paths[:3] == ["Map_G30x30.webp", "Map_G30x30 (2).webp", "Map_G30x30 (3).webp"]
+        assert paths[-1] == "Map_G30x30 (5000).webp"
+
     def test_names_already_on_disk_are_avoided(self):
         layout = ReadableLayout(taken=["CZEPEKU_FOREST"])
         paths = layout.place_group("Forest", "Czepeku", [_img("Day"), _img("Night")])
@@ -148,3 +158,21 @@ def test_layout_image_orders_tags_by_category_and_keeps_the_stored_extension():
     assert li.tags == ("forest deep", "river", "summer")
     assert li.grid == "G30x30"
     assert li.ext == ".webp"
+
+
+@pytest.mark.parametrize(
+    ("filename", "ext"),
+    [
+        ("map.PNG", ".PNG"),
+        ("map", ""),
+        ("map.tar.gz", ".gz"),
+        ("odd.<ext>", ""),
+        ("x.12345678901", ""),
+    ],
+)
+def test_layout_image_only_keeps_plain_extensions(filename, ext):
+    img = SimpleNamespace(
+        name="m", subgroup=None, gridded=None, grid_type=None, grid_width=None,
+        grid_height=None, storage_key=None, filename=filename, tags=[],
+    )  # fmt: skip
+    assert layout_image(img).ext == ext
