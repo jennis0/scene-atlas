@@ -1,9 +1,19 @@
 """Pydantic schemas for API request/response models."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# What clients may write. Anything longer or odder would be cut short or dropped when the
+# library is exported (pipeline/library_format.py), so it's refused here instead. Response
+# models stay unconstrained: rows written before these limits must still be returned.
+GridType = Literal["square", "hex"]
+GridCount = Annotated[int, Field(ge=1, le=10_000)]
+NameText = Annotated[str, Field(max_length=500)]
+TagText = Annotated[str, Field(min_length=1, max_length=100)]
+LongText = Annotated[str, Field(max_length=2_000)]
+StyleName = Annotated[str, Field(max_length=50)]  # a colour preset or an icon name
 
 
 class TagBase(BaseModel):
@@ -17,6 +27,11 @@ class TagBase(BaseModel):
 
 class TagCreate(TagBase):
     """Tag creation schema."""
+
+    category: TagText
+    value: TagText
+    confidence: float = Field(1.0, ge=0, le=1)
+    source: Annotated[str, Field(max_length=20)] = "manual"
 
 
 class TagResponse(TagBase):
@@ -136,10 +151,10 @@ class BulkImageChanges(BaseModel):
 
     image_type: Literal["battlemap", "scene"] | None = None
     gridded: bool | None = None
-    grid_type: str | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    subgroup: str | None = None
+    grid_type: GridType | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    subgroup: NameText | None = None
 
 
 class TagRef(BaseModel):
@@ -258,7 +273,7 @@ class GroupBulkUpdateRequest(BaseModel):
     """Set the author of many groups (and their images) at once."""
 
     ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_SUMMARY_IDS)
-    author: str | None = None
+    author: NameText | None = None
 
 
 class GroupBulkUpdateResponse(BaseModel):
@@ -370,14 +385,14 @@ class ImageEditPayload(BaseModel):
     """Per-image edit data sent from the edit dialog."""
 
     id: int
-    name: str | None = None
-    tags: list[TagBase] = []
+    name: NameText | None = None
+    tags: list[TagCreate] = []
     gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
-    subgroup: str | None = None
-    image_type: str | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    grid_type: GridType | None = None
+    subgroup: NameText | None = None
+    image_type: Literal["battlemap", "scene"] | None = None
 
 
 # Bounds a group edit's explicit deletions (a group is far smaller than this).
@@ -387,16 +402,16 @@ MAX_GROUP_EDIT_DELETES = 100_000
 class NewGroupPayload(BaseModel):
     """A split-off group to create during a group edit."""
 
-    base_name: str
-    author: str | None = None
+    base_name: NameText
+    author: NameText | None = None
     image_ids: list[int]
 
 
 class GroupEditRequest(BaseModel):
     """Full edit payload for a group."""
 
-    base_name: str
-    author: str | None = None
+    base_name: NameText
+    author: NameText | None = None
     images: list[ImageEditPayload]  # metadata updates for images in the group
     new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
     # Deletion is explicit: an image the client doesn't mention is left alone. The editor
@@ -427,27 +442,27 @@ class TagCategoryBase(BaseModel):
 class TagCategoryCreate(BaseModel):
     """Schema for creating a new tag category."""
 
-    name: str
-    description: str | None = None
-    color: str | None = None
-    icon: str | None = None
+    name: TagText
+    description: LongText | None = None
+    color: StyleName | None = None
+    icon: StyleName | None = None
     display_order: int = 0
 
 
 class TagCategoryUpdate(BaseModel):
     """Schema for updating a tag category (all fields optional)."""
 
-    name: str | None = None
-    description: str | None = None
-    color: str | None = None
-    icon: str | None = None
+    name: TagText | None = None
+    description: LongText | None = None
+    color: StyleName | None = None
+    icon: StyleName | None = None
     display_order: int | None = None
 
 
 class TagValueUpdate(BaseModel):
     """Schema for renaming a tag value."""
 
-    new_value: str
+    new_value: TagText
 
 
 class TagCategoryResponse(TagCategoryBase):

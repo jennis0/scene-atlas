@@ -2,9 +2,10 @@
 
 import json
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload, subqueryload
 
@@ -164,8 +165,10 @@ def delete_tag_category(category_name: str, db: Session = Depends(get_db)):
 @router.put("/categories/{category_name}/tags/{tag_name}", response_model=TagCategoryResponse)
 def upsert_tag_value(
     category_name: str,
-    tag_name: str,
-    aliases: list[str] | None = Body(None),
+    tag_name: Annotated[str, Path(min_length=1, max_length=100)],
+    aliases: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Body(
+        None, max_length=100
+    ),
     db: Session = Depends(get_db),
 ):
     """Add a tag value to a category or update its aliases."""

@@ -21,8 +21,11 @@ from ..models.schemas import (
     BulkImageEditResponse,
     BulkImageRestoreRequest,
     BulkImageRestoreResponse,
+    GridCount,
+    GridType,
     ImageScope,
     ImageScopeFacets,
+    NameText,
 )
 from ..services import get_thumbnail_store, safe_delete_image
 from ..services.bulk_edit_service import (
@@ -47,12 +50,12 @@ mimetypes.add_type("image/webp", ".webp")
 
 
 class ImagePatch(BaseModel):
-    name: str | None = None
-    subgroup: str | None = None
+    name: NameText | None = None
+    subgroup: NameText | None = None
     gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    grid_type: GridType | None = None
     image_type: Literal["battlemap", "scene"] | None = None
 
 
