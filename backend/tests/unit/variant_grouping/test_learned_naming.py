@@ -2,7 +2,10 @@
 
 ``learned_naming_fixtures.json`` holds 30 small imports with the names, authors and
 ``is_identity`` flags the research namer gives for an empty library (scene-atlas-learning:
-``python -m naming.extractive.export fixtures --sa PATH``). The port must match exactly.
+``python -m naming.extractive.export fixtures --sa PATH``). The port must match exactly, except
+where Scene Atlas departs from the research namer on purpose (design/variant-grouping-algorithm.md
+§8): glued words split in two only around "of" or "the" ("Bloodmire" and "Oakhollow" stay whole
+here), so a regenerated file needs those names edited back.
 """
 
 import json

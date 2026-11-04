@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from .. import names as N
 from .. import vocab as V
@@ -20,6 +20,7 @@ PURE_NOISE = V.REND | V.STOPWORDS | {V.DIMS}
 SMALL_WORDS = frozenset(
     {"of", "the", "a", "an", "and", "in", "on", "at", "to", "for", "by", "from", "with", "or", "n"}
 )
+GLUE_WORDS = frozenset({"of", "the"})  # the words a two-part split must hold
 TRAILING_WORDS = frozenset({"and", "of", "with", "the", "a", "by", "&", "in", "on", "at", "to"})
 SIZE_UNITS = frozenset({"mb", "kb", "gb", "pps", "ppi", "dpi", "px"})
 KEEP_NUMBER_AFTER = V.SERIES | V.LEVEL | {"part", "pt", "act", "no", "number", "chapter", "episode"}
@@ -38,6 +39,25 @@ def author_key(text: str) -> str:
     "maps" ("The Moonlight Maps" == "moonlight")."""
     k = _NOT_KEY.sub("", text.casefold()).replace("&", "and").removeprefix("the")
     return _MAPS_SUFFIX.sub("", k) or k
+
+
+_MAPS_WORD = re.compile(r"(?i)(?:^|[\s_\-.])(battlemaps|maps|map)[\W_]*$")
+
+
+def shown_author(c: _Named) -> str:
+    """A picked author's display text: its cleaned text, with a trailing "Maps" that cleaning
+    dropped put back from the folder or credit it came from ("Gloamwood Maps", not
+    "Gloamwood"). ``author_key`` ignores the word, so matching is unaffected."""
+    m = _MAPS_WORD.search(c.raw)
+    if m is None or author_key(c.raw) != author_key(c.text) or loose(c.text).endswith(loose(m[1])):
+        return c.text
+    word = m[1]
+    return f"{c.text} {word.capitalize() if word.islower() else word}"
+
+
+class _Named(Protocol):
+    text: str
+    raw: str
 
 
 def loose(word: str) -> str:
@@ -210,7 +230,10 @@ class Cleaner:
         return out or text.strip()
 
     def _segment(self, w: str) -> tuple[str, ...] | None:
-        """An unseen glued word as 2-4 known words (fewest parts, then most probable)."""
+        """An unseen glued word as 2-4 known words (fewest parts, then most probable).
+
+        Two parts only with "of" or "the" ("Tombof", "Underthe"): most two-part splits are
+        real compounds or names ("Watchtower", "Countryside", "Icewind", "Forrest")."""
         n = len(w)
         if n < 6 or self._t.names_vocab.get(w, 0) >= 1 or w in self._t.common_path_words:
             return None
@@ -233,9 +256,10 @@ class Cleaner:
                 )
                 if e not in best or cand[:2] < best[e][:2]:
                     best[e] = cand
-        if n not in best or not 2 <= len(best[n][2]) <= 4:
+        parts = best[n][2] if n in best else ()
+        if not 2 <= len(parts) <= 4 or (len(parts) == 2 and not GLUE_WORDS & set(parts)):
             return None
-        return best[n][2]
+        return parts
 
     def _unglue(self, words: list[str]) -> list[str]:
         out = []

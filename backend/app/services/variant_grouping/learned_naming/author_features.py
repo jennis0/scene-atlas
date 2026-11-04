@@ -16,7 +16,7 @@ from .text import MAX_SPAN, Tables, author_key, by_credits, mean, word_texts
 
 if TYPE_CHECKING:
     from ..names import Folder
-    from .namer import Group, WalkNamer
+    from .namer import Group, Stats, WalkNamer
 
 AUTHOR_SOURCES = ("folder", "by", "known", "house_stem", "rule", "shared", "credit")
 
@@ -34,6 +34,15 @@ class ACand:
     by_share: float = 0.0
     credit_share: float = 0.0
     frag_words: set[str] = field(default_factory=set)
+
+
+def is_library_folder(namer: WalkNamer, name: str) -> bool:
+    """A folder that never names an author: no known author, and its identity words are all
+    library or generic words ("Battle Maps", "Downloads"), or it has none ("D&D", "2023")."""
+    if namer.authors.get(author_key(name)):
+        return False
+    ident = [x for x in N.name_identity(name) if not x.isdigit()]
+    return all(x in namer.tables.library_words or x in V.GENERIC for x in ident)
 
 
 def is_frag_word(t: Tables, c: ACand) -> bool:
@@ -76,9 +85,7 @@ class _Candidates:
         top = _top_nonrend(namer.files.folders, self._grp.members)
         for prefix, info in self._grp.folders.items():
             name = prefix[-1]
-            hit = namer.authors.get(author_key(name))
-            ident = [x for x in N.name_identity(name) if not x.isdigit()]
-            if not hit and all(x in namer.tables.library_words or x in V.GENERIC for x in ident):
+            if is_library_folder(namer, name):
                 continue
             c = self.add(self.display(name), "folder", name)
             if c is None:
@@ -106,8 +113,9 @@ class _Candidates:
                 c.frag_words |= frags[raw]
 
 
-def author_candidates(namer: WalkNamer, grp: Group) -> tuple[list[ACand], dict]:
-    """Author candidates in order of discovery, and the group's author context."""
+def author_candidates(namer: WalkNamer, stats: Stats, grp: Group) -> tuple[list[ACand], dict]:
+    """Author candidates in order of discovery, and the group's author context; ``stats`` are
+    the import statistics the group's author is scored with."""
     members = grp.members
     cands = _Candidates(namer, grp)
     cands.add_folders()
@@ -121,8 +129,8 @@ def author_candidates(namer: WalkNamer, grp: Group) -> tuple[list[ACand], dict]:
     cands.add_counted(house, "house_stem")
     if grp.rule.author:
         cands.add(namer.authors.get(author_key(grp.rule.author)) or grp.rule.author, "rule")
-    if len(namer.groups) >= 5:
-        cands.add_counted(_shared_counts(namer, members), "shared")
+    if stats.size >= 5:
+        cands.add_counted(_shared_counts(namer, stats, members), "shared")
     flags = {
         "any_by": bool(by),
         "any_known": bool(hits),
@@ -198,16 +206,16 @@ def _house_counts(namer: WalkNamer, members: Sequence[int]) -> Counter[str]:
     return house
 
 
-def _shared_counts(namer: WalkNamer, members: Sequence[int]) -> Counter[str]:
-    """Per member, the longest leading stem run found in >= 30% of the import's groups."""
-    floor = max(3, 0.3 * len(namer.groups))
+def _shared_counts(namer: WalkNamer, stats: Stats, members: Sequence[int]) -> Counter[str]:
+    """Per member, the longest leading stem run found in >= 30% of the groups of ``stats``."""
+    floor = max(3, 0.3 * stats.size)
     shared: Counter[str] = Counter()
     for i in members:
         stem = namer.split_stems[i]
         spans = N.tokenize_spans(stem, split_glued=True)
         best = 0
         for e in range(1, min(len(spans), MAX_SPAN) + 1):
-            if len(namer.run_groups.get(tuple(x.text for x in spans[:e]), ())) < floor:
+            if len(stats.run_groups.get(tuple(x.text for x in spans[:e]), ())) < floor:
                 break
             best = e
         if best and any(x.text.isalpha() and len(x.text) > 2 for x in spans[:best]):
@@ -215,9 +223,11 @@ def _shared_counts(namer: WalkNamer, members: Sequence[int]) -> Counter[str]:
     return shared
 
 
-def author_features(namer: WalkNamer, grp: Group, cands: list[ACand], flags: dict) -> np.ndarray:
+def author_features(
+    namer: WalkNamer, stats: Stats, grp: Group, cands: list[ACand], flags: dict
+) -> np.ndarray:
     """One row of the 52 author features per candidate."""
-    n_groups = len(namer.groups)
+    n_groups = stats.size
     context = [
         math.log(len(grp.members)),
         math.log(n_groups),
@@ -231,7 +241,7 @@ def author_features(namer: WalkNamer, grp: Group, cands: list[ACand], flags: dic
     for c in cands:
         r = [float(s in c.src) for s in AUTHOR_SOURCES] + [0.0, c.share]
         r += _folder_features(c, n_groups)
-        r += _token_features(namer, grp, c, flags)
+        r += _token_features(namer, stats, grp, c, flags)
         rows.append(r + context)
     return np.asarray(rows, dtype=np.float64)
 
@@ -261,21 +271,23 @@ def _folder_features(c: ACand, n_groups: int) -> list[float]:
     ]
 
 
-def _token_features(namer: WalkNamer, grp: Group, c: ACand, flags: dict) -> list[float]:
+def _token_features(
+    namer: WalkNamer, stats: Stats, grp: Group, c: ACand, flags: dict
+) -> list[float]:
     known = namer.authors
     k = author_key(c.text)
     toks = N.tokenize(c.raw) or [k]
-    scope = namer.scope(grp)
-    holders = namer.holders(grp, tuple(toks))
+    scope = stats.scope(grp)
+    holders = stats.holders(grp, tuple(toks))
     rule_key = author_key(grp.rule.author) if grp.rule.author else ""
     return [
-        *_rate_features(namer, toks),
+        *_rate_features(namer, stats, toks),
         float(k in known or author_key(c.raw) in known),
         sum(author_key(x) in known for x in toks if len(x) > 2) / len(toks),
         float(k == rule_key),
         c.by_share,
         sum(x in V.REND or x in V.AXIS or x in V.GENERIC for x in toks) / len(toks),
-        (len(holders) - 1) / namer.n_others,
+        (len(holders) - 1) / stats.n_others,
         (len(holders & scope) - 1) / max(1, len(scope) - 1),
         math.log(len(holders)),
         c.credit_share,
@@ -284,8 +296,8 @@ def _token_features(namer: WalkNamer, grp: Group, c: ACand, flags: dict) -> list
     ]
 
 
-def _rate_features(namer: WalkNamer, toks: list[str]) -> list[float]:
-    df = [namer.group_share(x) for x in toks]
+def _rate_features(namer: WalkNamer, stats: Stats, toks: list[str]) -> list[float]:
+    df = [stats.group_share(x) for x in toks]
     rates = [namer.tables.rate(x) for x in toks]
     return [
         len(toks),

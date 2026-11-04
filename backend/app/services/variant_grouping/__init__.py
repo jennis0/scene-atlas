@@ -104,8 +104,8 @@ def group_with_content[K: Hashable](
     namer = GroupNamer(parser, result, walk_files, paths, known)
     groups: list[ProposedGroup[K]] = []
     group_of: dict[int, int] = {}
-    for root, idx in members.items():
-        named = namer.name(idx)
+    named_all = namer.name_all(list(members.values()))
+    for (root, idx), named in zip(members.items(), named_all, strict=True):
         subgroups = {
             keys[i]: namer.subgroup_label(label)
             for i in idx

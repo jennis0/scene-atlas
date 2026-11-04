@@ -14,10 +14,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .namer import WalkNamer
+from .namer import Request, WalkNamer
 from .text import Tables, author_key
 
-__all__ = ["ASSET_DIR", "LearnedNamer", "WalkNamer", "author_key", "load"]
+__all__ = ["ASSET_DIR", "LearnedNamer", "Request", "WalkNamer", "author_key", "load"]
 
 logger = logging.getLogger(__name__)
 

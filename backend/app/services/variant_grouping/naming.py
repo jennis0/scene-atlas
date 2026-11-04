@@ -274,20 +274,28 @@ class GroupNamer:
         stem = self._files.stems[members[0]]
         return self._clean(stem, author) or stem, False
 
-    def name(self, members: Sequence[int]) -> GroupName:
-        """Display name and author of a group given its members (walk indices, path order):
-        the learned namer's, else the rules'. A group the namer finds nameless keeps the
-        rules' name (``IMG 0001``), so such groups stay apart."""
-        folder = self._naming_folder(members)
-        rule = self._rule_name(members, folder)
+    def name_all(self, groups: Sequence[Sequence[int]]) -> list[GroupName]:
+        """Display name and author of each group given its members (walk indices, path
+        order): the learned namer's, else the rules'. The groups are named together, since a
+        group's author can depend on the others' (``WalkNamer._authors``). A group the namer
+        finds nameless keeps the rules' name (``IMG 0001``), so such groups stay apart."""
+        requests = []
+        for members in groups:
+            folder = self._naming_folder(members)
+            rule = self._rule_name(members, folder)
+            identity = self._identity_name(members, None) if self._learned else None
+            folder_name = self._folder_display(folder, None) if folder is not None else None
+            requests.append(learned_naming.Request(members, rule, folder, identity, folder_name))
         if self._learned is None:
-            return rule
-        identity = self._identity_name(members, None)
-        folder_name = self._folder_display(folder, None) if folder is not None else None
-        name, author, is_identity = self._learned.name(members, rule, folder, identity, folder_name)
-        if not is_identity:  # a placeholder: the rules' name keeps such groups apart
-            name = rule.name
-        return GroupName(name, author, is_identity)
+            return [r.rule for r in requests]
+        out = []
+        for r, (name, author, is_identity) in zip(
+            requests, self._learned.name_all(requests), strict=True
+        ):
+            if not is_identity:  # a placeholder: the rules' name keeps such groups apart
+                name = r.rule.name
+            out.append(GroupName(name, author, is_identity))
+        return out
 
     def _rule_name(self, members: Sequence[int], folder: Folder | None) -> GroupName:
         """The rules' name and author. The author is chosen against the name (a folder naming
