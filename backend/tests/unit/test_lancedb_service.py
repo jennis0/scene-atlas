@@ -5,6 +5,8 @@ conversion, upsert semantics, and deletion — rather than mocking the
 service away.
 """
 
+from datetime import timedelta
+
 import numpy as np
 import pytest
 
@@ -200,3 +202,117 @@ class TestEnsureCollectionExisting:
         )
         assert second.get_collection_info()["points_count"] == 1
         second.close()
+
+
+def _vec(seed: int, dim: int = 32) -> list[float]:
+    v = np.random.default_rng(seed).normal(size=dim).astype(np.float32)
+    return (v / np.linalg.norm(v)).tolist()
+
+
+class TestCompaction:
+    """The table is compacted once its fragment count grows with its size (a fragment per
+    write slowed every later write and search), and superseded files don't pile up."""
+
+    def _add(self, svc, start: int, n: int = 2):
+        items = [
+            {"image_id": i, "embedding": _vec(i), "metadata": {}} for i in range(start, start + n)
+        ]
+        assert svc.batch_add_embeddings(items)
+
+    @staticmethod
+    def _fragments(svc) -> int:
+        return svc._tbl.stats()["fragment_stats"]["num_fragments"]
+
+    @staticmethod
+    def _disk(svc) -> int:
+        return sum(p.stat().st_size for p in svc._path.rglob("*") if p.is_file())
+
+    @pytest.fixture
+    def due_at_four(self, monkeypatch):
+        """Compaction due at 4 fragments, so tests needn't write 64 times."""
+        from backend.app.services import lancedb_service as module
+
+        monkeypatch.setattr(module, "compaction_due", lambda rows, fragments: fragments >= 4)
+        return module
+
+    def test_threshold_grows_with_the_table(self):
+        from backend.app.services.lancedb_service import compaction_due
+
+        assert not compaction_due(1_000, 63) and compaction_due(1_000, 64)
+        assert not compaction_due(200_000, 96) and compaction_due(200_000, 97)
+
+    def test_compacts_only_when_due_keeping_every_row(self, svc, due_at_four):
+        for b in range(3):
+            self._add(svc, b * 2)
+        assert not svc.compact_if_fragmented()
+        assert self._fragments(svc) == 3
+        self._add(svc, 6)
+        assert svc.compact_if_fragmented()
+        assert self._fragments(svc) == 1
+        stored = svc.get_embeddings(list(range(8)))
+        assert sorted(stored) == list(range(8))
+        assert np.allclose(stored[3], _vec(3))
+
+    def test_decision_comes_from_the_table_so_it_survives_a_restart(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        reopened = LanceDBService(svc._path, svc.collection_name, vector_size=32)
+        assert reopened.compact_if_fragmented()
+        reopened.close()
+
+    def test_superseded_files_are_cleaned_so_disk_stays_bounded(
+        self, svc, due_at_four, monkeypatch
+    ):
+        monkeypatch.setattr(due_at_four, "CLEANUP_AFTER", timedelta(0))  # readers done
+        sizes, versions = [], []
+        for b in range(60):
+            self._add(svc, b * 4, 4)
+            if svc.compact_if_fragmented():
+                sizes.append(self._disk(svc))
+                versions.append(len(svc._tbl.list_versions()))
+        assert len(sizes) >= 5
+        # Without cleanup every compaction kept a full copy; now the table stays near its
+        # own size and keeps a handful of versions
+        assert max(versions) <= 2
+        assert sizes[-1] < 2.5 * sizes[len(sizes) // 2]
+
+    def test_a_reader_on_the_old_version_survives_a_compaction(self, svc, due_at_four):
+        """With the real CLEANUP_AFTER, a search already running on the version before a
+        compaction still finds its files."""
+        import lancedb
+
+        for b in range(4):
+            self._add(svc, b * 2)
+        old = lancedb.connect(str(svc._path)).open_table(svc.collection_name)
+        assert svc.compact_if_fragmented()
+        rows = old.search(_vec(3)).limit(8).to_list()
+        assert sorted(r["image_id"] for r in rows) == list(range(8))
+
+    def test_a_failed_compaction_never_raises_and_waits_before_trying_again(
+        self, svc, due_at_four, monkeypatch, caplog
+    ):
+        for b in range(4):
+            self._add(svc, b * 2)
+        calls = []
+
+        def broken(**kwargs):
+            calls.append(kwargs)
+            raise OSError("disk trouble")
+
+        real_optimize = svc._tbl.optimize
+        monkeypatch.setattr(svc._tbl, "optimize", broken)
+        clock = [1000.0]
+        monkeypatch.setattr(due_at_four.time, "monotonic", lambda: clock[0])
+        assert svc.compact_if_fragmented() is False
+        assert svc.compact_if_fragmented() is False  # within the back-off: not tried
+        assert len(calls) == 1
+        clock[0] += due_at_four.COMPACT_RETRY_AFTER + 1
+        caplog.clear()
+        assert svc.compact_if_fragmented() is False
+        assert len(calls) == 2
+        assert [r.exc_info for r in caplog.records if "failed again" in r.message] == [None]
+        assert sorted(svc.get_embeddings(list(range(8)))) == list(range(8))
+        monkeypatch.setattr(svc._tbl, "optimize", real_optimize)
+        clock[0] += due_at_four.COMPACT_RETRY_AFTER + 1
+        assert svc.compact_if_fragmented()  # and a success clears the back-off
+        assert svc._compaction_failed_at is None

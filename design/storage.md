@@ -215,6 +215,14 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 
 Row schema: `id` (int64), `vector` (fixed-size float32 list, normalised), `image_id`, `filename`, `author`, `base_name`.
 
+**Compaction.** Each `merge_insert` (one per import batch) adds a fragment, and each write a version (a delete adds a version and a deletion file, not a fragment). Nothing used to compact them. After a 20k-image import, every write scanned ~1,250 fragments (13 ms per batch at 2k rows, 100 ms at 20k), and a search took 156 ms where a compacted table took 35 ms. `LanceDBService.compact_if_fragmented()` runs `optimize(cleanup_older_than=CLEANUP_AFTER)` once the table's own fragment count (`stats()`) reaches `max(64, rows // 2048)` (`compaction_due`).
+
+- **Why the threshold grows:** `optimize()` rewrites every fragment under ~1M rows, the previous compaction's output included, so each compaction costs the whole table (~13 µs a row). A threshold that grows with the table keeps the rewriting to a few percent of total ingest time; a 200k-row table compacts every ~100 batches, ~2.6 s each. Writes, and searches, no longer degrade with fragment count; a search still grows linearly with rows, since there is no vector index.
+- **Why `CLEANUP_AFTER` is 60 s:** superseded files are deleted once they are that old. The default (7 days) kept every rewritten copy: 41 → 235 MB over four compactions at 20k rows, and backups copy the whole directory. Zero would pull files from under a search already running on an older version (pinned by a test). Searches don't take the service lock; backups and writes do, so they never overlap a compaction.
+- **Who triggers it:** background writers only: the ingest worker after a vector write, and vector reconciliation after each re-embed batch and once at the end (a cheap retry when nothing is due). The decision comes from the table, so it holds across restarts.
+- **Failures:** a failure is logged (with a traceback the first time) and never fails anything. Compaction is then skipped for 10 minutes (`COMPACT_RETRY_AFTER`), since every attempt rewrites the whole table.
+- Rows and vectors are unchanged.
+
 LanceDB is linked to SQLite by `image_id`. Vectors are written after the SQLite commit; `vector_reconcile.reconcile_vectors` (startup and every 24 h) re-embeds images without a vector and deletes vectors without an image.
 
 ## Filesystem — ImageStore

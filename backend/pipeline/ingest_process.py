@@ -1164,6 +1164,8 @@ def write_vectors(done: list[CommittedImage], refreshed: Iterable[int] = ()) -> 
             "Vector write failed for %d image(s); reconciliation will repair", len(items)
         )
         _drop_stale_vectors(list(refreshed))
+    else:
+        get_lancedb_service().compact_if_fragmented()  # a fragment per batch otherwise
     return bool(ok)
 
 
