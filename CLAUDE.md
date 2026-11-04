@@ -35,6 +35,7 @@ IMPORTANT: It must be possible to build on both windows and linux and run on Win
 
 # How to Manage the Code
 - Always work on branches, never push directly to main. Open a PR to merge.
+  - Exception: docs-only changes (roadmap rows, design notes, CLAUDE.md itself) are committed and pushed straight to main, without a branch or PR
 - When starting a new feature, do so in a worktree then ask the user to merge it into the primary working branch once complete
 - Delete the worktree when the user confirms they're happy with the completed feature
 - If working on small bugfixes, do so in your current worktree if one is available, otherwise ask the user whether they want you to work on the main branch
