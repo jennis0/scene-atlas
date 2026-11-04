@@ -199,6 +199,9 @@ class _Vectors:
         self.deleted += image_ids
         return True
 
+    def compact_if_fragmented(self):
+        return False
+
 
 @pytest.mark.parametrize("ok", [True, False])
 def test_a_refreshed_images_old_vector_never_outlives_a_failed_write(monkeypatch, ok):

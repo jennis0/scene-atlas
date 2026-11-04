@@ -10,8 +10,11 @@ RuntimeError if called after close().
 import logging
 import shutil
 import threading
+import time
 from collections.abc import Iterable
+from datetime import timedelta
 from pathlib import Path
+from typing import cast
 
 import lancedb
 import numpy as np
@@ -69,6 +72,29 @@ def _scan_vectors(table: Table, wanted: np.ndarray) -> dict[int, np.ndarray]:
     return out
 
 
+# Every merge_insert (one per import batch) adds a fragment, and every write a version.
+# Nothing compacted them: after a 20k-image import each write scanned ~1,250 fragments
+# (13 ms at 2k images, 100 ms at 20k) and a search took 156 ms where a compacted table took
+# 35 ms. (Deletes add a version and a deletion file, not a fragment.)
+#
+# optimize() rewrites every fragment under ~1M rows, the last compaction's output included,
+# so each compaction costs the whole table (~13 µs a row). It is due once the fragment count
+# reaches max(64, rows / 2048), so the interval grows with the table and the rewriting stays
+# a few percent of total ingest time. Superseded files are deleted once they are
+# CLEANUP_AFTER old: long enough for a search or id scan already running on an older version
+# (the service lock keeps backups and writes out), short enough that the table stays near
+# its own size (7 days, the default, kept every copy: 41 → 235 MB at 20k rows).
+CLEANUP_AFTER = timedelta(seconds=60)
+# After a failed compaction (disk full, a file held open), skip compacting this long: each
+# attempt rewrites the whole table
+COMPACT_RETRY_AFTER = 600.0
+
+
+def compaction_due(num_rows: int, num_fragments: int) -> bool:
+    """Whether a table of ``num_rows`` in ``num_fragments`` fragments should be compacted."""
+    return num_fragments >= max(64, num_rows // 2048)
+
+
 def _table_schema(vector_size: int) -> pa.Schema:
     """Return the PyArrow schema for an embeddings table."""
     return pa.schema(
@@ -99,6 +125,7 @@ class LanceDBService:
         self.db: DBConnection | None = lancedb.connect(str(self._path), session=self.session)
         self._table: Table | None = None
         self.collection_name = collection_name
+        self._compaction_failed_at: float | None = None  # monotonic; see compact_if_fragmented
         self.ensure_collection()
 
     @property
@@ -223,6 +250,40 @@ class LanceDBService:
             except Exception:
                 logger.exception("Error batch adding embeddings")
                 return False
+
+    def compact_if_fragmented(self) -> bool:
+        """Compact the table if its fragment count says so (``compaction_due``). Decided
+        from the table itself, so it holds across restarts and whoever wrote. Called by
+        background writers (the ingest worker after a vector write, vector reconciliation),
+        never on a request thread. Returns whether it compacted; never raises. After a
+        failure it doesn't try again for ``COMPACT_RETRY_AFTER`` seconds."""
+        with self._lock:
+            failed_at = self._compaction_failed_at
+            if failed_at is not None and time.monotonic() - failed_at < COMPACT_RETRY_AFTER:
+                return False
+            try:
+                stats = cast(dict, self._tbl.stats())  # a dict at runtime
+                fragments = stats["fragment_stats"]["num_fragments"]
+                if not compaction_due(stats["num_rows"], fragments):
+                    return False
+                started = time.monotonic()
+                self._tbl.optimize(cleanup_older_than=CLEANUP_AFTER)
+            except Exception as exc:
+                if failed_at is None:
+                    logger.exception("LanceDB compaction failed; retrying in 10 minutes")
+                else:
+                    logger.warning("LanceDB compaction failed again: %s", exc)
+                self._compaction_failed_at = time.monotonic()
+                return False
+            self._compaction_failed_at = None
+            logger.info(
+                "Compacted LanceDB table %s (%d rows, %d fragments) in %.2f s",
+                self.collection_name,
+                stats["num_rows"],
+                fragments,
+                time.monotonic() - started,
+            )
+            return True
 
     def search_similar(
         self,
