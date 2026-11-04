@@ -111,6 +111,22 @@ With groups minted at the end, the editor is opened on a running import only whe
 - When the import finishes the strip says so ("Import finished · 347 groups") and still offers to
   add the rest.
 
+### Skipped images in no group
+
+Images Auto skipped that no map group claims (ADR-030) are the import's ungrouped group. They
+must stay findable: the classifier can be wrong.
+
+- **Report:** the ungrouped group is the ledger's last row, **Not in a group**, without a creator;
+  `group_count` and the status line's "in N groups" leave it out. With skipped images in it, the
+  row opens the editor on the Skipped entry.
+- **Editor:** in an import review that follows a job, the sidebar lists **Skipped by Auto** under
+  the groups, with the count (`ungrouped_sorted_out` in the job summary, live). It opens a panel in
+  place of the group form: the skipped images by reason, each with Include, and Include all
+  (`GET /imports/sorted-out?job_id=`). Included images are grouped when imported; the strip above
+  offers their new groups. Choosing a group or All leaves the entry.
+- **An import Auto skipped entirely** has no reviewable group; its Review buttons open the editor
+  on the Skipped entry alone (`SKIPPED_START`).
+
 ## 6. Gallery and imports
 
 Found on the user's large library (2026-10-18): the gallery reset its grouped results every 4 s

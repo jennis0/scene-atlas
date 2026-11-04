@@ -32,6 +32,7 @@ import { getImportManager } from '@/lib/import/ImportManager'
 import { useImportJob, useImportManagerSnapshot } from '@/lib/import/useImports'
 import type { ImageType, PickedFile } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, Notice, TextButton } from './ImportFrame'
+import { SKIPPED_START, type ReviewStart } from '@/lib/reviewStart'
 import { ProblemsLine, ProgressSummary } from './ImportProgress'
 import { ResultView } from './ImportResultView'
 import {
@@ -53,7 +54,7 @@ interface ImportDialogProps {
   /** A new import was created; the parent should now show it. */
   onStarted: (jobId: string) => void
   /** Open the import's groups in the group editor, optionally on one of them. */
-  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
+  onReviewGroups?: (imageGroupIds: number[], start?: ReviewStart) => void
   /** The import was undone (its images deleted). */
   onUndone?: () => void
 }
@@ -319,7 +320,7 @@ function ProgressView({
   jobId: string
   open: boolean
   onClose: () => void
-  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
+  onReviewGroups?: (imageGroupIds: number[], start?: ReviewStart) => void
 }) {
   const manager = getImportManager()
   const { queue, connection } = useImportManagerSnapshot()
@@ -364,10 +365,13 @@ function ProgressView({
   const label = job?.label ?? upload?.label ?? 'Import'
   const finished = job ? isFinished(job) : upload?.phase === 'failed'
 
-  // The editor on the import's groups (they exist once the import has finished)
+  // The editor on the import's groups (they exist once the import has finished), or on
+  // its Skipped entry when Auto skipped everything
   const reviewSoFar = async () => {
-    const ids = (await manager.getDetail(jobId)).reviewable_group_ids
+    const detail = await manager.getDetail(jobId)
+    const ids = detail.reviewable_group_ids
     if (ids.length > 0) onReviewGroups?.(ids)
+    else if (detail.ungrouped_sorted_out > 0) onReviewGroups?.([], SKIPPED_START)
   }
   const counts = job?.counts
 
@@ -425,11 +429,15 @@ function ProgressView({
             <TextButton tone="outline" onClick={close}>
               Close
             </TextButton>
-            {onReviewGroups && job && job.groups_reviewable > 0 && (
-              <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
-                Review {plural(job.groups_reviewable, 'group')}
-              </TextButton>
-            )}
+            {onReviewGroups &&
+              job &&
+              (job.groups_reviewable > 0 || job.ungrouped_sorted_out > 0) && (
+                <TextButton tone="solid" onClick={() => void run(reviewSoFar)} disabled={busy}>
+                  {job.groups_reviewable > 0
+                    ? `Review ${plural(job.groups_reviewable, 'group')}`
+                    : 'Review skipped images'}
+                </TextButton>
+              )}
           </div>
         </>
       }

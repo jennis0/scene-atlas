@@ -5,7 +5,6 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { EditableFileState, EditableGroupState, SeedImage } from '@/types'
 import { FileCard } from './import/FileCard'
-import { FileToolbar } from './import/FileToolbar'
 import { MetadataForm } from './import/MetadataForm'
 import { EMPTY_FILTER } from './import/fileFilter'
 import { useFileEditing, ALL_TAB, MULTI_GROUP_ID } from '@/hooks/useFileEditing'
@@ -24,9 +23,8 @@ import { useMergeNewImages } from './edit-group/mergeNewImages'
 import { SortedOutStrip } from './edit-group/SortedOutStrip'
 import { BulkPanel, SCOPE_FACETS_KEY } from './edit-group/BulkPanel'
 import { useBulkImageEdit } from '@/hooks/useBulkImageEdit'
-import { gridLabel } from '@/lib/bulkEdit'
-import { EditGroupFileGrid } from './edit-group/EditGroupFileGrid'
 import { EditGroupFooter } from './edit-group/EditGroupFooter'
+import { EditGroupFilesPane } from './edit-group/EditGroupFilesPane'
 import { EditGroupConfirmDialogs } from './edit-group/EditGroupConfirmDialogs'
 import type { PendingConfirm } from './edit-group/pendingConfirm'
 import { useEditScope } from './edit-group/useEditScope'
@@ -34,13 +32,16 @@ import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditG
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import { serverId } from '@/lib/serverId'
 import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
+import { SkippedPanel } from './edit-group/SkippedPanel'
+import { useSkippedEntry } from './edit-group/useSkippedEntry'
+import type { ReviewStart } from '@/lib/reviewStart'
 
 /** Import-review mode: several groups by ID, all images in scope (e.g. every group an
  * import created, from the import report). */
 export interface ImportReview {
   groupIds: number[]
-  /** The group to open on, instead of all groups */
-  startGroupId?: number
+  /** The group to open on instead of all groups, or the Skipped entry (SKIPPED_START) */
+  startGroupId?: ReviewStart
   /** The import the groups came from, to follow while it runs */
   jobId?: string
   /** Add groups the import finished since the editor opened */
@@ -81,6 +82,9 @@ export default function EditGroupDialog({
   // (needs groups/setGroups from useFileEditing).
   const autoSaveRef = useRef<(group: EditableGroupState) => void>(() => {})
 
+  const fileEditing = useFileEditing({
+    onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
+  })
   const {
     groups,
     setGroups,
@@ -89,7 +93,6 @@ export default function EditGroupDialog({
     selections,
     fileFilter,
     setFileFilter,
-    editingSvHeading,
     setEditingSvHeading,
     tagVocab,
     setTagVocab,
@@ -100,19 +103,13 @@ export default function EditGroupDialog({
     updateFileAnyGroup,
     updateFilesInGroup,
     toggleFileSelection,
-    selectAllVisible,
     deselectAll,
     selectedInScope,
     patchFiles,
-    bulkExclude,
-    clearSubgroupLabel,
-    renameSubgroup,
     isAllTab,
     activeGroup,
     activeGroupId,
-  } = useFileEditing({
-    onGroupChange: (affected) => affected.forEach((g) => autoSaveRef.current(g)),
-  })
+  } = fileEditing
 
   const { selectedGroupIds, handleGroupClick, resetMultiselect } = useGroupSidebarMultiselect({
     groups,
@@ -167,7 +164,8 @@ export default function EditGroupDialog({
     groupId,
     seedImages,
     groupIds,
-    startGroupId: importReview?.startGroupId,
+    startGroupId:
+      typeof importReview?.startGroupId === 'number' ? importReview.startGroupId : undefined,
     onResetDialogState: resetDialogState,
     fileEditing: {
       groups,
@@ -181,6 +179,9 @@ export default function EditGroupDialog({
   })
 
   const isImportReview = !!groupIds && groupIds.length > 0
+  // The import's skipped images in no group; shown alone when the import made no group
+  const skipped = useSkippedEntry(importReview?.jobId, open, importReview?.startGroupId)
+  const showSkipped = skipped.listed && (skipped.shown || groups.length === 0)
 
   const showImportProgress =
     importReview?.jobId && importReview.onShowProgress
@@ -204,7 +205,7 @@ export default function EditGroupDialog({
     selectedGroupIds,
     fileFilter,
   })
-  const { isMultiSelect, showsMultipleGroups, selectionId, bulkScope } = scope
+  const { isMultiSelect, showsMultipleGroups, selectionId } = scope
 
   // Large import review: All is a panel of server-side counts and bulk edits, not a grid
   const showBulkPanel = isLargeReview && isAllTab && !isMultiSelect
@@ -247,7 +248,6 @@ export default function EditGroupDialog({
 
   const activeGroupDbId = activeGroup ? serverId(activeGroup.id) : null
   const activeSelection = selections[selectionId] ?? new Set<string>()
-  const hasActiveFilter = !!fileFilter.text || fileFilter.active.length > 0
   const isOriginalGroup = !showsMultipleGroups && !isMassEdit && activeGroup?.id === String(groupId)
 
   const totalInScope =
@@ -298,6 +298,102 @@ export default function EditGroupDialog({
     </DraggableFileCardWrapper>
   )
 
+  // The sidebar: groups, All and the Skipped entry (several groups, or one beside the entry)
+  const showSidebar =
+    groups.length > 0 && (groups.length > 1 || pendingGroups.length > 0 || skipped.listed)
+  const renderSidebar = () => (
+    <EditGroupSidebar
+      order={groupOrder}
+      pending={{
+        groups: pendingGroups,
+        awaitedId: awaitedGroupId,
+        onOpen: (id) => {
+          skipped.hide()
+          prioritizeGroup(id)
+        },
+        onDemand: isLargeReview,
+      }}
+      activeTab={activeTab}
+      allTab={{
+        active: isAllTab && !showSkipped,
+        count: totalInScope,
+        onSelect: () => {
+          skipped.hide()
+          setActiveTab(ALL_TAB)
+        },
+      }}
+      skippedTab={
+        skipped.listed
+          ? { active: showSkipped, count: skipped.count, onSelect: skipped.show }
+          : undefined
+      }
+      onGroupClick={(index, id, e) => {
+        skipped.hide()
+        handleGroupClick(index, id, e)
+      }}
+      hasGroupActions={isMassEdit || isImportReview}
+    />
+  )
+
+  // The scope's author and name, and the images Auto skipped from the open group
+  const moveToNewGroup =
+    !showsMultipleGroups && !isMassEdit && activeGroup?.id
+      ? async () => {
+          await ops.moveToNewGroup(activeGroup.id)
+          groupNameRef.current?.focus()
+        }
+      : undefined
+
+  const renderMetadata = () => (
+    <>
+      <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
+        <MetadataForm
+          author={scope.scopeAuthor}
+          groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
+          authorPlaceholder={
+            isMultiSelect && !scope.scopeAuthor
+              ? 'Multiple — type to set for selected groups'
+              : isAllTab && !scope.scopeAuthor
+                ? 'Multiple — type to set for all groups'
+                : 'Author name'
+          }
+          groupNamePlaceholder={
+            isMultiSelect
+              ? `— (${selectedGroupIds.size} groups selected)`
+              : isAllTab
+                ? '— (select a group to rename)'
+                : 'Group name'
+          }
+          groupNameDisabled={showsMultipleGroups}
+          isMassEdit={isMassEdit}
+          isAllTab={showsMultipleGroups}
+          authorSuggestions={authorSuggestions}
+          suggestionsListId="author-suggestions-edit"
+          onAuthorChange={setAuthor}
+          onGroupNameChange={(val) => {
+            if (showsMultipleGroups) return
+            metadata.markDirty()
+            updateGroup(activeGroupId, { group_name: val })
+          }}
+          onBlur={() => void metadata.save()}
+          groupNameRef={groupNameRef}
+        />
+      </div>
+
+      {!showsMultipleGroups && activeGroupDbId !== null && (
+        <div className="px-5 shrink-0">
+          <SortedOutStrip
+            key={activeGroupDbId}
+            groupId={activeGroupDbId}
+            count={sortedOut.counts[activeGroupDbId] ?? 0}
+            importing={sortedOut.importing[activeGroupDbId] ?? 0}
+            onIncluded={(n, jobIds) => sortedOut.included(activeGroupDbId, n, jobIds)}
+          />
+        </div>
+      )}
+    </>
+  )
+
   return (
     <EditGroupContext.Provider value={context}>
       <Dialog
@@ -344,159 +440,32 @@ export default function EditGroupDialog({
             </div>
           )}
 
-          {!loading && !loadError && groups.length > 0 && (
+          {!loading && !loadError && (groups.length > 0 || showSkipped) && (
             <DndContext
               sensors={dnd.sensors}
               onDragStart={dnd.handleDragStart}
               onDragEnd={dnd.handleDragEnd}
             >
               <div className="flex min-h-0 flex-1 overflow-hidden">
-                {(groups.length > 1 || pendingGroups.length > 0) && (
-                  <EditGroupSidebar
-                    order={groupOrder}
-                    pending={{
-                      groups: pendingGroups,
-                      awaitedId: awaitedGroupId,
-                      onOpen: prioritizeGroup,
-                      onDemand: isLargeReview,
-                    }}
-                    activeTab={activeTab}
-                    allTab={{
-                      active: isAllTab,
-                      count: totalInScope,
-                      onSelect: () => setActiveTab(ALL_TAB),
-                    }}
-                    onGroupClick={handleGroupClick}
-                    hasGroupActions={isMassEdit || isImportReview}
-                  />
-                )}
+                {showSidebar && renderSidebar()}
 
                 <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                  {showBulkPanel ? (
+                  {showSkipped && importReview?.jobId ? (
+                    <SkippedPanel jobId={importReview.jobId} count={skipped.count} />
+                  ) : showBulkPanel ? (
                     <BulkPanel groupIds={groupIds!} vocab={tagVocab} bulk={bulk} />
                   ) : (
                     <>
-                      <div className="px-5 pt-4 pb-3 border-b border-border/30 shrink-0">
-                        <MetadataForm
-                          author={scope.scopeAuthor}
-                          groupName={showsMultipleGroups ? '' : (activeGroup?.group_name ?? '')}
-                          authorPlaceholder={
-                            isMultiSelect && !scope.scopeAuthor
-                              ? 'Multiple — type to set for selected groups'
-                              : isAllTab && !scope.scopeAuthor
-                                ? 'Multiple — type to set for all groups'
-                                : 'Author name'
-                          }
-                          groupNamePlaceholder={
-                            isMultiSelect
-                              ? `— (${selectedGroupIds.size} groups selected)`
-                              : isAllTab
-                                ? '— (select a group to rename)'
-                                : 'Group name'
-                          }
-                          groupNameDisabled={showsMultipleGroups}
-                          isMassEdit={isMassEdit}
-                          isAllTab={showsMultipleGroups}
-                          authorSuggestions={authorSuggestions}
-                          suggestionsListId="author-suggestions-edit"
-                          onAuthorChange={setAuthor}
-                          onGroupNameChange={(val) => {
-                            if (showsMultipleGroups) return
-                            metadata.markDirty()
-                            updateGroup(activeGroupId, { group_name: val })
-                          }}
-                          onBlur={() => void metadata.save()}
-                          groupNameRef={groupNameRef}
-                        />
-                      </div>
-
-                      {!showsMultipleGroups && activeGroupDbId !== null && (
-                        <div className="px-5 shrink-0">
-                          <SortedOutStrip
-                            key={activeGroupDbId}
-                            groupId={activeGroupDbId}
-                            count={sortedOut.counts[activeGroupDbId] ?? 0}
-                            importing={sortedOut.importing[activeGroupDbId] ?? 0}
-                            onIncluded={(n, jobIds) =>
-                              sortedOut.included(activeGroupDbId, n, jobIds)
-                            }
-                          />
-                        </div>
-                      )}
-
-                      <div className="px-5 shrink-0">
-                        <FileToolbar
-                          files={scope.inScopeFiles}
-                          filteredFiles={scope.filteredFiles}
-                          selection={activeSelection}
-                          filter={fileFilter}
-                          vocab={tagVocab}
-                          onFilterChange={setFileFilter}
-                          onSelectAll={() => selectAllVisible(selectionId, scope.filteredFiles)}
-                          onDeselectAll={() => deselectAll(selectionId)}
-                          onBulkAddTag={(tag) =>
-                            bulk.request(bulkScope, {
-                              addTags: [tag],
-                              label: `Add tag "${tag.value}"`,
-                            })
-                          }
-                          onBulkSetGrid={(gridded, gridType) =>
-                            bulk.request(bulkScope, {
-                              changes: { gridded, grid_type: gridType },
-                              label: gridLabel(gridded, gridType),
-                            })
-                          }
-                          onBulkSetImageType={(v) =>
-                            bulk.request(bulkScope, {
-                              changes: { image_type: v },
-                              label: `Set type to ${v === 'scene' ? 'scene' : 'map'}`,
-                            })
-                          }
-                          onBulkSetSubgroup={(v) => {
-                            const subgroup = v.trim() || null
-                            bulk.request(bulkScope, {
-                              changes: { subgroup },
-                              label: subgroup ? `Set subgroup to "${subgroup}"` : 'Clear subgroup',
-                            })
-                          }}
-                          onBulkExclude={() => bulkExclude(bulkScope)}
-                          onMoveToNewGroup={
-                            !showsMultipleGroups && !isMassEdit && activeGroup?.id
-                              ? async () => {
-                                  await ops.moveToNewGroup(activeGroup.id)
-                                  groupNameRef.current?.focus()
-                                }
-                              : undefined
-                          }
-                          excludeLabel={isMassEdit ? 'Remove' : 'Delete'}
-                          alwaysShowTypeToggle
-                        />
-                        {showsMultipleGroups && pendingGroups.length > 0 && (
-                          <p role="status" className="pb-2 text-xs text-muted-foreground">
-                            Still loading {pendingGroups.length} of{' '}
-                            {groups.length + pendingGroups.length} groups. Changes here apply to the
-                            groups already loaded.
-                          </p>
-                        )}
-                      </div>
-
-                      <EditGroupFileGrid
-                        files={scope.filteredFiles}
-                        outOfScopeFiles={scope.outOfScopeFiles}
+                      {renderMetadata()}
+                      <EditGroupFilesPane
+                        editing={fileEditing}
+                        scope={scope}
+                        bulk={bulk}
+                        selection={activeSelection}
+                        isMassEdit={isMassEdit}
+                        loadingGroups={pendingGroups.length}
                         renderCard={renderCard}
-                        hasActiveFilter={hasActiveFilter}
-                        subgroups={{
-                          existing: scope.subgroups,
-                          canEdit: !showsMultipleGroups,
-                          editing: editingSvHeading,
-                          setEditing: setEditingSvHeading,
-                          rename: (from, to) => renameSubgroup(activeGroup!.id, from, to),
-                          clear: (subgroup) => clearSubgroupLabel(activeGroup!.id, subgroup),
-                        }}
-                        vocab={tagVocab}
-                        onUpdateOutOfScope={(file, updates) =>
-                          updateFile(activeTab, file.relative_path, updates)
-                        }
+                        onMoveToNewGroup={moveToNewGroup}
                       />
                     </>
                   )}
@@ -504,7 +473,7 @@ export default function EditGroupDialog({
                   <EditGroupFooter
                     showGroupActions={isOriginalGroup}
                     onDone={handleDone}
-                    primaryDone={isImportReview}
+                    primaryDone={isImportReview || skipped.listed}
                   />
                 </div>
               </div>

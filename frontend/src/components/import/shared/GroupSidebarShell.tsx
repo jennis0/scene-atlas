@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ImageOff } from 'lucide-react'
 
 /** The "All" row at the top of the sidebar */
 export interface AllTab {
@@ -8,9 +9,22 @@ export interface AllTab {
   onSelect: () => void
 }
 
+/** Import review: the images Auto skipped that no group claims, under the groups */
+export interface SkippedTab {
+  active: boolean
+  count: number
+  onSelect: () => void
+}
+
+const TAB_STATE = {
+  active: 'border-primary bg-primary/10 text-primary',
+  idle: 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50',
+}
+
 interface GroupSidebarShellProps {
   headerLabel: string
   allTab: AllTab
+  skippedTab?: SkippedTab
   footer?: ReactNode
   /** Under the header, outside the scrolling list (e.g. a filter) */
   toolbar?: ReactNode
@@ -22,6 +36,7 @@ interface GroupSidebarShellProps {
 export function GroupSidebarShell({
   headerLabel,
   allTab,
+  skippedTab,
   footer,
   toolbar,
   scrollRef,
@@ -40,9 +55,7 @@ export function GroupSidebarShell({
         <button
           onClick={allTab.onSelect}
           className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 ${
-            allTab.active
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+            allTab.active ? TAB_STATE.active : TAB_STATE.idle
           }`}
         >
           <span className="font-display text-sm font-semibold flex-1">All</span>
@@ -54,6 +67,22 @@ export function GroupSidebarShell({
 
         {children}
       </div>
+
+      {skippedTab && (
+        <button
+          onClick={skippedTab.onSelect}
+          aria-current={skippedTab.active ? 'true' : undefined}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-l-2 border-t border-t-border/30 shrink-0 ${
+            skippedTab.active ? TAB_STATE.active : TAB_STATE.idle
+          }`}
+        >
+          <ImageOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="text-sm flex-1">Skipped by Auto</span>
+          <span className="text-2xs text-muted-foreground tabular-nums shrink-0">
+            {skippedTab.count.toLocaleString()}
+          </span>
+        </button>
+      )}
 
       {footer}
     </div>

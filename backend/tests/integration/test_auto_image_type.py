@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from PIL import Image as PILImage
 
-from backend.app.models import Image, ImportItem, ImportJob
+from backend.app.models import Image, ImportGroup, ImportItem, ImportJob
 from backend.app.services import get_image_store, get_thumbnail_store
 from backend.app.services.image_type_classifier import ImageTypeHead
 from backend.pipeline import ingest_maintenance, ingest_process, ingest_queue
@@ -766,6 +766,94 @@ def test_a_group_with_only_sorted_out_items_is_not_reviewable(auto):
     auto.worker.drain()
     detail = auto.detail(job_id)
     keep = next(g for g in detail["groups"] if g["group_name"] == "Keep")
-    cave = next(g for g in detail["groups"] if g["group_name"] == "Cave")
+    # The sorted-out Cave took no part in grouping and no map's folder claims it
+    (cave,) = [g for g in detail["groups"] if g["ungrouped"]]
     assert detail["reviewable_group_ids"] == [keep["image_group_id"]]
     assert (keep["counts"]["sorted_out"], cave["counts"]["sorted_out"]) == (0, 1)
+
+
+# ---------------------------------------------------------------------------
+# Sorted-out items in grouping (design/variant-grouping.md §3)
+# ---------------------------------------------------------------------------
+
+
+def _import_groups(api, job_id) -> dict[str, ImportGroup]:
+    """Each file's import group, by path."""
+    with api.SessionLocal() as db:
+        found = (
+            db.query(ImportItem.relative_path, ImportGroup)
+            .join(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
+            .filter(ImportItem.job_id == job_id)
+            .all()
+        )
+        for group in {id(g): g for _, g in found}.values():
+            db.expunge(group)
+        return dict(found)
+
+
+def test_sorted_out_items_are_shown_with_their_map_or_ungrouped_and_never_lost(auto):
+    """A token in a map's folder is shown with that map; an asset in a folder of no map is
+    ungrouped. Neither takes part in grouping, so the scene still joins the map's group. Every
+    file ends up in an import group."""
+    files = {
+        "Czepeku/Keep/Keep Day.png": solid("red", (64, 48)),
+        "Czepeku/Keep/Keep Night.png": solid("red", (80, 60)),
+        "Czepeku/Keep/Keep Vista.png": solid("green"),
+        "Czepeku/Keep/Tokens/Guard.png": solid("blue"),
+        "Czepeku/Fort/Fort Day.png": solid("red", (48, 64)),
+        "Czepeku/Loot/Chest.png": solid("yellow"),
+    }
+    job_id = import_files(auto, files)
+    auto.worker.drain()
+    items = rows(auto, job_id)
+    assert {p for p, i in items.items() if i.error_kind == "sorted_out"} == {
+        "Czepeku/Keep/Tokens/Guard.png",
+        "Czepeku/Loot/Chest.png",
+    }
+    groups = _import_groups(auto, job_id)
+    assert set(groups) == set(files)  # every file has an import group
+    keep = groups["Czepeku/Keep/Keep Day.png"]
+    assert groups["Czepeku/Keep/Keep Vista.png"].id == keep.id
+    assert groups["Czepeku/Keep/Tokens/Guard.png"].id == keep.id
+    assert groups["Czepeku/Loot/Chest.png"].ungrouped
+    assert not any(g.ungrouped for p, g in groups.items() if p != "Czepeku/Loot/Chest.png")
+    counts = auto.client.get(f"{BASE}/sorted-out/counts").json()["counts"]
+    assert counts == {str(keep.image_group_id): 1}  # the editor shows the token with Keep
+
+
+def test_an_included_ungrouped_item_is_grouped_and_the_ungrouped_group_goes(auto):
+    job_id = import_files(
+        auto,
+        {"Czepeku/Keep/Keep.png": solid("red"), "Czepeku/Loot/Chest.png": solid("yellow")},
+    )
+    auto.worker.drain()
+    chest = rows(auto, job_id)["Czepeku/Loot/Chest.png"]
+    assert _import_groups(auto, job_id)["Czepeku/Loot/Chest.png"].ungrouped
+
+    _include(auto, [chest.id])
+    auto.worker.drain()
+    chest = rows(auto, job_id)["Czepeku/Loot/Chest.png"]
+    assert chest.state == "done" and image_for(auto, chest).group_id is not None
+    detail = auto.detail(job_id)
+    assert not any(g["ungrouped"] for g in detail["groups"])
+    assert image_for(auto, chest).group_id in detail["reviewable_group_ids"]
+
+
+def test_an_imports_ungrouped_sorted_out_items_are_counted_and_listed(auto):
+    """For the review editor's Skipped entry: the job's sorted-out items in no group."""
+    job_id = import_files(
+        auto,
+        {
+            "Czepeku/Keep/Keep.png": solid("red"),
+            "Czepeku/Keep/Guard.png": solid("blue"),  # with Keep
+            "Czepeku/Loot/Chest.png": solid("yellow"),  # in no group
+        },
+    )
+    auto.worker.drain()
+    detail = auto.detail(job_id)
+    assert detail["ungrouped_sorted_out"] == 1
+    assert detail["group_count"] == 1  # the ungrouped group isn't counted
+    assert detail["groups"][-1]["ungrouped"]  # and comes last
+    listed = auto.client.get(f"{BASE}/sorted-out", params={"job_id": job_id}).json()
+    assert [i["relative_path"] for i in listed["items"]] == ["Czepeku/Loot/Chest.png"]
+    assert auto.client.get(f"{BASE}/sorted-out").status_code == 422

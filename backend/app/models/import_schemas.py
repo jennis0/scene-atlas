@@ -46,6 +46,8 @@ class ImportGroupSummary(BaseModel):
     # The images this import added, by type (the report; 0 for groups=active)
     map_count: int = 0
     scene_count: int = 0
+    # The job's files that made no image and belong to no map group (never a gallery group)
+    ungrouped: bool = False
 
 
 class ImportJobSummary(BaseModel):
@@ -67,6 +69,8 @@ class ImportJobSummary(BaseModel):
     # Gallery groups the review editor can open: one of this import's groups that resolved
     # to it has an imported image, and the import is grouped
     groups_reviewable: int = 0
+    # Items Auto sorted out that belong to no group (the review editor's Skipped entry)
+    ungrouped_sorted_out: int = 0
     created_at: datetime | None
     updated_at: datetime | None
     completed_at: datetime | None

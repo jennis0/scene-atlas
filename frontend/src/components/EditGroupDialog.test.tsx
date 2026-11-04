@@ -3,7 +3,12 @@ import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import { fakeLayout } from '@/test/fakeLayout'
-import { installFakeImportManager, item, uninstallFakeImportManager } from '@/test/importFakes'
+import {
+  installFakeImportManager,
+  item,
+  jobSummary,
+  uninstallFakeImportManager,
+} from '@/test/importFakes'
 import type { ImportManager } from '@/lib/import/ImportManager'
 import EditGroupDialog from './EditGroupDialog'
 import type { GroupDetail, GroupSummary, Image } from '@/types'
@@ -578,6 +583,65 @@ describe('EditGroupDialog', () => {
       await user.keyboard('{/Control}')
       expect(screen.getByText('2 selected')).toBeInTheDocument()
       expect(screen.queryByText(/from this group/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the Skipped entry: images Auto skipped that are in no group', () => {
+    let manager: ImportManager
+    beforeEach(async () => {
+      // Import group 9 has no gallery group: the import's ungrouped files
+      ;({ manager } = await installFakeImportManager({
+        jobs: [jobSummary({ status: 'completed', ungrouped_sorted_out: 2 })],
+        items: [50, 51].map((id) =>
+          item({
+            id,
+            import_group_id: 9,
+            filename: `token_${id}.png`,
+            state: 'skipped',
+            error_kind: 'sorted_out',
+            error_reason: 'Looks like a token',
+          }),
+        ),
+        importGroups: { 1: 1, 2: 2 },
+      }))
+    })
+    afterEach(() => uninstallFakeImportManager(manager))
+
+    it('opens on its own when the import made no group', async () => {
+      renderDialog({ importReview: { groupIds: [], jobId: 'job1', startGroupId: 'skipped' } })
+      expect(await screen.findByRole('heading', { name: 'Skipped by Auto' })).toBeInTheDocument()
+      expect(await screen.findByText('token_50.png')).toBeInTheDocument()
+    })
+
+    it('is listed under the groups, opens when asked, and closes for a group', async () => {
+      const { user } = renderDialog({
+        importReview: { groupIds: [1, 2], jobId: 'job1', startGroupId: 'skipped' },
+      })
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      const entry = within(dialog()).getByRole('button', { name: /Skipped by Auto/ })
+      expect(entry).toHaveAttribute('aria-current', 'true')
+      expect(await screen.findByText('token_51.png')).toBeInTheDocument()
+
+      await user.click(sidebarRow('Cave Maps'))
+      expect(screen.getByDisplayValue('Cave Maps')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Skipped by Auto' })).not.toBeInTheDocument()
+      expect(entry).not.toHaveAttribute('aria-current')
+
+      await user.click(entry)
+      expect(screen.getByRole('heading', { name: 'Skipped by Auto' })).toBeInTheDocument()
+    })
+
+    it('lists one group with it, and offers no Merge All for one group', async () => {
+      renderDialog({ importReview: { groupIds: [1], jobId: 'job1' } })
+      expect(await screen.findByText('1 group')).toBeInTheDocument()
+      expect(within(dialog()).getByRole('button', { name: /Skipped by Auto/ })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Merge All' })).not.toBeInTheDocument()
+    })
+
+    it('is not listed without an import to follow', async () => {
+      renderDialog({ importReview: { groupIds: [1, 2] } })
+      expect(await screen.findByText('2 groups')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Skipped by Auto/ })).not.toBeInTheDocument()
     })
   })
 

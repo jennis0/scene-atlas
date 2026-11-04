@@ -110,6 +110,71 @@ def test_mixed_labels_in_a_folder_give_no_subgroup():
     assert joined_subgroups([(1, 2)], [{2: "Night"}], FOLDERS, {10: 0}) == {10: None}
 
 
+# The ungrouped group: files that made no image and belong to no map group
+
+
+def ungrouped(*items: int) -> Proposal:
+    return Proposal(items, "Ungrouped", "Unknown", {}, False, ungrouped=True)
+
+
+def test_ungrouped_files_get_one_ungrouped_import_group_without_a_gallery_group():
+    plan = plan_grouping(
+        [Proposal((1,), "Keep", "Czepeku"), ungrouped(2, 3)], JobState(pending={1: 10})
+    )
+    assert plan.new_import_groups == [
+        NewImportGroup(-1, "Keep", "Czepeku", 0),
+        NewImportGroup(-2, "Ungrouped", "Unknown", 1, ungrouped=True),
+    ]
+    assert plan.item_groups == {1: -1, 2: -2, 3: -2}
+    assert set(plan.galleries) == {-1} and plan.dropped is None
+
+
+def test_a_late_run_adds_to_the_jobs_ungrouped_group():
+    state = JobState(import_group_of={2: 8}, ungrouped_group=8)
+    plan = plan_grouping([ungrouped(2, 4)], state)
+    assert plan.new_import_groups == []
+    assert plan.item_groups == {4: 8} and plan.dropped is None
+
+
+def test_a_file_that_made_an_image_leaves_the_ungrouped_group_and_it_is_dropped_once_empty():
+    """Included as a map: the walk groups it with Keep's images, so it joins Keep's import
+    group and gallery group, not the ungrouped group."""
+    state = JobState(
+        import_group_of={1: 5, 2: 8},
+        pending={2: 20},
+        placed={1: 50},
+        gallery_of={5: 50, 8: None},
+        ungrouped_group=8,
+    )
+    plan = plan_grouping([Proposal((1, 2), "Keep", "Czepeku")], state)
+    assert plan.item_groups == {2: 5}
+    assert plan.images == {20: (5, None)}
+    assert plan.galleries == {5: GalleryChoice(50, False)}
+    assert plan.dropped == 8
+
+
+def test_a_file_alone_in_its_group_after_leaving_the_ungrouped_group_gets_a_new_one():
+    state = JobState(import_group_of={2: 8}, pending={2: 20}, ungrouped_group=8)
+    plan = plan_grouping([Proposal((2,), "Goblin", "Czepeku")], state)
+    assert plan.new_import_groups == [NewImportGroup(-1, "Goblin", "Czepeku", 0)]
+    assert plan.item_groups == {2: -1} and plan.images == {20: (-1, None)}
+    assert plan.galleries[-1] == GalleryChoice(None, False, "Goblin", "Czepeku")
+    assert plan.dropped == 8
+
+
+def test_the_ungrouped_group_stays_while_a_file_is_still_in_it():
+    state = JobState(import_group_of={2: 8, 3: 8}, pending={2: 20}, ungrouped_group=8)
+    plan = plan_grouping([Proposal((2,), "Goblin", "Czepeku"), ungrouped(3)], state)
+    assert plan.item_groups == {2: -1} and plan.dropped is None
+
+
+def test_a_file_already_in_a_group_stays_there_when_it_is_ungrouped_on_a_late_run():
+    """Placed with Keep on the first run; files never change import group."""
+    state = JobState(import_group_of={2: 5})
+    plan = plan_grouping([ungrouped(2)], state)
+    assert plan.new_import_groups == [] and plan.item_groups == {}
+
+
 def test_a_group_from_metadata_joins_the_librarys_group_with_its_uid():
     """design/export-backup-move.md §6: the uid wins over names, and a group new to the
     library is minted carrying the uid, so later parts of it join it."""

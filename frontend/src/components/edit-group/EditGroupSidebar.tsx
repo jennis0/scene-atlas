@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, EyeOff, FolderDown, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
 import { useDownload } from '@/hooks/useDownload'
 import { TypeCounts } from '@/components/imports/TypeCounts'
+import { plural } from '@/components/imports/format'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -9,7 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { GroupSidebarShell, type AllTab } from '@/components/import/shared/GroupSidebarShell'
+import {
+  GroupSidebarShell,
+  type AllTab,
+  type SkippedTab,
+} from '@/components/import/shared/GroupSidebarShell'
 import { DroppableGroupRow, DraggableGroupRow } from '@/components/import/shared/dnd'
 import { serverId } from '@/lib/serverId'
 import type { EditableGroupState, GroupSummary } from '@/types'
@@ -22,6 +27,8 @@ type GroupClickHandler = (index: number, groupId: string, e: React.MouseEvent) =
 interface EditGroupSidebarProps {
   activeTab: number
   allTab: AllTab
+  /** Import review: the Skipped entry; while it's active no group row is */
+  skippedTab?: SkippedTab
   onGroupClick: GroupClickHandler
   /** Mass edit and import review get per-group menus and merge/delete actions. */
   hasGroupActions: boolean
@@ -45,16 +52,17 @@ const FOOTER_BUTTON =
 
 const NO_PENDING: PendingGroups = { groups: [], awaitedId: null, onOpen: () => {} }
 
-/** "12 of 68 groups" while groups are still loading, else "68 groups". */
+/** "12 of 68 groups" while groups are still loading, else "68 groups" (or "1 group"). */
 function headerLabel(loaded: number, pending: PendingGroups) {
-  const total = (loaded + pending.groups.length).toLocaleString()
-  if (pending.groups.length === 0 || pending.onDemand) return `${total} groups`
-  return `${loaded.toLocaleString()} of ${total} groups`
+  const total = loaded + pending.groups.length
+  if (pending.groups.length === 0 || pending.onDemand) return plural(total, 'group')
+  return `${loaded.toLocaleString()} of ${plural(total, 'group')}`
 }
 
 export function EditGroupSidebar({
   activeTab,
   allTab,
+  skippedTab,
   onGroupClick,
   hasGroupActions,
   pending = NO_PENDING,
@@ -69,13 +77,19 @@ export function EditGroupSidebar({
     () => sidebarRows(groups, pending.groups, order, query),
     [groups, pending.groups, order, query],
   )
-  const activeIndex = allTab.active ? null : activeTab
+  const activeIndex = allTab.active || skippedTab?.active ? null : activeTab
 
   return (
     <GroupSidebarShell
       headerLabel={headerLabel(groups.length, pending)}
       allTab={allTab}
-      footer={hasGroupActions ? <SidebarFooter canMergeAll={!pending.onDemand} /> : undefined}
+      skippedTab={skippedTab}
+      footer={
+        hasGroupActions ? (
+          // Merge All needs two groups (one, with the Skipped entry, lists the sidebar)
+          <SidebarFooter canMergeAll={!pending.onDemand && total >= 2} />
+        ) : undefined
+      }
       toolbar={total >= FILTER_FROM ? <GroupNameFilter value={query} onChange={setQuery} /> : null}
       scrollRef={setScrollElement}
     >

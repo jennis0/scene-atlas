@@ -30,7 +30,7 @@ The choice applies to the whole import. You can change an image's type afterward
 
 ### Images Auto skipped
 
-Auto skips images that look like tokens or aren't maps or scenes, and anything it can't decide on. They are listed under **Skipped** in the import report with the reason, and in the group editor for the group they would have joined. **Include** imports them after all.
+Auto skips images that look like tokens or aren't maps or scenes, and anything it can't decide on. They are listed under **Skipped** in the import report with the reason. In the group editor they appear with the map they sit beside or are named after; any that belong to no map are under **Skipped by Auto** when you review the import. **Include** imports them after all.
 
 Skipped images can be included until you clear the import from Activity (the report's **Done** does this) or for 24 hours after the import finishes, whichever comes first.
 
@@ -125,7 +125,7 @@ The images are already in your library, so this is where you fix what the import
 - drag images onto another group, or select some and use **Move selected to new group** to split them off;
 - select several groups and **Merge Selected**, or **Merge All**;
 - set the type, grid, subgroup or tags of many images at once;
-- **Include** images [Auto skipped](#images-auto-skipped), shown with the group they would have joined.
+- **Include** images [Auto skipped](#images-auto-skipped): shown with the map they belong to, or under **Skipped by Auto**.
 
 See [The Group Editor](/guide/groups#the-group-editor) for everything it does.
 

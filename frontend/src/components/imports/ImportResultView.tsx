@@ -28,6 +28,7 @@ import type {
   ItemState,
 } from '@/lib/import/types'
 import { ConfirmOverlay, ImportFrame, TextButton } from './ImportFrame'
+import { SKIPPED_START, type ReviewStart } from '@/lib/reviewStart'
 import { GroupLedger } from './GroupLedger'
 import { isFinished, outcomeText, plural } from './format'
 
@@ -45,7 +46,7 @@ interface ResultViewProps {
   open: boolean
   onClose: () => void
   /** Open every group this import added to in the group editor, optionally on one of them. */
-  onReviewGroups?: (imageGroupIds: number[], startGroupId?: number) => void
+  onReviewGroups?: (imageGroupIds: number[], start?: ReviewStart) => void
   /** Called after the import was undone (its images deleted). */
   onUndone?: () => void
 }
@@ -58,8 +59,9 @@ function sectionsFor(job: ImportJobSummary | undefined): Section[] {
 }
 
 /** The author every group shares, if they all share one. */
+/** The files in no group have no author of their own: they don't count */
 function sharedAuthorOf(groups: ImportGroupSummary[]): string | null {
-  const authors = new Set(groups.map((g) => g.author))
+  const authors = new Set(groups.filter((g) => !g.ungrouped).map((g) => g.author))
   return authors.size === 1 ? [...authors][0] : null
 }
 
@@ -73,7 +75,8 @@ function statusLine(
     job.status === 'cancelled' ? 'Cancelled. ' : isFinished(job) ? '' : 'Still running. '
   const skipped = job.counts.skipped ? `, ${job.counts.skipped.toLocaleString()} skipped` : ''
   // When every group has the same author, say it once here rather than on every row
-  const where = groups.length ? ` in ${plural(groups.length, 'group')}` : ''
+  const grouped = groups.filter((g) => !g.ungrouped).length
+  const where = grouped ? ` in ${plural(grouped, 'group')}` : ''
   const author = sharedAuthor ? ` · ${sharedAuthor}` : ''
   const metadata = job.with_metadata ? ' · with its Scene Atlas metadata' : ''
   return `${prefix}${outcomeText(job.counts)}${skipped}${where}${author}${metadata}`
@@ -169,8 +172,15 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             >
               Done
             </TextButton>
-            {onReviewGroups && reviewIds.length > 0 && (
-              <TextButton tone="solid" onClick={() => onReviewGroups(reviewIds)}>
+            {onReviewGroups && (reviewIds.length > 0 || !!job?.ungrouped_sorted_out) && (
+              <TextButton
+                tone="solid"
+                onClick={() =>
+                  reviewIds.length > 0
+                    ? onReviewGroups(reviewIds)
+                    : onReviewGroups([], SKIPPED_START)
+                }
+              >
                 Review in editor
               </TextButton>
             )}
@@ -224,6 +234,9 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
             showAuthor={!sharedAuthor}
             onOpenGroup={
               onReviewGroups ? (groupId) => onReviewGroups(reviewIds, groupId) : undefined
+            }
+            onOpenSkipped={
+              onReviewGroups ? () => onReviewGroups(reviewIds, SKIPPED_START) : undefined
             }
           />
         )}

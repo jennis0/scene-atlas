@@ -43,6 +43,7 @@ function summary(id: string, status: ImportJobSummary['status'] = 'active'): Imp
     dismissed: false,
     upload_interrupted: false,
     groups_reviewable: 0,
+    ungrouped_sorted_out: 0,
     local: false,
     linked: false,
     waiting_for: [],
