@@ -199,6 +199,12 @@ def files_under(path: Path) -> list[Path]:
     return [p for p in path.rglob("*") if p.is_file()] if path.exists() else []
 
 
+def store_files(store: Path) -> list[Path]:
+    """The library folder's files, less the scheduled backup kept in it
+    (``settings.backups_dir``), which can run partway through a long import."""
+    return [p for p in files_under(store) if p.relative_to(store).parts[0] != "backups"]
+
+
 def mb(n: int) -> float:
     return round(n / 1024 / 1024, 1)
 
@@ -453,10 +459,10 @@ def check_library(
     if linked:
         checks.eq(sum(1 for r in rows if r[3] is not None), 0, "linked images with a storage_key")
         checks.eq(sum(1 for r in rows if r[4] is None), 0, "linked images with no source file")
-        stored = [p for p in files_under(store) if p.name not in OWN_FILES]
+        stored = [p for p in store_files(store) if p.name not in OWN_FILES]
         checks.eq(len(stored), 0, "files copied into the store by a linked scan")
     else:
-        stored = {p.name for p in files_under(store) if ".incoming" not in p.parts}
+        stored = {p.name for p in store_files(store) if ".incoming" not in p.parts}
         checks.eq(sum(1 for r in rows if r[3] not in stored), 0, "images whose original is missing")
         checks.eq(len(stored - {r[3] for r in rows} - OWN_FILES), 0,
                   "store files no image references")  # fmt: skip
@@ -622,7 +628,7 @@ def run_local(args, dataset: Path, manifest: dict[str, dict], work: Path, out: P
                 "db_mb": mb((s.srv.data_dir / "battlemap.db").stat().st_size)}  # fmt: skip
         res["disk"] = disk
         images_before = s.scalar("SELECT COUNT(*) FROM images")
-        store_before = len(files_under(s.srv.library_dir))
+        store_before = len(store_files(s.srv.library_dir))
         max_id_before = s.scalar("SELECT MAX(id) FROM images")
 
         print("    re-import of the same folders")
@@ -635,7 +641,7 @@ def run_local(args, dataset: Path, manifest: dict[str, dict], work: Path, out: P
         checks.eq(c["failed"], 0, "re-import: failed items")
         checks.eq(s.scalar("SELECT COUNT(*) FROM images"), images_before, "re-import: image rows")
         checks.eq(s.scalar("SELECT MAX(id) FROM images"), max_id_before, "re-import: no new ids")
-        checks.eq(len(files_under(s.srv.library_dir)), store_before, "re-import: store files")
+        checks.eq(len(store_files(s.srv.library_dir)), store_before, "re-import: store files")
         tiers = dict(s.db("SELECT duplicate_tier, COUNT(*) FROM import_items WHERE job_id = ? "
                           "AND state = 'duplicate' GROUP BY 1", (job2,)))  # fmt: skip
         again["duplicate_tiers"] = tiers
