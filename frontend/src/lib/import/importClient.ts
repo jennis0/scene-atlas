@@ -189,6 +189,14 @@ export const importClient = {
     return data
   },
 
+  /** Items Auto sorted out of one import that belong to no group */
+  async sortedOutOfImport(jobId: string): Promise<SortedOutList> {
+    const { data } = await api.get<SortedOutList>(`${BASE}/sorted-out`, {
+      params: { job_id: jobId },
+    })
+    return data
+  },
+
   /** Gallery group id → items Auto sorted out of it, for groups that have any */
   async sortedOutCounts(): Promise<Record<number, number>> {
     const { data } = await api.get<{ counts: Record<number, number> }>(`${BASE}/sorted-out/counts`)

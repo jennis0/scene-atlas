@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { groupApi, imageApi } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateGalleryQueries } from '@/lib/queryKeys'
+import type { ReviewStart } from '@/lib/reviewStart'
 import type { Image, ImageGroup, SeedImage } from '@/types'
 
 export interface UseGalleryDialogsReturn {
@@ -20,10 +21,10 @@ export interface UseGalleryDialogsReturn {
   // Group editor over every group an import created (from the import report)
   reviewGroupIds: number[] | null
   /** The group the editor opens on; otherwise it starts on all groups */
-  reviewStartGroupId: number | undefined
+  reviewStartGroupId: ReviewStart | undefined
   /** The import the groups came from, while the editor can follow it */
   reviewJobId: string | undefined
-  setReviewGroupIds: (ids: number[] | null, startGroupId?: number, jobId?: string) => void
+  setReviewGroupIds: (ids: number[] | null, startGroupId?: ReviewStart, jobId?: string) => void
   /** Add groups to the open review (an import that's still running finished more) */
   addReviewGroupIds: (ids: number[]) => void
 
@@ -74,7 +75,7 @@ export interface UseGalleryDialogsReturn {
 
 interface ReviewState {
   groupIds: number[]
-  startGroupId?: number
+  startGroupId?: ReviewStart
   jobId?: string
 }
 
@@ -85,7 +86,7 @@ export function useGalleryDialogs(displayImages: Image[]): UseGalleryDialogsRetu
   const [editGroupId, setEditGroupId] = useState<number | null>(null)
   const [review, setReview] = useState<ReviewState | null>(null)
   const setReviewGroupIds = useCallback(
-    (ids: number[] | null, startGroupId?: number, jobId?: string) =>
+    (ids: number[] | null, startGroupId?: ReviewStart, jobId?: string) =>
       setReview(ids ? { groupIds: ids, startGroupId, jobId } : null),
     [],
   )

@@ -563,3 +563,56 @@ describe('ImportDialog: result, groups by type', () => {
     expect(await screen.findByTitle('14 maps, 2 scenes, 3 skipped by Auto')).toBeInTheDocument()
   })
 })
+
+describe('ImportDialog: result, skipped images in no group', () => {
+  const ungroupedRow = group({
+    id: 9,
+    author: 'Unknown',
+    group_name: 'Ungrouped',
+    image_group_id: null,
+    counts: counts({ skipped: 2, sorted_out: 2 }),
+    map_count: 0,
+    ungrouped: true,
+  })
+
+  async function setup(reviewable: number[], groups: ReturnType<typeof group>[]) {
+    const finished = jobSummary({
+      status: 'completed',
+      counts: counts({ done: reviewable.length, skipped: 2, sorted_out: 2 }),
+      groups_reviewable: reviewable.length,
+      ungrouped_sorted_out: 2,
+    })
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [finished],
+      details: { job1: jobDetail({ ...finished, groups, reviewable_group_ids: reviewable }) },
+    }))
+    const onReviewGroups = vi.fn()
+    renderWithProviders(
+      <ImportDialog
+        onStarted={noop}
+        jobId="job1"
+        open
+        onClose={noop}
+        onReviewGroups={onReviewGroups}
+      />,
+    )
+    return onReviewGroups
+  }
+
+  it('lists them last as one row, without a creator, that opens the Skipped entry', async () => {
+    const onReviewGroups = await setup([41], [group(), ungroupedRow])
+    await userEvent.click(screen.getByRole('tab', { name: /Groups/ }))
+    const row = (await screen.findByText('Not in a group')).closest('[role="listitem"]')!
+    expect(row.tagName).toBe('BUTTON')
+    expect(row).not.toHaveTextContent('Unknown')
+    expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument()
+    await userEvent.click(row)
+    expect(onReviewGroups).toHaveBeenCalledWith([41], 'skipped')
+  })
+
+  it('reviews the Skipped entry when Auto skipped every image', async () => {
+    const onReviewGroups = await setup([], [ungroupedRow])
+    await userEvent.click(await screen.findByRole('button', { name: 'Review in editor' }))
+    expect(onReviewGroups).toHaveBeenCalledWith([], 'skipped')
+  })
+})

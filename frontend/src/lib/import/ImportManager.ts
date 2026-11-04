@@ -798,6 +798,11 @@ export class ImportManager {
     return this.client.sortedOut(imageGroupId)
   }
 
+  /** An import's skipped items that belong to no group */
+  listSortedOutOfImport(jobId: string): Promise<SortedOutList> {
+    return this.client.sortedOutOfImport(jobId)
+  }
+
   sortedOutCounts(): Promise<Record<number, number>> {
     return this.client.sortedOutCounts()
   }

@@ -49,6 +49,7 @@ export function jobSummary(partial: Partial<ImportJobSummary> = {}): ImportJobSu
     dismissed: false,
     upload_interrupted: false,
     groups_reviewable: 0,
+    ungrouped_sorted_out: 0,
     grouped_at: null,
     local: false,
     linked: false,
@@ -73,6 +74,7 @@ export function group(partial: Partial<ImportGroupSummary> = {}): ImportGroupSum
     sort_order: 0,
     counts: counts({ done: 3 }),
     map_count: 3,
+    ungrouped: false,
     scene_count: 0,
     ...partial,
   }
@@ -172,6 +174,19 @@ export function fakeImportClient(state: FakeImportState) {
     sortedOut: vi.fn(async (imageGroupId: number) => {
       const all = state.items.filter(
         (i) => isSortedOut(i) && state.importGroups[i.import_group_id ?? -1] === imageGroupId,
+      )
+      return {
+        items: all.slice(0, state.sortedOutLimit),
+        truncated: all.length > state.sortedOutLimit,
+      }
+    }),
+    // An import's sorted-out items in no group: those whose import group isn't a gallery one
+    sortedOutOfImport: vi.fn(async (jobId: string) => {
+      const all = state.items.filter(
+        (i) =>
+          isSortedOut(i) &&
+          i.job_id === jobId &&
+          state.importGroups[i.import_group_id ?? -1] === undefined,
       )
       return {
         items: all.slice(0, state.sortedOutLimit),

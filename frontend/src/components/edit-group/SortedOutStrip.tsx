@@ -6,14 +6,14 @@
  * imported (useSortedOut). Keyed by group, so another group starts collapsed.
  */
 
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { ImageOff, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
 import { TextButton } from '@/components/imports/ImportFrame'
 import { plural } from '@/components/imports/format'
 import { importPreviewUrl } from '@/lib/api/urls'
 import { getImportManager } from '@/lib/import/ImportManager'
 import type { ImportItem } from '@/lib/import/types'
+import { useSortedOutList, type SortedOutList } from './useSortedOutList'
 
 interface SortedOutStripProps {
   /** The gallery group */
@@ -26,76 +26,18 @@ interface SortedOutStripProps {
   onIncluded: (count: number, jobIds: string[]) => void
 }
 
-interface SortedOutList {
-  /** null until the first load; refreshes replace it in place */
-  items: ImportItem[] | null
-  /** The server sends the first few hundred; the strip's `count` is how many in all */
-  truncated: boolean
-  error: boolean
-  busy: boolean
-  refresh: () => void
-  include: (ids: number[]) => Promise<void>
-}
-
-/**
- * The group's skipped images, loaded while the strip is open. Re-reads keep what's shown
- * until the fresh list arrives, so the strip keeps its scroll position.
- */
-function useSortedOutList(
-  groupId: number,
-  open: boolean,
-  onIncluded: SortedOutStripProps['onIncluded'],
-): SortedOutList {
-  const [items, setItems] = useState<ImportItem[] | null>(null)
-  const [truncated, setTruncated] = useState(false)
-  const [error, setError] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [version, setVersion] = useState(0)
-
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    setError(false)
-    getImportManager()
-      .listSortedOut(groupId)
-      .then((list) => {
-        if (cancelled) return
-        setItems(list.items)
-        setTruncated(list.truncated)
-      })
-      .catch(() => !cancelled && setError(true))
-    return () => {
-      cancelled = true
-    }
-  }, [open, groupId, version])
-
-  const refresh = () => setVersion((v) => v + 1)
-
-  const include = async (ids: number[]) => {
-    setBusy(true)
-    try {
-      const result = await getImportManager().include(ids)
-      // Drop them in place, then re-read: a truncated list brings in the next ones
-      setItems((prev) => prev?.filter((i) => !ids.includes(i.id)) ?? null)
-      refresh()
-      onIncluded(result.affected, result.job_ids)
-      toast.success(`Importing ${plural(result.affected, 'image')}`, {
-        description: 'They will appear in this group once imported.',
-      })
-    } catch {
-      toast.error("Couldn't include them", { description: 'The server could not be reached.' })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return { items, truncated, error, busy, refresh, include }
-}
-
 export function SortedOutStrip({ groupId, count, importing, onIncluded }: SortedOutStripProps) {
   const listId = useId()
   const [open, setOpen] = useState(false)
-  const list = useSortedOutList(groupId, open, onIncluded)
+  const list = useSortedOutList(
+    {
+      key: `group:${groupId}`,
+      load: () => getImportManager().listSortedOut(groupId),
+      includedNote: 'They will appear in this group once imported.',
+    },
+    open,
+    onIncluded,
+  )
 
   if (count === 0 && importing === 0) return null
 
@@ -170,8 +112,8 @@ function StripStatus({ count, importing }: { count: number; importing: number })
   )
 }
 
-function StripList({ list, count }: { list: SortedOutList; count: number }) {
-  const { items } = list
+/** A skipped list's error or loading state; render it while `items` is null or on error */
+export function SortedOutListPending({ list }: { list: SortedOutList }) {
   if (list.error) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -182,15 +124,18 @@ function StripList({ list, count }: { list: SortedOutList; count: number }) {
       </p>
     )
   }
-  if (items === null) {
-    return (
-      <Loader2
-        className="h-4 w-4 animate-spin text-muted-foreground"
-        role="img"
-        aria-label="Loading skipped images"
-      />
-    )
-  }
+  return (
+    <Loader2
+      className="h-4 w-4 animate-spin text-muted-foreground"
+      role="img"
+      aria-label="Loading skipped images"
+    />
+  )
+}
+
+function StripList({ list, count }: { list: SortedOutList; count: number }) {
+  const { items } = list
+  if (list.error || items === null) return <SortedOutListPending list={list} />
   return (
     <>
       <ul className="flex gap-3 overflow-x-auto pb-1">
@@ -213,14 +158,17 @@ function StripList({ list, count }: { list: SortedOutList; count: number }) {
   )
 }
 
-function SortedOutTile({
+export function SortedOutTile({
   item,
   busy,
   onInclude,
+  showReason = true,
 }: {
   item: ImportItem
   busy: boolean
   onInclude: () => void
+  /** Off where the list is already headed by the reason */
+  showReason?: boolean
 }) {
   return (
     <li className="w-24 shrink-0 flex flex-col gap-1" title={item.relative_path}>
@@ -237,9 +185,11 @@ function SortedOutTile({
         )}
       </div>
       <span className="font-mono text-3xs text-muted-foreground truncate">{item.filename}</span>
-      <span className="text-3xs text-muted-foreground leading-tight line-clamp-2">
-        {item.error_reason}
-      </span>
+      {showReason && (
+        <span className="text-3xs text-muted-foreground leading-tight line-clamp-2">
+          {item.error_reason}
+        </span>
+      )}
       {/* At the foot, so buttons line up when a reason wraps */}
       <span className="mt-auto">
         <TextButton onClick={onInclude} disabled={busy} aria-label={`Include ${item.filename}`}>

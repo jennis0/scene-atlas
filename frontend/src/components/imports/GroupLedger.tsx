@@ -15,15 +15,25 @@ import type { ImportGroupSummary } from '@/lib/import/types'
 
 const REPORT_ROW_HEIGHT = 44
 
+/** The row of the import's files that made no image and belong to no group */
+export const UNGROUPED_LABEL = 'Not in a group'
+
 interface GroupLedgerProps {
   groups: ImportGroupSummary[]
   /** Open the group in the editor (groups that produced images). */
   onOpenGroup?: (imageGroupId: number) => void
+  /** Open the editor on the images Auto skipped that are in no group */
+  onOpenSkipped?: () => void
   /** Report mode: show each group's author (off when they all share one) */
   showAuthor?: boolean
 }
 
-export function GroupLedger({ groups, onOpenGroup, showAuthor = true }: GroupLedgerProps) {
+export function GroupLedger({
+  groups,
+  onOpenGroup,
+  onOpenSkipped,
+  showAuthor = true,
+}: GroupLedgerProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: groups.length,
@@ -51,6 +61,7 @@ export function GroupLedger({ groups, onOpenGroup, showAuthor = true }: GroupLed
             top={row.start}
             showAuthor={showAuthor}
             onOpenGroup={onOpenGroup}
+            onOpenSkipped={onOpenSkipped}
           />
         ))}
       </div>
@@ -63,15 +74,24 @@ function ReportRow({
   top,
   showAuthor,
   onOpenGroup,
+  onOpenSkipped,
 }: {
   group: ImportGroupSummary
   top: number
   showAuthor: boolean
   onOpenGroup?: (imageGroupId: number) => void
+  onOpenSkipped?: () => void
 }) {
   const { counts } = group
   const [thumbFailed, setThumbFailed] = useState(false)
-  const canOpen = !!onOpenGroup && group.image_group_id !== null && counts.done > 0
+  const open = group.ungrouped
+    ? counts.sorted_out > 0
+      ? onOpenSkipped
+      : undefined
+    : onOpenGroup && group.image_group_id !== null && counts.done > 0
+      ? () => onOpenGroup(group.image_group_id!)
+      : undefined
+  const name = group.ungrouped ? UNGROUPED_LABEL : group.group_name
   const notes = [
     counts.failed > 0 && { text: `${counts.failed} failed`, problem: true },
     counts.duplicate > 0 && { text: `${counts.duplicate} already in library`, problem: false },
@@ -95,10 +115,10 @@ function ReportRow({
         )}
       </span>
       <span className="min-w-0 flex-1 flex items-baseline gap-2">
-        <span className="font-display text-sm text-foreground truncate" title={group.group_name}>
-          {group.group_name}
+        <span className="font-display text-sm text-foreground truncate" title={name}>
+          {name}
         </span>
-        {showAuthor && group.author && (
+        {showAuthor && !group.ungrouped && group.author && (
           <span className="text-xs text-muted-foreground truncate shrink min-w-0">
             {group.author}
           </span>
@@ -128,12 +148,12 @@ function ReportRow({
     height: REPORT_ROW_HEIGHT,
   }
   const className = 'flex items-center gap-3 border-b border-border/40'
-  if (canOpen) {
+  if (open) {
     return (
       <button
         role="listitem"
         style={{ ...style, left: -8, right: -8 }}
-        onClick={() => onOpenGroup(group.image_group_id!)}
+        onClick={open}
         title="Review in the editor"
         className={`${className} text-left px-2 rounded-md hover:bg-muted/30`}
       >

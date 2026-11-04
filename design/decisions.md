@@ -802,3 +802,31 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - An import's images appear in the gallery all at once, when it is grouped, not as they land; none of its groups can be reviewed before then. The gallery refreshes when a job's `grouped_at` changes.
 - Every listing or count of images excludes those awaiting a group (`models.listed_images()`).
 - Libraries imported before this keep their groups; an import still running at the upgrade finishes into the groups its seal planned.
+
+## ADR-029: Files without an image take no part in grouping
+
+**Date:** 2026-11-04
+**Status:** Accepted
+
+**Context:** The grouping phase (ADR-028) walked every file the seal parsed. Files that made no image (sorted out by Auto, failed, duplicates) went into the map walk by path, without content. A property test over the walk's scenarios showed they changed the groups: a token beside a map's files became a map group of its own, so the map's scene no longer attached and the map split; creators, subgroups and existing-group matching changed elsewhere. Their type is the classifier's guess, and Auto only skips what it doubts. Separately, a skipped file must stay findable: the classifier can be wrong, and the editor showed skipped files only per gallery group.
+
+**Decision:**
+
+1. **Grouping is type-aware and sees only images.** Maps go through the walk and scenes through `group_scenes` as before; files that made no image take no part (user, 2026-11-03).
+2. **They are placed afterwards**, never changing a group: with the map group their folder or name points to (the scene attach step, r2 and r3), so the editor shows them with that map.
+3. **The rest go to the job's one ungrouped import group** (`import_groups.ungrouped`, migration 030), never a gallery group. The import review lists its skipped images as **Skipped by Auto**, and the report as **Not in a group**. Nothing is dropped from view (user, 2026-11-03).
+4. A file in the ungrouped group that makes an image (Include, Retry) is grouped like any other image; the group is deleted once empty.
+5. Naming is unchanged: the learned namer names map groups, the parser names scene groups, until there is a scene namer (user, 2026-11-03).
+
+**Alternatives considered:**
+
+- **Group every file by type, skipped ones included** (as before). Rejected: their names and folders change the groups, as measured.
+- **Group without regard to type** (maps and scenes in one walk). Rejected (user): maps and scenes need different decisions; scenes are rarely in groups, and a map and a scene of one place share no content.
+- **Leave unplaced skipped files only in the report's Skipped list.** Rejected (user): an item only in the report is effectively invisible, so a misclassification would go unnoticed.
+- **A gallery group per unplaced file, or one for all of them.** Rejected: such a group has no images, and outlives the 24 hours the skipped files and previews are kept.
+
+**Consequences:**
+
+- Migration 030 adds `import_groups.ungrouped`. `group_count` and the report's group count leave the ungrouped group out; it is listed last.
+- `GET /imports/sorted-out` also takes `job_id` (an import's skipped images in no group); job summaries carry `ungrouped_sorted_out`.
+- A failed file alone in its folder no longer gets an import group named after it; it is in the ungrouped group (the report's Failed list is unchanged).

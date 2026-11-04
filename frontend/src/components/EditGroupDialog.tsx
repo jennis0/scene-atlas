@@ -34,13 +34,16 @@ import { EditGroupContext, type EditGroupContextValue } from './edit-group/EditG
 import { invalidateGalleryQueries } from '@/lib/queryKeys'
 import { serverId } from '@/lib/serverId'
 import { ImportRunningStrip } from './edit-group/ImportRunningStrip'
+import { SkippedPanel } from './edit-group/SkippedPanel'
+import { useSkippedEntry } from './edit-group/useSkippedEntry'
+import type { ReviewStart } from '@/lib/reviewStart'
 
 /** Import-review mode: several groups by ID, all images in scope (e.g. every group an
  * import created, from the import report). */
 export interface ImportReview {
   groupIds: number[]
-  /** The group to open on, instead of all groups */
-  startGroupId?: number
+  /** The group to open on instead of all groups, or the Skipped entry (SKIPPED_START) */
+  startGroupId?: ReviewStart
   /** The import the groups came from, to follow while it runs */
   jobId?: string
   /** Add groups the import finished since the editor opened */
@@ -167,7 +170,8 @@ export default function EditGroupDialog({
     groupId,
     seedImages,
     groupIds,
-    startGroupId: importReview?.startGroupId,
+    startGroupId:
+      typeof importReview?.startGroupId === 'number' ? importReview.startGroupId : undefined,
     onResetDialogState: resetDialogState,
     fileEditing: {
       groups,
@@ -181,6 +185,9 @@ export default function EditGroupDialog({
   })
 
   const isImportReview = !!groupIds && groupIds.length > 0
+  // The import's skipped images in no group; shown alone when the import made no group
+  const skipped = useSkippedEntry(importReview?.jobId, open, importReview?.startGroupId)
+  const showSkipped = skipped.listed && (skipped.shown || groups.length === 0)
 
   const showImportProgress =
     importReview?.jobId && importReview.onShowProgress
@@ -344,35 +351,52 @@ export default function EditGroupDialog({
             </div>
           )}
 
-          {!loading && !loadError && groups.length > 0 && (
+          {!loading && !loadError && (groups.length > 0 || showSkipped) && (
             <DndContext
               sensors={dnd.sensors}
               onDragStart={dnd.handleDragStart}
               onDragEnd={dnd.handleDragEnd}
             >
               <div className="flex min-h-0 flex-1 overflow-hidden">
-                {(groups.length > 1 || pendingGroups.length > 0) && (
-                  <EditGroupSidebar
-                    order={groupOrder}
-                    pending={{
-                      groups: pendingGroups,
-                      awaitedId: awaitedGroupId,
-                      onOpen: prioritizeGroup,
-                      onDemand: isLargeReview,
-                    }}
-                    activeTab={activeTab}
-                    allTab={{
-                      active: isAllTab,
-                      count: totalInScope,
-                      onSelect: () => setActiveTab(ALL_TAB),
-                    }}
-                    onGroupClick={handleGroupClick}
-                    hasGroupActions={isMassEdit || isImportReview}
-                  />
-                )}
+                {groups.length > 0 &&
+                  (groups.length > 1 || pendingGroups.length > 0 || skipped.listed) && (
+                    <EditGroupSidebar
+                      order={groupOrder}
+                      pending={{
+                        groups: pendingGroups,
+                        awaitedId: awaitedGroupId,
+                        onOpen: (id) => {
+                          skipped.hide()
+                          prioritizeGroup(id)
+                        },
+                        onDemand: isLargeReview,
+                      }}
+                      activeTab={activeTab}
+                      allTab={{
+                        active: isAllTab && !showSkipped,
+                        count: totalInScope,
+                        onSelect: () => {
+                          skipped.hide()
+                          setActiveTab(ALL_TAB)
+                        },
+                      }}
+                      skippedTab={
+                        skipped.listed
+                          ? { active: showSkipped, count: skipped.count, onSelect: skipped.show }
+                          : undefined
+                      }
+                      onGroupClick={(index, id, e) => {
+                        skipped.hide()
+                        handleGroupClick(index, id, e)
+                      }}
+                      hasGroupActions={isMassEdit || isImportReview}
+                    />
+                  )}
 
                 <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                  {showBulkPanel ? (
+                  {showSkipped && importReview?.jobId ? (
+                    <SkippedPanel jobId={importReview.jobId} count={skipped.count} />
+                  ) : showBulkPanel ? (
                     <BulkPanel groupIds={groupIds!} vocab={tagVocab} bulk={bulk} />
                   ) : (
                     <>
@@ -504,7 +528,7 @@ export default function EditGroupDialog({
                   <EditGroupFooter
                     showGroupActions={isOriginalGroup}
                     onDone={handleDone}
-                    primaryDone={isImportReview}
+                    primaryDone={isImportReview || skipped.listed}
                   />
                 </div>
               </div>

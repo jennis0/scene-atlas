@@ -54,12 +54,19 @@ correcting later.
 2. **Identifying groups.** When the job has nothing open (every file done, a duplicate, failed or
    skipped) its status is `grouping` (`import_jobs.grouped_at IS NULL`). `group_jobs.group_job`
    runs once over all of the job's files, by **detected** type:
-   - maps (battlemaps, Auto files the head called maps, and files of a map type that made no
-     image) through `group_with_content`, with the images' features;
-   - every other file is a scene, through `group_scenes` (§2): attached to a map group, or grouped
+   - maps (battlemaps and Auto files the head called maps) through `group_with_content`, with the
+     images' features;
+   - every other image is a scene, through `group_scenes` (§2): attached to a map group, or grouped
      among themselves. Tokens and assets are skipped by Auto and imported via Include as maps or
      scenes; tokens are more often mistyped maps than scenes (Joe), worth revisiting if a token
-     import type is added.
+     import type is added;
+   - **files that made no image** (sorted out by Auto, failed, duplicates) take no part (ADR-029):
+     their type is a guess, and their names and folders must not sway the groups. Afterwards each
+     is placed with the map group its folder or name points to (`attach_to_map_groups`: the scene
+     attach step, r2 and r3, role folders such as `Tokens/` transparent), so the editor's skipped
+     strip shows it with that map. Anything else goes to the job's one **ungrouped** import group
+     (`import_groups.ungrouped`, never a gallery group), which the review shows as the **Skipped
+     by Auto** entry, so a classifier mistake is never left nowhere.
 
    A scene joining a map group takes no subgroup unless it sits in a folder whose maps of that
    group share a sub-group label.
@@ -144,7 +151,8 @@ The grouping phase mints its groups inline, in its write transaction (`group_job
 
 **In:**
 
-- maps (battlemap and Auto items the head called maps), by the walk; every other file as a scene;
+- maps (battlemap and Auto items the head called maps), by the walk; every other image as a
+  scene; files that made no image placed afterwards, or ungrouped;
 - new imports and linked-folder scans (a scan job's images appear after its grouping phase; a
   refreshed image keeps its group).
 
@@ -153,7 +161,10 @@ The grouping phase mints its groups inline, in its write transaction (`group_job
 - suggestions in the UI (computed and logged at DEBUG, not stored);
 - regrouping existing libraries: migration 029 stamps every finished job grouped; one still
   running finishes into the groups its seal planned;
-- cross-import joins beyond the existing exact `(name, author)` match.
+- cross-import joins beyond the existing exact `(name, author)` match. Scenes imported after their
+  maps (a Battlemap import, then a Scene import of the same folder) join those maps' groups only
+  if the parser's name for the scenes equals the walk's for the maps: on the roadmap
+  ([status-and-roadmap.md](status-and-roadmap.md)).
 
 ## 8. Code
 
@@ -204,3 +215,12 @@ The port's deliberate deviations from the research method are listed in the rese
     `grouping`; files changed meanwhile are read again;
   - late files join their group, or a new one, and nothing moves;
   - Undo removes the groups the import minted.
+- **Files without an image** (`test_group_proposals.py`, over every scenario in
+  `variant_grouping/scenarios.py` plus a mixed map/scene import, with and without content): planting
+  tokens and assets beside the maps, in `Tokens/` folders, named after a map and at the root changes
+  no group's files, name, author, subgroups or existing-group matching, and every file is in exactly
+  one proposal. With them walked as maps (the code before ADR-029) the same test fails on every
+  scenario: a token beside a map split it from its scene, and creators, subgroups and
+  existing-group matching changed. `test_auto_image_type.py` runs Auto end to end: a token is shown
+  with its map, an asset in no map's folder is ungrouped, and including it groups it and drops the
+  ungrouped group once empty.

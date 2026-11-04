@@ -38,6 +38,8 @@ export interface ImportGroupSummary {
   /** The images this import added, by type (the report; 0 in the progress view) */
   map_count: number
   scene_count: number
+  /** The import's files that made no image and belong to no group; never a gallery group */
+  ungrouped: boolean
 }
 
 export interface ImportJobSummary {
@@ -59,6 +61,8 @@ export interface ImportJobSummary {
   group_count: number
   /** Gallery groups the review editor can open (the detail's ``reviewable_group_ids``) */
   groups_reviewable: number
+  /** Items Auto skipped that belong to no group: the review editor's Skipped entry. */
+  ungrouped_sorted_out: number
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
