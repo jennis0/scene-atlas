@@ -802,3 +802,28 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - An import's images appear in the gallery all at once, when it is grouped, not as they land; none of its groups can be reviewed before then. The gallery refreshes when a job's `grouped_at` changes.
 - Every listing or count of images excludes those awaiting a group (`models.listed_images()`).
 - Libraries imported before this keep their groups; an import still running at the upgrade finishes into the groups its seal planned.
+
+## ADR-029: Compact the vector table as it grows; ingest stays prepare → embed → commit
+
+**Date:** 2026-11-04
+**Status:** Accepted
+
+**Context:** Profiling a 10k–20k first import (`stress_tests/ingest_scale.py`) found that nothing ever compacted the LanceDB vector table. Each batch's `merge_insert` added a fragment and a version, so writes slowed with the table (13 ms per batch at 2k rows, 100 ms at 20k) and so did searches (156 ms at 16k rows, against 35 ms compacted). Lance's `optimize()` rewrites every fragment under ~1M rows, the previous compaction's output included, and by default it keeps every superseded copy for 7 days (41 → 235 MB over four compactions at 20k rows).
+
+**Decision:**
+
+1. **Compaction is decided from the table itself.** `LanceDBService.compact_if_fragmented()` compacts once the fragment count reaches `max(64, rows // 2048)`. Because each compaction costs the whole table, the interval grows with it, keeping the rewriting to a few percent of total ingest time.
+   - Superseded files are removed after 60 s (`CLEANUP_AFTER`), long enough for a search already running on an older version.
+   - Only background writers call it: the ingest worker after a vector write, and vector reconciliation.
+   - After a failure it waits 10 minutes before trying again.
+   - The details are in storage.md, LanceDB Vector Store, Compaction.
+2. **Pipelining was tried and dropped.** The worker claimed batch k+1 and prepared it on the pool while batch k embedded and committed.
+   - On 4 CPU cores it gained nothing alone: ONNX Runtime's spinning threads took the cores the prepare threads needed. With spinning turned off for the image encoder, it gained +8% (3k A/B).
+   - It cost a second in-flight batch with its own claim and release states: a new item event, releasing the batch claimed ahead on pause, hold, stop and system pause, attempts charged to two batches on a crash, and stop and hold waiting on the extra batch.
+   - That isn't worth +8%. It may pay where embedding runs on a GPU (not measured).
+
+**Consequences:**
+
+- Vector writes and searches no longer degrade with fragment count (searches still grow linearly with rows), and the vector directory stays near the table's own size.
+- A compaction holds the vector write lock for ~13 µs a row (0.3 s at 20k rows, ~2.6 s at 200k). A single-image delete from the gallery (`deletion_service.py`, which deletes the vector after `db.flush()` while holding the SQLite write lock) can wait that long behind one.
+- The batch loop is unchanged. The bigger ingest win of this round was in grid detection (`annulus_medians`, about +11–14%).

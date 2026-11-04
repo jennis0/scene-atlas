@@ -5,6 +5,8 @@ conversion, upsert semantics, and deletion — rather than mocking the
 service away.
 """
 
+from datetime import timedelta
+
 import numpy as np
 import pytest
 
@@ -212,3 +214,279 @@ class TestEnsureCollectionExisting:
         )
         assert second.get_collection_info()["points_count"] == 1
         second.close()
+
+
+class TestCacheBounds:
+    def test_metadata_cache_stays_within_its_bound_over_many_writes(self, tmp_path, monkeypatch):
+        """Each write is a table version whose manifest lists every fragment; lance's default
+        session kept them all (1 GiB cap), growing quadratically through a bulk import."""
+        import backend.app.services.lancedb_service as module
+
+        bound = 256 * 1024
+        monkeypatch.setattr(module, "_METADATA_CACHE_BYTES", bound)
+        service = LanceDBService(tmp_path / "lancedb", "bounded", vector_size=8)
+        try:
+            for batch in range(150):  # unbounded, the cache reaches ~6.5 MB here
+                service.batch_add_embeddings(
+                    [
+                        {"image_id": batch * 4 + i, "embedding": _rand_vec(8), "metadata": {}}
+                        for i in range(4)
+                    ]
+                )
+            assert service.session.size_bytes <= bound * 1.1
+            assert len(service.get_embeddings(list(range(600)))) == 600
+        finally:
+            service.close()
+
+
+class TestGetEmbeddingArrays:
+    """Many ids are read by one streaming scan, few by filtered ``id IN`` queries."""
+
+    def _fill(self, svc, n):
+        vectors = {i: _rand_vec() for i in range(1, n + 1)}
+        for start in range(1, n + 1, 50):  # several fragments, as an ingest writes them
+            svc.batch_add_embeddings(
+                [
+                    {"image_id": i, "embedding": vectors[i], "metadata": {}}
+                    for i in range(start, min(start + 50, n + 1))
+                ]
+            )
+        return vectors
+
+    @pytest.fixture()
+    def paths(self, svc, monkeypatch):
+        """Count scans and filtered queries; small thresholds so 300 rows exercise both."""
+        import backend.app.services.lancedb_service as module
+
+        monkeypatch.setattr(module, "_LOOKUP_MAX_IDS", 3)
+        monkeypatch.setattr(module, "_SCAN_MIN_IDS", 1000)
+        monkeypatch.setattr(module, "_SCAN_BATCH_ROWS", 64)  # batches cut across fragments
+        calls = {"scan": 0, "filtered": 0}
+        scan, lookup = module._scan_vectors, svc.get_embeddings
+
+        def counted_scan(*args):
+            calls["scan"] += 1
+            return scan(*args)
+
+        def counted_lookup(ids):
+            calls["filtered"] += 1
+            return lookup(ids)
+
+        monkeypatch.setattr(module, "_scan_vectors", counted_scan)
+        monkeypatch.setattr(svc, "get_embeddings", counted_lookup)
+        return module, calls
+
+    @pytest.mark.parametrize("wanted", [[5, 77, 299, 299, 1000], list(range(0, 400, 7))])
+    def test_returns_float32_vectors_of_the_ids_found(self, svc, paths, wanted):
+        vectors = self._fill(svc, 300)
+        found = svc.get_embedding_arrays(wanted)
+        assert sorted(found) == sorted({i for i in wanted if 1 <= i <= 300})
+        for i, v in found.items():
+            assert v.dtype == np.float32 and v.shape == (32,)
+            assert np.array_equal(v, np.asarray(vectors[i], dtype=np.float32))
+
+    def test_scans_only_for_a_large_share_of_the_table(self, svc, paths):
+        _, calls = paths
+        self._fill(svc, 300)
+        svc.get_embedding_arrays(range(1, 21))  # 7% of the rows: filtered queries
+        assert calls == {"scan": 0, "filtered": 7}
+        svc.get_embedding_arrays(range(1, 41))  # 13%
+        assert calls["scan"] == 1
+
+    def test_scans_for_many_ids_whatever_the_share(self, svc, paths):
+        module, calls = paths
+        self._fill(svc, 300)
+        module._SCAN_MIN_IDS = 10
+        assert len(svc.get_embedding_arrays(range(1, 11))) == 10
+        assert calls == {"scan": 1, "filtered": 0}
+
+    def test_null_vectors_are_skipped_without_shifting_the_others(self, svc, paths):
+        """``FixedSizeListArray.flatten`` drops null slots: rows after one would be cut at the
+        wrong offsets."""
+        import pyarrow as pa
+
+        vectors = self._fill(svc, 300)
+        n = 4
+        svc._tbl.add(
+            pa.table(
+                {
+                    "id": list(range(1000, 1000 + n)),
+                    "vector": pa.array(
+                        [None, *([float(k)] * 32 for k in range(1, n))],
+                        type=pa.list_(pa.float32(), 32),
+                    ),
+                    "image_id": list(range(1000, 1000 + n)),
+                    "filename": [""] * n,
+                    "author": [""] * n,
+                    "base_name": [""] * n,
+                }
+            )
+        )
+        _, calls = paths
+        found = svc.get_embedding_arrays([*range(1, 301), *range(1000, 1000 + n)])
+        assert calls["scan"] == 1
+        assert 1000 not in found
+        for k in range(1, n):
+            assert np.array_equal(found[1000 + k], np.full(32, k, dtype=np.float32))
+        assert all(np.array_equal(found[i], np.float32(vectors[i])) for i in vectors)
+
+    def test_a_failing_scan_is_retried_then_falls_back_to_filtered_queries(
+        self, svc, paths, monkeypatch
+    ):
+        module, calls = paths
+        vectors = self._fill(svc, 300)
+        failures = []
+
+        def broken(*_args):
+            failures.append(1)
+            raise OSError("transient")
+
+        monkeypatch.setattr(module, "_scan_vectors", broken)
+        found = svc.get_embedding_arrays(range(1, 101))
+        assert len(failures) == 2
+        assert calls["filtered"] == 34  # ceil(100 / 3)
+        assert sorted(found) == list(range(1, 101))
+        assert all(np.array_equal(found[i], np.float32(vectors[i])) for i in found)
+
+    def test_a_closed_service_raises_on_either_path(self, svc, paths):
+        self._fill(svc, 300)
+        svc.close()
+        for ids in (range(1, 3), range(1, 200)):
+            with pytest.raises(RuntimeError):
+                svc.get_embedding_arrays(ids)
+
+    def test_no_ids_reads_nothing(self, svc, paths):
+        _, calls = paths
+        assert svc.get_embedding_arrays([]) == {}
+        assert calls == {"scan": 0, "filtered": 0}
+
+
+def _vec(seed: int, dim: int = 32) -> list[float]:
+    v = np.random.default_rng(seed).normal(size=dim).astype(np.float32)
+    return (v / np.linalg.norm(v)).tolist()
+
+
+class TestCompaction:
+    """The table is compacted once its fragment count grows with its size (a fragment per
+    write slowed every later write and search), and superseded files don't pile up."""
+
+    def _add(self, svc, start: int, n: int = 2):
+        items = [
+            {"image_id": i, "embedding": _vec(i), "metadata": {}} for i in range(start, start + n)
+        ]
+        assert svc.batch_add_embeddings(items)
+
+    @staticmethod
+    def _fragments(svc) -> int:
+        return svc._tbl.stats()["fragment_stats"]["num_fragments"]
+
+    @staticmethod
+    def _disk(svc) -> int:
+        return sum(p.stat().st_size for p in svc._path.rglob("*") if p.is_file())
+
+    @pytest.fixture
+    def due_at_four(self, monkeypatch):
+        """Compaction due at 4 fragments, so tests needn't write 64 times."""
+        from backend.app.services import lancedb_service as module
+
+        monkeypatch.setattr(module, "compaction_due", lambda rows, fragments: fragments >= 4)
+        return module
+
+    def test_threshold_grows_with_the_table(self):
+        from backend.app.services.lancedb_service import compaction_due
+
+        assert not compaction_due(1_000, 63) and compaction_due(1_000, 64)
+        assert not compaction_due(200_000, 96) and compaction_due(200_000, 97)
+
+    def test_no_compaction_while_an_export_streams_the_table(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        stream = svc.iter_vectors(batch_size=1)
+        next(stream)  # an export's pass, under way
+        assert not svc.compact_if_fragmented()
+        list(stream)
+        assert svc.compact_if_fragmented()
+
+    def test_an_abandoned_stream_lets_compaction_run(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        stream = svc.iter_vectors(batch_size=1)
+        next(stream)
+        stream.close()  # an export that failed partway
+        assert svc.compact_if_fragmented()
+
+    def test_compacts_only_when_due_keeping_every_row(self, svc, due_at_four):
+        for b in range(3):
+            self._add(svc, b * 2)
+        assert not svc.compact_if_fragmented()
+        assert self._fragments(svc) == 3
+        self._add(svc, 6)
+        assert svc.compact_if_fragmented()
+        assert self._fragments(svc) == 1
+        stored = svc.get_embeddings(list(range(8)))
+        assert sorted(stored) == list(range(8))
+        assert np.allclose(stored[3], _vec(3))
+
+    def test_decision_comes_from_the_table_so_it_survives_a_restart(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        reopened = LanceDBService(svc._path, svc.collection_name, vector_size=32)
+        assert reopened.compact_if_fragmented()
+        reopened.close()
+
+    def test_superseded_files_are_cleaned_so_disk_stays_bounded(
+        self, svc, due_at_four, monkeypatch
+    ):
+        monkeypatch.setattr(due_at_four, "CLEANUP_AFTER", timedelta(0))  # readers done
+        sizes, versions = [], []
+        for b in range(60):
+            self._add(svc, b * 4, 4)
+            if svc.compact_if_fragmented():
+                sizes.append(self._disk(svc))
+                versions.append(len(svc._tbl.list_versions()))
+        assert len(sizes) >= 5
+        # Without cleanup every compaction kept a full copy; now the table stays near its
+        # own size and keeps a handful of versions
+        assert max(versions) <= 2
+        assert sizes[-1] < 2.5 * sizes[len(sizes) // 2]
+
+    def test_a_reader_on_the_old_version_survives_a_compaction(self, svc, due_at_four):
+        """With the real CLEANUP_AFTER, a search already running on the version before a
+        compaction still finds its files."""
+        import lancedb
+
+        for b in range(4):
+            self._add(svc, b * 2)
+        old = lancedb.connect(str(svc._path)).open_table(svc.collection_name)
+        assert svc.compact_if_fragmented()
+        rows = old.search(_vec(3)).limit(8).to_list()
+        assert sorted(r["image_id"] for r in rows) == list(range(8))
+
+    def test_a_failed_compaction_never_raises_and_waits_before_trying_again(
+        self, svc, due_at_four, monkeypatch, caplog
+    ):
+        for b in range(4):
+            self._add(svc, b * 2)
+        calls = []
+
+        def broken(**kwargs):
+            calls.append(kwargs)
+            raise OSError("disk trouble")
+
+        real_optimize = svc._tbl.optimize
+        monkeypatch.setattr(svc._tbl, "optimize", broken)
+        clock = [1000.0]
+        monkeypatch.setattr(due_at_four.time, "monotonic", lambda: clock[0])
+        assert svc.compact_if_fragmented() is False
+        assert svc.compact_if_fragmented() is False  # within the back-off: not tried
+        assert len(calls) == 1
+        clock[0] += due_at_four.COMPACT_RETRY_AFTER + 1
+        caplog.clear()
+        assert svc.compact_if_fragmented() is False
+        assert len(calls) == 2
+        assert [r.exc_info for r in caplog.records if "failed again" in r.message] == [None]
+        assert sorted(svc.get_embeddings(list(range(8)))) == list(range(8))
+        monkeypatch.setattr(svc._tbl, "optimize", real_optimize)
+        clock[0] += due_at_four.COMPACT_RETRY_AFTER + 1
+        assert svc.compact_if_fragmented()  # and a success clears the back-off
+        assert svc._compaction_failed_at is None

@@ -15,9 +15,10 @@ import pytest
 
 from backend.app.services.grid import detect_grid
 from backend.app.services.grid import detector as grid_detector_module
+from backend.app.services.grid import features as grid_features
 from backend.app.services.grid.analysis import AnalysisParams, is_jpeg, reduction_factor
 from backend.app.services.grid.detector import tile_counts
-from backend.app.services.grid.features import feature_vector, measure
+from backend.app.services.grid.features import annulus_medians, feature_vector, measure
 from backend.app.services.grid.models import MODEL_DIR, GridModelError, get_models, load_models
 
 W, H = 1600, 1200
@@ -277,3 +278,85 @@ def test_missing_model_file_is_reported(tmp_path):
 
 PINNED_PRESENCE = 0.9949530
 PINNED_HEX = 0.0049351
+
+
+# ---------------------------------------------------------------------------
+# Annulus medians (hex_fft_measure's spectral whitening)
+# ---------------------------------------------------------------------------
+
+
+def _annulus_medians_loop(mag: np.ndarray, ri: np.ndarray, nb: int) -> np.ndarray:
+    """The original per-ring loop, kept as the reference ``annulus_medians`` must match."""
+    order = np.argsort(ri, axis=None)
+    rs = ri.ravel()[order]
+    fs = mag.ravel()[order]
+    bounds = np.searchsorted(rs, np.arange(nb + 1))
+    med = np.ones(nb, np.float32)
+    for i in range(nb):
+        seg = fs[bounds[i] : bounds[i + 1]]
+        if len(seg):
+            med[i] = np.median(seg)
+    return med
+
+
+def _rings(n: int) -> tuple[np.ndarray, int]:
+    ky = np.arange(-n // 2, n // 2)[:, None]
+    kx = np.arange(0, n // 2 + 1)[None, :]
+    ri = np.round(np.hypot(kx, ky)).astype(np.int64)
+    return ri, int(ri.max()) + 1
+
+
+@pytest.mark.parametrize("n", [16, 64, 256, 1024, 2048])
+def test_annulus_medians_are_bit_identical_to_np_median(n):
+    rng = np.random.default_rng(n)
+    ri, nb = _rings(n)
+    mag = rng.gamma(2.0, 50.0, ri.shape).astype(np.float32)
+    mag[: n // 4] = np.round(mag[: n // 4])  # ties
+    mag[0, :3] = 0.0
+    expected = _annulus_medians_loop(mag, ri, nb)
+    assert (
+        annulus_medians(mag, ri, nb).view(np.uint32).tolist() == expected.view(np.uint32).tolist()
+    )
+
+
+def test_annulus_medians_leave_empty_rings_at_one():
+    ri = np.array([[0, 0, 3, 3, 3]])
+    mag = np.array([[1.0, 2.0, 5.0, 7.0, 6.0]], np.float32)
+    assert annulus_medians(mag, ri, 4).tolist() == [1.5, 1.0, 1.0, 6.0]
+
+
+def test_annulus_medians_give_nan_for_a_ring_holding_nan_as_np_median_does():
+    ri, nb = _rings(16)
+    mag = np.random.default_rng(1).random(ri.shape).astype(np.float32)
+    mag[2, 2] = np.nan
+    expected = _annulus_medians_loop(mag, ri, nb)
+    got = annulus_medians(mag, ri, nb)
+    assert np.isnan(got[ri[2, 2]]) and np.isnan(expected[ri[2, 2]])
+    assert np.array_equal(got, expected, equal_nan=True)
+
+
+def test_annulus_medians_reject_negative_magnitudes():
+    ri, nb = _rings(16)
+    mag = np.ones(ri.shape, np.float32)
+    mag[2, 2] = -1.0
+    with pytest.raises(ValueError):
+        annulus_medians(mag, ri, nb)
+
+
+@pytest.mark.parametrize(
+    ("draw", "size"),
+    [
+        (lambda img: square_grid(img, 64), (1600, 1200)),
+        (lambda img: hex_grid(img, 70), (1024, 1024)),
+        (lambda img: img, (3000, 2000)),
+    ],
+    ids=["square", "hex", "plain"],
+)
+def test_measure_unchanged_by_the_vectorised_medians(tmp_path, monkeypatch, draw, size):
+    """Every measurement, and so every grid result, is what the per-ring loop gave."""
+    w, h = size
+    path = write(draw(texture(w, h, seed=w)), tmp_path / "map.jpg")
+    new = measure(path, w, h, AnalysisParams())
+    monkeypatch.setattr(grid_features, "annulus_medians", _annulus_medians_loop)
+    old = measure(path, w, h, AnalysisParams())
+    assert new == old

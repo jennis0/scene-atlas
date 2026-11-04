@@ -87,6 +87,40 @@ def hex_oblique_measure(img: np.ndarray, scale: float, p: AnalysisParams) -> dic
     }
 
 
+def annulus_medians(mag: np.ndarray, ri: np.ndarray, nb: int) -> np.ndarray:
+    """``np.median`` of ``mag`` over each ring ``ri == i`` (1 for an empty ring), float32.
+
+    Bit-identical to calling ``np.median`` per ring, in one sort instead of a Python loop
+    over ~1,500 rings. The gain is mostly the GIL: the loop held it for ~25 ms per map
+    (~100 ms for the largest maps), stalling the other prepare threads; the sort takes
+    ~7 ms (~45 ms) and runs without it. ``mag`` is non-negative, so
+    its float32 bit patterns sort as its values do: one integer sort of (ring, bits) keys
+    orders every ring at once. A ring's median is its middle value, or the float32 mean of
+    its two middle values, as ``np.median`` computes it. A ring holding a NaN gets NaN,
+    as ``np.median`` gives (it can't come from a decoded image, but isn't an error).
+    """
+    nan = np.isnan(mag)
+    if mag.dtype != np.float32 or np.any(mag[~nan] < 0):
+        raise ValueError("annulus_medians needs non-negative float32 magnitudes")
+    finite = np.where(nan, np.float32(0), mag)
+    bits = np.abs(finite).ravel().view(np.uint32)  # abs: -0.0 sorts as 0.0
+    keys = (ri.ravel().astype(np.int64) << 32) | bits.astype(np.int64)
+    keys.sort()
+    values = (keys & 0xFFFFFFFF).astype(np.uint32).view(np.float32)
+    counts = np.bincount(ri.ravel(), minlength=nb)[:nb]
+    starts = np.cumsum(counts) - counts
+    med = np.ones(nb, np.float32)
+    full = counts > 0
+    upper = (starts + counts // 2)[full]
+    odd = (counts % 2 == 1)[full]
+    lower = np.where(odd, upper, upper - 1)
+    mean = ((values[lower] + values[upper]) / np.float32(2)).astype(np.float32)
+    med[full] = np.where(odd, values[upper], mean)
+    if nan.any():
+        med[np.unique(ri[nan])] = np.nan
+    return med
+
+
 def hex_fft_measure(img: np.ndarray, scale: float, p: AnalysisParams) -> dict:
     """Six-fold vs four-fold symmetry in the 2-D spectrum of the line-energy image.
 
@@ -119,15 +153,7 @@ def hex_fft_measure(img: np.ndarray, scale: float, p: AnalysisParams) -> dict:
     kx = np.arange(0, n // 2 + 1)[None, :]
     ri = np.round(np.hypot(kx, ky)).astype(np.int64)
     nb = int(ri.max()) + 1
-    order = np.argsort(ri, axis=None)
-    rs = ri.ravel()[order]
-    fs = mag.ravel()[order]
-    bounds = np.searchsorted(rs, np.arange(nb + 1))
-    med = np.ones(nb, np.float32)
-    for i in range(nb):
-        seg = fs[bounds[i] : bounds[i + 1]]
-        if len(seg):
-            med[i] = np.median(seg)
+    med = annulus_medians(mag, ri, nb)
     whitened = np.log(np.maximum(mag / (med[ri] + 1e-9), 1.0)).astype(np.float32)
     sc = hs * scale
     rmin = max(4.0, n / (p.max_cell_px * sc))

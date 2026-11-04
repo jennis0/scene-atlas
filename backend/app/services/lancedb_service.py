@@ -1,7 +1,7 @@
 """LanceDB vector database service (embedded disk-backed mode).
 
 Uses lancedb.connect(path=...) for memory-mapped disk storage — no separate
-server process needed.  A threading.RLock serialises write operations (upsert,
+server process needed.  The connection's caches are bounded (``_session``).  A threading.RLock serialises write operations (upsert,
 delete, table management).  Read operations (search, retrieve) snapshot the
 table reference and are safe to call concurrently with writes, but will raise
 RuntimeError if called after close().
@@ -9,8 +9,11 @@ RuntimeError if called after close().
 
 import logging
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Iterable, Iterator
+from datetime import timedelta
 from pathlib import Path
+from typing import cast
 
 import lancedb
 import numpy as np
@@ -21,6 +24,75 @@ from lancedb.table import Table
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# Bounds on the connection's caches (lance's defaults: 1 GiB metadata, 6 GiB index). Every
+# write (one per ingest batch of 16) is a new table version whose manifest lists every fragment,
+# and the metadata cache keeps them all: about 120 MB after 700 batches (11k images), growing
+# quadratically up to the 1 GiB default (design/resource-management.md, "Memory"). Searches scan
+# a few tables' fragments, whose metadata fits easily in this; there are no vector indexes.
+_METADATA_CACHE_BYTES = 64 * 1024 * 1024
+_INDEX_CACHE_BYTES = 64 * 1024 * 1024
+# get_embedding_arrays. Filtered lookups take this many ids per ``id IN`` query.
+_LOOKUP_MAX_IDS = 500
+# A streaming scan (in batches of rows) reads every vector of the table, so it is used for ids
+# that are a large share of the table, or many: each filtered query scans every fragment and
+# left ~15 MB of native buffers held, so 10 of them already hold more than a scan's batch.
+_SCAN_MIN_SHARE = 0.1
+_SCAN_MIN_IDS = 10 * _LOOKUP_MAX_IDS
+_SCAN_BATCH_ROWS = 4096
+
+
+def _session() -> lancedb.Session:
+    return lancedb.Session(
+        index_cache_size_bytes=_INDEX_CACHE_BYTES, metadata_cache_size_bytes=_METADATA_CACHE_BYTES
+    )
+
+
+def _scan_vectors(table: Table, wanted: np.ndarray) -> dict[int, np.ndarray]:
+    """The vectors of the ``wanted`` (sorted) image ids, by one streaming scan of the table.
+    Rows whose vector is null are skipped: ``FixedSizeListArray.flatten`` would drop their
+    slots and misalign every row after them, so rows are cut from ``values`` instead."""
+    out: dict[int, np.ndarray] = {}
+    query = table.search().select(["image_id", "vector"]).limit(None)
+    for batch in query.to_batches(_SCAN_BATCH_ROWS):
+        ids = batch.column("image_id").to_numpy(zero_copy_only=False)
+        column = batch.column("vector")
+        keep = np.isin(ids, wanted)
+        if column.null_count:
+            keep &= column.is_valid().to_numpy(zero_copy_only=False)
+        rows = np.flatnonzero(keep)
+        if not len(rows):
+            continue
+        dim = column.type.list_size
+        values = column.values.slice(column.offset * dim, len(column) * dim)
+        vectors = values.to_numpy(zero_copy_only=False).reshape(len(column), dim)
+        for row in rows.tolist():
+            out[int(ids[row])] = np.array(vectors[row], dtype=np.float32)
+    return out
+
+
+# Every merge_insert (one per import batch) adds a fragment, and every write a version.
+# Nothing compacted them: after a 20k-image import each write scanned ~1,250 fragments
+# (13 ms at 2k images, 100 ms at 20k) and a search took 156 ms where a compacted table took
+# 35 ms. (Deletes add a version and a deletion file, not a fragment.)
+#
+# optimize() rewrites every fragment under ~1M rows, the last compaction's output included,
+# so each compaction costs the whole table (~13 µs a row). It is due once the fragment count
+# reaches max(64, rows / 2048), so the interval grows with the table and the rewriting stays
+# a few percent of total ingest time. Superseded files are deleted once they are
+# CLEANUP_AFTER old: long enough for a search or id scan already running on an older version
+# (the service lock keeps writes out; an export's iter_vectors pass, which can take
+# longer, holds compaction off), short enough that the table stays near
+# its own size (7 days, the default, kept every copy: 41 → 235 MB at 20k rows).
+CLEANUP_AFTER = timedelta(seconds=60)
+# After a failed compaction (disk full, a file held open), skip compacting this long: each
+# attempt rewrites the whole table
+COMPACT_RETRY_AFTER = 600.0
+
+
+def compaction_due(num_rows: int, num_fragments: int) -> bool:
+    """Whether a table of ``num_rows`` in ``num_fragments`` fragments should be compacted."""
+    return num_fragments >= max(64, num_rows // 2048)
 
 
 def _table_schema(vector_size: int) -> pa.Schema:
@@ -49,9 +121,12 @@ class LanceDBService:
         self._lock = threading.RLock()
         self._path = Path(path)
         self._vector_size = vector_size or settings.vector_size
-        self.db: DBConnection | None = lancedb.connect(str(self._path))
+        self.session = _session()  # its caches, bounded
+        self.db: DBConnection | None = lancedb.connect(str(self._path), session=self.session)
         self._table: Table | None = None
         self.collection_name = collection_name
+        self._compaction_failed_at: float | None = None  # monotonic; see compact_if_fragmented
+        self._streams = 0  # iter_vectors passes running: compaction waits for them
         self.ensure_collection()
 
     @property
@@ -177,6 +252,44 @@ class LanceDBService:
                 logger.exception("Error batch adding embeddings")
                 return False
 
+    def compact_if_fragmented(self) -> bool:
+        """Compact the table if its fragment count says so (``compaction_due``). Decided
+        from the table itself, so it holds across restarts and whoever wrote. Called by
+        background writers (the ingest worker after a vector write, vector reconciliation),
+        never on a request thread. Returns whether it compacted; never raises. After a
+        failure it doesn't try again for ``COMPACT_RETRY_AFTER`` seconds. Skipped while an
+        ``iter_vectors`` pass runs: an export's pass can outlast ``CLEANUP_AFTER``, and a
+        second compaction would delete the files it is reading."""
+        with self._lock:
+            if self._streams:
+                return False
+            failed_at = self._compaction_failed_at
+            if failed_at is not None and time.monotonic() - failed_at < COMPACT_RETRY_AFTER:
+                return False
+            try:
+                stats = cast(dict, self._tbl.stats())  # a dict at runtime
+                fragments = stats["fragment_stats"]["num_fragments"]
+                if not compaction_due(stats["num_rows"], fragments):
+                    return False
+                started = time.monotonic()
+                self._tbl.optimize(cleanup_older_than=CLEANUP_AFTER)
+            except Exception as exc:
+                if failed_at is None:
+                    logger.exception("LanceDB compaction failed; retrying in 10 minutes")
+                else:
+                    logger.warning("LanceDB compaction failed again: %s", exc)
+                self._compaction_failed_at = time.monotonic()
+                return False
+            self._compaction_failed_at = None
+            logger.info(
+                "Compacted LanceDB table %s (%d rows, %d fragments) in %.2f s",
+                self.collection_name,
+                stats["num_rows"],
+                fragments,
+                time.monotonic() - started,
+            )
+            return True
+
     def search_similar(
         self,
         query_embedding: list[float],
@@ -281,6 +394,53 @@ class LanceDBService:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
 
+    def get_embedding_arrays(self, image_ids: Iterable[int]) -> dict[int, np.ndarray]:
+        """float32 vectors of many images (missing ids, and rows without a vector, are absent).
+
+        Few ids are looked up by ``id IN (...)`` filters of ``_LOOKUP_MAX_IDS``. Each such
+        query scans every fragment, and after a 10k-id lookup (20 queries) ~300 MB of native
+        buffers stayed held, so ids that are many (``_SCAN_MIN_IDS``) or a large share of the
+        table (``_SCAN_MIN_SHARE``) are read by one streaming scan of ``(image_id, vector)``
+        instead, holding one batch at a time; a scan that fails twice falls back to the
+        filtered queries, so one error doesn't make every vector missing.
+        """
+        table = self._tbl  # a closed service raises here, as get_embeddings does
+        wanted = np.unique(np.fromiter(image_ids, dtype=np.int64))
+        if len(wanted) == 0:
+            return {}
+        if self._scan_pays(table, len(wanted)):
+            for attempt in (1, 2):
+                try:
+                    return _scan_vectors(table, wanted)
+                except Exception as e:
+                    logger.warning(
+                        "Error scanning embeddings for %d ids (attempt %d): %s",
+                        len(wanted),
+                        attempt,
+                        e,
+                    )
+        out: dict[int, np.ndarray] = {}
+        ids = wanted.tolist()
+        for start in range(0, len(ids), _LOOKUP_MAX_IDS):
+            found = self.get_embeddings(ids[start : start + _LOOKUP_MAX_IDS])
+            out.update(
+                (i, np.asarray(v, dtype=np.float32)) for i, v in found.items() if v is not None
+            )
+        return out
+
+    @staticmethod
+    def _scan_pays(table: Table, n_ids: int) -> bool:
+        """Whether ``n_ids`` are read by a scan rather than filtered queries."""
+        if n_ids <= _LOOKUP_MAX_IDS:
+            return False
+        if n_ids >= _SCAN_MIN_IDS:
+            return True
+        try:
+            rows = table.count_rows()
+        except Exception:
+            return False
+        return n_ids >= _SCAN_MIN_SHARE * rows
+
     def get_vectors(self, image_ids: list[int]) -> dict[int, np.ndarray]:
         """Like ``get_embeddings``, but raises on a read error rather than returning
         nothing: for exports, which must not leave vectors out silently. Scans the table,
@@ -307,12 +467,18 @@ class LanceDBService:
         """Every ``(ids, vectors)`` in the table, a batch at a time, in no particular order.
 
         Raises on a read error, unlike the lookups above: an export must not lose vectors
-        silently (design/export-backup-move.md §2)."""
-        reader = self._tbl.search().select(["id", "vector"]).limit(None).to_batches(batch_size)
-        for batch in reader:
-            ids = batch.column("id").to_numpy()
-            vectors = batch.column("vector").flatten().to_numpy()
-            yield ids, vectors.reshape(len(ids), self._vector_size)
+        silently (design/export-backup-move.md §2). No compaction runs while it does."""
+        with self._lock:
+            self._streams += 1
+        try:
+            reader = self._tbl.search().select(["id", "vector"]).limit(None).to_batches(batch_size)
+            for batch in reader:
+                ids = batch.column("id").to_numpy()
+                vectors = batch.column("vector").flatten().to_numpy()
+                yield ids, vectors.reshape(len(ids), self._vector_size)
+        finally:
+            with self._lock:
+                self._streams -= 1
 
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""

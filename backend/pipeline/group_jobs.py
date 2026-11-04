@@ -96,7 +96,6 @@ from .ingest_queue import (
 
 logger = logging.getLogger(__name__)
 
-_EMBEDDING_CHUNK = 500  # ids per LanceDB lookup
 MAPS = BATTLEMAP  # the bucket grouped by the tree walk
 UNKNOWN_AUTHOR = "Unknown"
 # The map and scene groupings of a run: their decisions are logged at DEBUG
@@ -393,15 +392,12 @@ def _is_due(db: Session, job: ImportJob) -> bool:
 
 
 def _lookup_vectors(image_ids: list[int]) -> dict[int, np.ndarray]:
-    """The images' vectors; a failed lookup finds none (``get_embeddings`` logs it)."""
+    """The images' float32 vectors; a failed lookup finds none (``get_embedding_arrays``
+    logs it). A whole job's are read by one streaming scan, not chunks of ``id IN`` lookups,
+    which held hundreds of MB of native memory (design/resource-management.md)."""
     from backend.app.services import get_lancedb_service
 
-    service = get_lancedb_service()
-    vectors: dict[int, np.ndarray] = {}
-    for chunk in chunks(image_ids, _EMBEDDING_CHUNK):
-        for image_id, vector in service.get_embeddings(list(chunk)).items():
-            vectors[image_id] = np.asarray(vector, dtype=np.float32)
-    return vectors
+    return get_lancedb_service().get_embedding_arrays(image_ids)
 
 
 def _load_embeddings(
@@ -961,6 +957,17 @@ _MAX_FAILED_RUNS = 3
 _VECTOR_WAIT_SECONDS = 300.0
 
 
+def _release_memory() -> None:
+    """After a run: give the memory its features, pairs and plan used back to the OS
+    (``process_utils.release_freed_memory``); never raises."""
+    from backend.app.process_utils import release_freed_memory
+
+    try:
+        release_freed_memory()
+    except Exception:
+        logger.debug("Couldn't release freed memory", exc_info=True)
+
+
 class GroupingScheduler:
     """Starts the grouping phase of due jobs, at most one run per job at a time.
 
@@ -1051,6 +1058,11 @@ class GroupingScheduler:
                 elif outcome != Outcome.DEFERRED:
                     self._failures.pop(job_id, None)
                     self._waiting_since.pop(job_id, None)
+        # Only after a run that grouped, or failed (None: it may have got as far as the plan).
+        # Not on NO_VECTORS waits, which a sweep repeats after every batch: a full collection
+        # of a large heap is the cost, not malloc_trim.
+        if outcome in (None, Outcome.GROUPED):
+            _release_memory()
 
 
 _scheduler: GroupingScheduler | None = None
