@@ -130,6 +130,8 @@ export function normaliseRelativePath(path: string): string {
 }
 
 const isArchive = (path: string) => path.toLowerCase().endsWith('.zip')
+// A folder's Scene Atlas metadata (design/export-backup-move.md §6): sent, not imported
+const isExportMetadata = (path: string) => path.split('/').pop() === 'scene-atlas.jsonl'
 
 type ErrorClass =
   { kind: 'aborted' } | { kind: 'network' } | { kind: 'http'; status: number; detail: string }
@@ -386,8 +388,26 @@ export class ImportManager {
   }
 
   private async runImport(jobId: string, files: PickedFile[], run: UploadRun): Promise<void> {
-    const archives = files.filter((f) => isArchive(f.relativePath))
-    const others = files.filter((f) => !isArchive(f.relativePath))
+    // Metadata first: the server must have it before the files it describes are sealed.
+    // It never fails the import: refused (too big, say), the files import without it.
+    for (const metadata of files.filter((f) => isExportMetadata(f.relativePath))) {
+      try {
+        await this.withRetries(run, () =>
+          this.client.uploadExportMetadata(jobId, metadata.file, {
+            signal: run.controller.signal,
+          }),
+        )
+      } catch (err) {
+        // Cancelled, or the job is gone or sealed: the import can't go on either
+        const error = classifyError(err)
+        if (run.controller.signal.aborted || error.kind === 'aborted') throw err
+        if (error.kind === 'http' && (error.status === 404 || error.status === 409)) throw err
+        console.warn('[import] Scene Atlas metadata not sent; importing without it', err)
+      }
+    }
+    const media = files.filter((f) => !isExportMetadata(f.relativePath))
+    const archives = media.filter((f) => isArchive(f.relativePath))
+    const others = media.filter((f) => !isArchive(f.relativePath))
 
     const pending = await this.describe(jobId, others, run)
 

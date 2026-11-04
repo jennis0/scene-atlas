@@ -11,10 +11,10 @@ In Docker, run them inside the stopped service's container, for example `docker 
 ## Export the Library
 
 ```bash
-uv run python -m backend.pipeline.export_library [output-folder]
+uv run python -m backend.pipeline.export_library <output-folder>
 ```
 
-Copies every image into `output-folder` (default `data/exports/<timestamp>`) in folders by author and group, with readable file names and a `metadata.json` holding each image's name, tags and grid. It's the same as **Export library** in Settings, without the ZIP. Images whose files can't be read are skipped and logged.
+The same as **Export library** in Settings: copies every image into `output-folder` in the [download layout](/guide/library#downloading), with a `scene-atlas.jsonl` that imports them again. Run it again into the same folder to carry on an export that stopped.
 
 ## Download a Search Model
 

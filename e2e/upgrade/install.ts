@@ -28,16 +28,21 @@ export async function install(installer: string, dir: string): Promise<string> {
     fs.chmodSync(appImage, 0o755);
     return appImage;
   }
-  await execFileAsync(installer, ["/S", "/currentuser", `/D=${dir}`], { timeout: 10 * 60_000 });
+  await execFileAsync(installer, ["/S", "/currentuser", `/D=${dir}`], {
+    timeout: 10 * 60_000,
+  });
   const exe = path.join(dir, INSTALLED_EXE);
-  if (!fs.existsSync(exe)) throw new Error(`The installer finished but ${exe} is missing`);
+  if (!fs.existsSync(exe))
+    throw new Error(`The installer finished but ${exe} is missing`);
   return exe;
 }
 
 export async function uninstall(dir: string): Promise<void> {
   const uninstaller = path.join(dir, UNINSTALLER);
   if (process.platform !== "win32" || !fs.existsSync(uninstaller)) return;
-  await execFileAsync(uninstaller, ["/S", "/currentuser"], { timeout: 5 * 60_000 }).catch(() => {});
+  await execFileAsync(uninstaller, ["/S", "/currentuser"], {
+    timeout: 5 * 60_000,
+  }).catch(() => {});
 }
 
 /** The installed executable's product version, as electron-builder stamps it (Windows). */
@@ -68,7 +73,10 @@ export async function updatedExecutable(
   // Windows stamps a four-part version (1.2.3.<build number>) and drops any prerelease;
   // the spec checks the exact version once the new app is running.
   const [release] = version.split("-");
-  const installed = (await productVersion(exe)).split(".").slice(0, 3).join(".");
+  const installed = (await productVersion(exe))
+    .split(".")
+    .slice(0, 3)
+    .join(".");
   return installed === release ? exe : null;
 }
 
@@ -94,7 +102,8 @@ export function copyInstallerCache(root: string): void {
  * copy of the app the installer starts again afterwards (on the default profile).
  */
 export function isolatedEnv(root: string): Record<string, string> {
-  if (process.platform === "win32") return { LOCALAPPDATA: path.join(root, "local-app-data") };
+  if (process.platform === "win32")
+    return { LOCALAPPDATA: path.join(root, "local-app-data") };
   return {
     XDG_CACHE_HOME: path.join(root, "xdg-cache"),
     XDG_CONFIG_HOME: path.join(root, "xdg-config"),
@@ -114,7 +123,10 @@ interface ByteRange {
 }
 
 /** The ranges of a `Range: bytes=…` header, or null to send the whole file. */
-export function parseRanges(header: string | undefined, size: number): ByteRange[] | null {
+export function parseRanges(
+  header: string | undefined,
+  size: number,
+): ByteRange[] | null {
   const match = header?.match(/^bytes=(.+)$/);
   if (!match) return null;
   const ranges: ByteRange[] = [];
@@ -128,7 +140,12 @@ export function parseRanges(header: string | undefined, size: number): ByteRange
     }
     const start = Number(from);
     const end = to === "" ? size - 1 : Math.min(Number(to), size - 1);
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start > end || start >= size) {
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start > end ||
+      start >= size
+    ) {
       return null;
     }
     ranges.push({ start, end });
@@ -155,7 +172,9 @@ async function sendRanges(
   }
   // Differential downloads ask for many ranges at once: multipart/byteranges.
   const boundary = "scene-atlas-feed";
-  res.writeHead(206, { "Content-Type": `multipart/byteranges; boundary=${boundary}` });
+  res.writeHead(206, {
+    "Content-Type": `multipart/byteranges; boundary=${boundary}`,
+  });
   const handle = await fs.promises.open(file, "r");
   try {
     for (const { start, end } of ranges) {
@@ -182,15 +201,22 @@ export function serveFeed(dir: string): Promise<Feed> {
   const root = path.resolve(dir);
   const requests: string[] = [];
   const server = http.createServer((req, res) => {
-    const name = decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname).slice(1);
+    const name = decodeURIComponent(
+      new URL(req.url ?? "/", "http://127.0.0.1").pathname,
+    ).slice(1);
     requests.push(req.headers.range ? `${name} (ranges)` : name);
     const file = path.resolve(root, name);
-    if (path.dirname(file) !== root || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    if (
+      path.dirname(file) !== root ||
+      !fs.existsSync(file) ||
+      !fs.statSync(file).isFile()
+    ) {
       res.writeHead(404).end();
       return;
     }
     const size = fs.statSync(file).size;
-    const ranges = req.method === "GET" ? parseRanges(req.headers.range, size) : null;
+    const ranges =
+      req.method === "GET" ? parseRanges(req.headers.range, size) : null;
     if (ranges) {
       sendRanges(res, file, size, ranges).catch(() => res.destroy());
       return;

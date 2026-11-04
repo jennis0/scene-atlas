@@ -6,9 +6,10 @@ import type { DefaultDirs, FolderKind, LibraryDirs } from './libraryDirs'
 interface StartupActions {
   retry: boolean
   chooseFolders: boolean
+  rebuild: boolean
 }
 type ErrorListener = (message: string, actions: StartupActions) => void
-const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false }
+const NO_ACTIONS: StartupActions = { retry: false, chooseFolders: false, rebuild: false }
 
 // Remember the last error so a subscriber that registers after it arrived still
 // receives it. The main process re-sends it on every page load.
@@ -65,6 +66,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // the default folders and the setup wizard's library step. Both replace the page.
   retryStartup: (): Promise<void> => ipcRenderer.invoke('startup:retry'),
   chooseFoldersAgain: (): Promise<void> => ipcRenderer.invoke('startup:choose-folders'),
+  // The app data is gone: rebuild it from a metadata export the user picks (§8.5)
+  rebuildFromExport: (): Promise<void> => ipcRenderer.invoke('startup:rebuild-from-export'),
 
   // The library's folders (design/library-setup.md)
   libraryChosen,
@@ -79,12 +82,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Restart the backend on the same folders, for settings that apply only then. Resolves
   // false when it can't (dev); otherwise this page is replaced.
   restartBackend: (): Promise<boolean> => ipcRenderer.invoke('app:restart-backend'),
+  // Move library: restart on the folders the backend copied to, finishing the move first.
+  // Resolves only when it can't; otherwise this page is replaced.
+  applyMove: (moved: {
+    app_data?: string
+    store?: string
+  }): Promise<{ error: string | null; restarted: boolean }> =>
+    ipcRenderer.invoke('library:apply-move', moved),
 
   // Local imports (design/local-ingest.md): the backend reads these paths itself.
   // '' for a File with no path on disk.
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   chooseImportFolders: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-folders'),
   chooseImportFiles: (): Promise<string[]> => ipcRenderer.invoke('imports:choose-files'),
+  // Where to save a metadata export: the backend writes it there
+  chooseExportFile: (defaultName: string): Promise<string | null> =>
+    ipcRenderer.invoke('export:choose-file', defaultName),
+  // Where to export the whole library: the backend writes the folder
+  chooseExportFolder: (): Promise<string | null> => ipcRenderer.invoke('export:choose-folder'),
 
   setZoom: (percent: number): void => {
     const factor = zoomFactor(percent)

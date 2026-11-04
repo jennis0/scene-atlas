@@ -1,0 +1,380 @@
+# Export, import and rebuild
+
+**Status:** Design, seventh draft (2026-10-31). In progress. Built: step 1 (the format in `backend/pipeline/library_format.py`, the readable layout in `backend/pipeline/naming.py`, group `uid` in migration 030) step 2 (`backend/pipeline/metadata_export.py`, `POST /library/metadata-export`, Settings → Library → Export metadata) and step 3 (`backend/app/api/downloads.py`, `hooks/useDownload.ts`) and step 4 (§6). Three reviews shaped it; earlier drafts were bigger and are superseded.
+**Target:** 0.2.0.
+
+## 1. Scope
+
+User decisions (2026-10-31): these five capabilities, nothing more.
+
+1. **Export metadata.** A manual export of the whole library's metadata to one file ([§4](#4-export-metadata)). This is the "backup".
+2. **Export groups with their metadata.** A download of selected groups or images as a zip, with the metadata in it ([§5](#5-export-groups)).
+3. **Recognise the format on import.** A zip or folder holding the metadata imports with it, quickly and through the normal importer ([§6](#6-import)).
+4. **Rebuild the library from a metadata export**, at startup ([§8](#8-rebuild)).
+5. **Export the whole library** as a folder of readable files plus the metadata, so users aren't locked in ([§7](#7-full-library-export)).
+
+Downloads, the full export and rebuild's set-aside folder all write the same **readable layout** ([§3](#3-the-readable-layout)), and the importer recognises it.
+
+Out of scope:
+
+- **Scheduled backups.** None, and the old daily SQLite/LanceDB copy has been removed (user decision 2026-10-31). Pre-migration snapshots stay: they roll back an app update.
+- **Originals.** They are never in a metadata export. They belong to the user's own backup of the store folder, which is plain files.
+- **Full-library zip download.** Today's Settings → **Export library** downloads one zip into a browser `Blob` and fails beyond a few GB. It is replaced by the folder export ([§7](#7-full-library-export)); 1 TB doesn't go through a browser.
+- **Hard links** in exports (rejected 2026-10-31): an editor that saves in place would silently change the original. Exports copy.
+- **Applying metadata to images already in the library** on import, and LanceDB compaction.
+
+**Move library** is also in 0.2.0 (user decision 2026-10-31, confirming 2026-10-19), and shares the copy step with the folder writer ([§10](#10-move-library)).
+
+## 2. The format
+
+`scene-atlas.jsonl`, UTF-8, one JSON object per line, streamed in both directions. A metadata export is gzipped (`.jsonl.gz`).
+
+**Line 1, the header:**
+
+```json
+{"format": "scene-atlas", "version": "1.0", "kind": "library", "app_version": "0.2.0",
+ "library_id": "…", "created_at": "…",
+ "model": {"name": "large", "encoder_sha256": "…", "dim": 1024},
+ "tag_categories": [{"name": "season", "description": "…", "color": "sky", "icon": "snowflake",
+                     "common_values": ["winter"], "display_order": 3}],
+ "settings": {"…": "…"}}
+```
+
+- `kind` is `library` (a metadata export, [§4](#4-export-metadata)) or `groups` (beside files: a download, a full export or a set-aside folder).
+- `settings` (every `app_settings` row) is in `library` files only.
+- `version` is `major.minor`: a reader refuses an unknown major and ignores fields it doesn't know.
+
+**Group lines**, one per group, with its images:
+
+```json
+{"group": {"id": 812, "uid": "8f1c…", "base_name": "Golden Forest", "author": "Czepeku", "created_at": "…", "primary": 0},
+ "images": [
+   {"id": 40321, "filename": "Golden Forest Day 30x30.webp", "name": "Day", "author": "Czepeku", "subgroup": null,
+    "image_type": "battlemap", "media_type": "image", "created_at": "…",
+    "width": 3000, "height": 3000, "file_size": 41234567,
+    "grid": {"gridded": true, "type": "square", "width": 30, "height": 30, "confidence": 0.97, "source": "user"},
+    "tags": [{"category": "season", "value": "summer", "source": "manual", "confidence": 1.0}],
+    "missing_since": null,
+    "stored_hash": "…", "content_hash": "…", "pixel_hash": "…", "phash": 123, "colors": [["#2f4a1c", 0.31]],
+    "vector": "<base64 float32>",
+    "path": "Czepeku_Golden Forest/Czepeku_Golden Forest_Day_G30x30[summer].webp",
+    "storage_key": "3f9a….webp", "thumbnail_key": "…", "source_file_id": null}
+ ]}
+```
+
+Ungrouped images are lines with `"group": null`. Images still awaiting grouping (mid-import, not listed anywhere) are left out.
+
+| Field | In | Notes |
+|---|---|---|
+| `id` (image and group) | `library` | The ids in the source database. A rebuild inserts with the same ids, so `source_files.image_id` (which can point at another image for a duplicate row), `primary_image_id` and the LanceDB ids line up with no remapping. A `groups` import ignores them. |
+| `group.uid` | both | New column on image groups: a random UUID, backfilled by migration, with a unique index. Import keeps it, so a group stays the same group across downloads and libraries. |
+| `primary` | both | Index of the group's primary image in `images`. |
+| `path` | `groups` | The file's path, relative to the `scene-atlas.jsonl` beside it. |
+| `stored_hash` | both | SHA-256 of the stored file, which is the file a download contains. It differs from `content_hash` when stored-format conversion is on. Computed while reading when NULL. |
+| `vector` | both | The active model's embedding. Used by an importer whose encoder matches the header's `encoder_sha256`; otherwise ignored. |
+| `storage_key`, `thumbnail_key`, `source_file_id`, `missing_since` | `library` | Where the original and thumbnail are, and the linked file's `source_files` row. |
+| `colors` | both | Hex and share only. The `lab_*` columns (NOT NULL) are computed from the hex on load. |
+
+**Other lines, `library` files only:** `{"source_files": [...]}` in batches, holding every row of the linked library with its `id`, `image_id`, state, size, mtime and hash, so removed, duplicate and sorted-out files stay that way after a rebuild.
+
+**Lenient reading, validated writing.** The reader accepts anything the database can hold: an unknown grid type, an out-of-range number or a malformed hash becomes null, and text over 4,000 characters (200 for tag values and short fields) is cut short. It refuses only what protects it or the filesystem: a line over 64 M characters, non-finite numbers, ids and sizes outside SQLite's 64-bit range, and a storage or thumbnail key that isn't plain names. The writer passes every line through the same models (`ExportError` names a row it can't write), so it writes exactly what the reader returns. A vector that isn't the header model's size is dropped by the reader.
+
+**Big groups** are split over lines of at most 2,000 images (`MAX_IMAGES_PER_LINE`, part of format 1.x: the reader refuses longer lines), each with the same `group.uid`; `primary` is an index into the line that holds it, and is absent from the group's other lines. Readers join a group's lines by `uid`.
+
+**`source_files` rows** whose image isn't in the file (it was awaiting grouping) are written as `pending` with no `image_id`, so the scan after a rebuild imports the file again rather than skipping it.
+
+**`stored_hash`** is written as stored. Rows from before it existed (migration 020) were never converted, since conversion arrived with it, so migration 031 copies their `content_hash`. Rows with neither hash are hashed by `backfill_stored_hash`, a startup job (it reads the file the image reads from, and leaves out linked images while their folder is offline). The writer doesn't report the values it coerces (a grid width of 0 becomes null); the API refuses such values on the way in, so only rows from before those limits are affected.
+
+**Reading vectors:** the metadata export and full export stream the LanceDB table once, in id order, alongside the image query; downloads (≤ 999 images) read their ids in one `id IN (…)` query. Neither uses `get_embeddings` as it is, because it swallows errors and returns `{}`: a read error fails the export rather than silently leaving vectors out. No scalar index is needed.
+
+## 3. The readable layout
+
+User decision (2026-10-31). One class, `pipeline/naming.py:ReadableLayout`, used by every writer of files.
+
+```
+Czepeku_Golden Forest/
+  Czepeku_Golden Forest_Day_G30x30[summer,forest].webp
+  Czepeku_Golden Forest_Night_GL[summer,forest].webp
+  Czepeku_Golden Forest_Winter_Day_G30x30[winter].webp     subgroup "Winter"
+Czepeku_Lone Tavern_HG20x15[urban].png                     a group of one, at the top level
+Tom Cartos_Harbour_G.jpg                                   gridded, size unknown
+scene-atlas.jsonl
+```
+
+- **Folders:** one per group of two or more images, named `Author_Group`. Groups of one and ungrouped images sit at the top level. There is no author level.
+- **File names:** `Author_Group_[Subgroup_]Name_Grid[tags].ext`.
+  - A missing author or subgroup is left out, not written as "Unknown".
+  - A name equal to its group's name isn't repeated (`Czepeku_Lone Tavern_…`).
+- **Grid:**
+  - `G<w>x<h>` for a square grid and `HG<w>x<h>` for a hex grid; just `G` or `HG` when the size isn't known.
+  - `GL` for gridless.
+  - Nothing when it isn't known whether there is a grid (most scenes).
+- **Length:** folder names are capped at 80 characters. Tags are values only, comma-separated with no spaces, in category order; they are dropped from the end until the file name is at most 150 characters, and then the name segments are shortened (name first, then group). The desktop folder export also counts the chosen folder's own path length, so the whole path stays under Windows' 260.
+- **Characters:** `sanitize_segment` replaces `/\:*?"<>|` and `_` inside a segment (with a space, so the separators stay unambiguous). It also avoids Windows reserved names (`CON`, `NUL`…) and trailing dots and spaces.
+- **Collisions:** compared case-insensitively. A second group with the same folder name gets "(2)" after a space, in group-id order, and a second file with the same name in a folder gets the same, in image-id order. A resumed export also checks the folder names already on disk, since groups can be deleted or renamed between runs.
+
+The names are for people. The metadata lives in `scene-atlas.jsonl`, so nothing is parsed back out of them.
+
+## 4. Export metadata
+
+Settings → Library → **Export metadata**. Built as `backend/pipeline/metadata_export.py`.
+
+- **A background job in both modes** ("Exporting metadata", JobRunner). `POST /api/v1/library/metadata-export` starts it, with a JSON body, so another site can't (a cross-origin JSON POST needs a CORS preflight). One at a time (409).
+  - **Desktop:** the body names the file the save dialog picked (`export:choose-file` in Electron), and the job writes it there. A path is refused on servers.
+  - **Desktop paths** inside the library's own folders (app data, the store, the linked library) are refused (`library_identity.inside_any`), so the export can't replace the live database. A crash mid-export can leave `<name>.part` beside the chosen file; nothing cleans that up.
+  - **Server:** the job writes `{data_dir}/exports/scene-atlas-metadata-<date>-<time>.jsonl.gz`. When it completes, the browser downloads it from `GET /api/v1/library/metadata-export/{name}`, a plain attachment (`saveUrl`, not a `Blob`), and Settings offers "Download". Exports there are deleted after 24 hours (hourly, `clean_exports_when_idle`), and partial files at startup and before each export.
+  - **Settings reopened** asks `GET /api/v1/library/metadata-export` for the export running now (it re-attaches to its progress) and, on a server, the newest finished one (offered for download).
+  - **Refused (409) while vectors are being rewritten** ("Rebuilding image embeddings", "Activate model: …"), which would mix two models' vectors.
+- **One read transaction** for the whole file (`ingest_queue.begin_read`: an explicit `BEGIN`, since the driver begins a transaction only before a write), so it's a snapshot while imports carry on. In WAL mode it blocks no writer, but the WAL can't be checkpointed past it until the export ends, so it grows during a long export alongside imports. It's written to `<name>.part` and renamed when complete.
+- **Vectors** are read in one pass over the LanceDB table (`LanceDBService.iter_vectors`, which raises on a read error) into a scratch file, packed (the file holds only the vectors there are; an offset per image id is kept in memory, 8 bytes each), then looked up group by group. LanceDB has no index on `id`, so a lookup per group would scan the table each time. The service is fetched once, so the header's model and the vectors are the same table's. A table that can't be opened fails the export: vectors are never left out silently.
+- **Size:** a few KB per image, mostly the vector (about 1 GB at 200k images with the large model). A few minutes.
+- The UI says what it is: names, groups, tags, grids and search data, **not the image files**.
+
+## 5. Export groups
+
+### 5.1 The endpoint
+
+```
+POST /api/v1/downloads/check  JSON {group_ids, image_ids}  → {image_count, bytes, ok, reason}
+POST /api/v1/downloads        form: group_ids, image_ids (comma-separated)  → zip attachment
+```
+
+- **One endpoint** for every download of groups (`backend/app/api/downloads.py`): the group card's Download and the viewer's Download group (replacing `api/groups.py`'s zip), and the groups selected in the group editor. The gallery has no multi-select yet; when it gets one, it uses this endpoint. A single image is `GET /images/{id}/file?download=1`, the original as an attachment named in the readable layout (no zip). Removed: `GET /export/library` and Settings → Export library (until the full export, §7), `download.ts:downloadFile` (the `Blob` download) and the frontend's `imageDownloadFilename`. `naming.download_filename` and `export_path` stay until the folder export replaces the CLI that uses them.
+- **The zip** is `ZIP_STORED`, streamed with `zipstream-ng` (sized, zip64): `scene-atlas.jsonl` (`kind: groups`) first, then the files in the readable layout ([§3](#3-the-readable-layout)).
+- **Limits:** at most 999 files, and 2 GiB minus the size of `scene-atlas.jsonl` (`check_zip_safety` counts it against `max_import_total_size`), so any download re-imports as a zip under the default import limits. `check` refuses larger selections with the reason; the UI shows count and size first. A single file over that size is refused by `check`, pointing to Export library.
+- **Linked-library images** are included: the user asked for those files.
+- **Missing originals** are left out, logged, and absent from the metadata.
+
+### 5.2 The download mechanism
+
+- `check` runs first (JSON, `hooks/useDownload.ts`), so limits and errors show in the app, with a warning for files that can't be read (`missing`). It reads the files' sizes as they are now, and the POST checks the finished zip's exact length against 2 GiB too. Then a hidden `<form method="post">` is submitted into a hidden frame of the app's own (`lib/download.ts:postForDownload`), so a response that isn't a download can't replace the app: the endpoint's errors are plain text with `X-Frame-Options: SAMEORIGIN` (every other response keeps `DENY`; the middleware leaves a response's own value), and the app reads the frame's text on `load` and shows it as a toast. Checked in Chromium: a download from the frame, and an error read from it, with the page left alone.
+- **No rate limit** on `POST /downloads`: a download costs disk reads, which a request rate doesn't bound, and a few downloads in a row must not be refused. An attachment response doesn't navigate the page, and the browser streams it straight to disk with its own progress. Nothing is held server-side between the two requests.
+- **Cross-site requests are refused:** a form POST is a simple request any site can send, so `/downloads` requires `Sec-Fetch-Site: same-origin`, or `Origin` matching `Host` where that header is absent. (`POST /library/metadata-export` takes a JSON body instead, which another site can't send without a CORS preflight.)
+- `X-Accel-Buffering: no` is set, so nginx doesn't spool the stream to disk.
+- **Electron** gets a minimal `will-download` handler (`electron/src/downloads.ts`): the default save dialog, and progress on the window's taskbar icon (`setProgressBar`). Electron has no download UI of its own.
+
+## 6. Import
+
+Built as `backend/pipeline/import_metadata.py` (load and match), `ingest_process.apply_exports` (apply), and `group_jobs._export_proposals` (groups).
+
+### 6.1 Recognising the format
+
+| Source | Where the metadata is |
+|---|---|
+| Zip (web upload or local) | A `scene-atlas.jsonl` member at any depth, extracted by `expand_archive` to the job's staging |
+| Local folder (desktop) | A `scene-atlas.jsonl` at any depth among the listed files (or in a zip among them), collected by `ingest_local.add_local_items` |
+| Browser folder upload | The client sends a picked `scene-atlas.jsonl` to `PUT /imports/{id}/export-metadata` before the manifest (`ImportManager.runImport`), and leaves it out of the manifest |
+
+The browser route differs from the earlier plan (the file as the job's first item, with prepare holding the rest): it is one request, like an archive upload, under the same proxy body limit. The PUT stores the body and returns at once (`{loading: true}`); the load runs in the background. A refused upload (too big, say) doesn't fail the import: the client logs it and sends the files without it. A 404 or 409 (the job deleted or sealed) does stop it.
+
+Matching is by hash across the whole job, whichever file an entry came from; several entries with one hash prefer the one whose file name matches.
+
+- **Stored per job:** `import_export_entries` (one row per image entry with a `stored_hash`, keyed by job and hash, with the load it came from (`source`, so a failed load deletes its rows) and the encoder its vector is from; migration 032), and `import_jobs.export_model` (set once a file has loaded: it's what marks the job's items to stop for matching; the first file's header model, kept for diagnosis). Missing tag categories are created from the header (names cut to 100 characters, as the API's); existing ones are never changed. Entries are deleted once the job is grouped (they're ~6 KB each, vector included), and otherwise go with their job (prune, Undo, purge, a discarded scan).
+- **Loading runs in the background**, after the archive or listing is committed: a gigabyte file takes minutes, longer than a proxy waits for a reply, and inside the import's write transaction it would block the worker. Callers record the files on the job (`import_jobs.metadata_pending`, JSON) in their own transaction (`add_pending`); the browser's upload is recorded, not ready, before its body arrives. One loader thread (`import_metadata._Loader`) loads ready files one at a time, oldest job first. The worker claims none of the items of a job with files pending (`ingest_queue._claimable_jobs`), so a seal can arrive at any time and its files wait. `load_export` reads a file twice: once to validate all of it, then to store it in batches of 1,000, each its own short write transaction that checks the job still exists. Anything going wrong after validation (the file changed, the database busy, the job deleted or already grouped) deletes what that load stored. A bad file stores nothing, leaves a note, and leaves the job's other metadata files alone. **A restart** carries on (`recover_pending`, at startup): a file's rows are named by its job and path, so a reloaded file first deletes what an interrupted load stored; a file still arriving is forgotten, and the browser sends it again. The stray-staging sweep spares pending files.
+- **Vectors are checked when matching**, not loading: one is used only if its encoder hash and size are the installed model's at that moment, since the model can change between load and match.
+- `scene-atlas.jsonl` itself is never an item (`add_manifest_items` leaves it out), so it's not reported as skipped.
+- 0.1.x `metadata.json` exports are not recognised.
+- A file that doesn't validate, or has an unknown major version, stores nothing and leaves `import_jobs.export_note`, which the report shows; the files import normally. **Metadata never fails an import.** The report's status line says "with its Scene Atlas metadata" when there was some (`with_metadata`).
+- A `library` file dropped into an import is not a rebuild. Its entries are used like a `groups` file's, matched against whatever files are imported (its storage keys are ignored).
+
+The file is untrusted input: it goes through the lenient reader (§2), and nothing in it is used as a filesystem path.
+
+### 6.2 Applying it
+
+- **Items of a job with metadata stop after decoding**, as Auto items do (`ClaimedItem.export_job`). In the worker's thread, `apply_exports` then matches them by the hash of the bytes decoded (`match_exports`); several entries with one hash take the one whose path's file name matches, else the first.
+- **A matched item** takes its entry's type, name, filename (made a plain name with the same extension as the file, else the file's own name is kept), tags (cut to 100 characters, then deduplicated) and grid (as its metadata records them, source included). Auto classification and filename tags are skipped; grid detection is skipped unless the entry doesn't know the grid (`gridded` null), and then it runs as usual. Its vector is used when it fits the installed model, and then it isn't embedded. Thumbnails, colours and hashes are made as usual. Stored-format conversion already skips a file in the target format (§10 of ingestion.md), so lossy files don't lose quality on each round trip.
+- **Its entry's group and subgroup** are kept on the item (`ImportItem.parsed["export"]`) for the grouping phase.
+- **Groups** are placed in the grouping phase, as for every import ([ingestion.md §5.8](ingestion.md#58-identifying-groups)). Matched images with a group become one proposal per `uid` (`_export_proposals`): it joins the library's gallery group with that `uid` (`JobState.by_uid`, read inside the write session) and is `merged_into_existing`, else a new gallery group is minted with the entry's name, author and `uid`. Images the metadata had ungrouped, and unmatched files, go through the tree walk. `ImportGroup` rows are created as for any import, so the report, review and Undo work unchanged. An image's author is its group's, as for any import.
+- **Duplicates** are skipped as usual, and their metadata is not applied. Re-importing a download into the library it came from changes nothing.
+
+## 7. Full library export
+
+Built as `backend/pipeline/export_library.py` (the writer, and its CLI), `POST`/`GET /library/full-export` (`api/library.py`) and Settings → Library → **Export library** (`FullExportRow.tsx`; Electron's `export:choose-folder` picker). A folder of readable files plus `scene-atlas.jsonl` (kind `groups`): it works outside Scene Atlas, and it re-imports with everything (§6), through a folder import or a zip of it.
+
+- **Where it writes:**
+  - Desktop: the folder the user picks (remembered by the browser for **Carry on**). Refused if it's inside the library's own folders (app data, the store, the linked library), or not empty (a file manager's `.DS_Store`, `Thumbs.db`, `desktop.ini` aside) unless it holds a `scene-atlas.jsonl` (`export_library.check_target`, which the CLI uses too): another folder's files would be mixed in, and a re-import would take them too. A `scene-atlas.jsonl` is only carried on if its header is a `groups` file with this library's `library_id` (which the full export writes and downloads don't), so a download or another library's export is refused.
+  - Server: `{store}/exports/scene-atlas-export-<timestamp>/`. That's the images mount, which the admin can already reach on the host. **One at a time:** a new export is refused (409) while one is there, since each is as big as the library and on the library's own disk; `resume: true` carries it on, and Settings offers only that. No path is accepted from a server's client.
+- **One export at a time** (409), under the metadata export's lock; refused while the vectors are being rebuilt, as §4.
+- **A background job** (`Exporting library`) in the activity dock. Not a snapshot: a read transaction lasting hours would keep the WAL from being checkpointed. Each group's line matches its files; a group edited meanwhile is written as it was when reached.
+  - Groups go in id order (`library_format.group_lines` with `keep` and `place` hooks). Each group's files are copied, then its line(s) are appended to `scene-atlas.jsonl` and synced, so the metadata is never ahead of the files.
+  - Each file is copied to `<name>.part` with an inline SHA-256, checked against `stored_hash`, synced, then renamed (`copy_verified`). A file whose bytes don't match is skipped.
+  - The header is written and synced before any file, and each group's lines are written together and synced.
+  - **Resume:** a run into an unfinished export's folder reads its `scene-atlas.jsonl` in one streaming pass, keeping only uids, top-level names and ungrouped keys (the file is a gigabyte at 500k images; only the header is validated). A first line that isn't a header of ours (a gzipped file, someone else's) is refused, never truncated. A torn last line (a kill mid-write) is cut off (the file is truncated after the last complete line), and so are the last group's lines, since a group of more than 2,000 images is several lines that may not all have reached the disk: that group is placed again. The other groups listed are skipped by uid, ungrouped images by hash (`content_hash`, else file name and size, for rows without one), and the top-level names they use are taken. A group placed again keeps its name unless the library changed; its files already there with the right hash aren't copied again. Leftover `.part` files are deleted. **Not retried:** a file skipped in a group already listed (an offline drive, say): resume is per group, and per image would need the group's folder and names claimed back. The guide says to export into a new folder for those.
+  - **Free space:** before starting, the total size of the originals (plus a margin) must be free; then each group is checked (its size plus the margin). The margin is 512 MB, or 5 GB when the target is on the same disk as the library's folders, which the database and imports need too. Too little stops the job (`ExportStopped`) with what it wrote kept.
+  - **Per-file problems** (an unreadable original, a name the target refuses) are skipped, the first 50 listed in the result, and all appended to `scene-atlas-export-problems.txt` in the folder. A full, failing or read-only disk stops the job. A group's cover (`primary`) is re-indexed after its failed files are left out.
+  - **Names** are NFC-normalised and compared ignoring case and normalisation (macOS' file systems treat NFC and NFD as one name), and sized so `<name>.part` fits Windows' 259-unit path limit counted in UTF-16 units.
+  - **Durability:** each file is synced before its rename. On macOS `fsync` doesn't flush the drive's cache (that needs `F_FULLFSYNC`), so after a power cut there the last files may need re-checking; a re-import dedupes by hash either way. A purge (and a rebuild) is refused while an export runs, and an export while either runs, checked under one lock (`metadata_export.export_lock`). Files of a group placed again that are already there count nothing towards its space check.
+- **Linked-library images** are included, with a checkbox to leave them out (shown only when there is a linked library): the user has those files already.
+- **Expect** disk speed: hours for 1 TB.
+
+**Purge spares the user's folders.** `api/system.py:_empty_store` keeps `config.USER_FOLDERS` (`exports/`, `not-in-backup/`, `backups/`), and Settings' image size leaves them out.
+
+## 8. Rebuild
+
+Replaces the library's metadata with a `library` file. The user decided the flow (2026-10-31): **Settings → Library → Rebuild from export**, upload, see what will change, confirm, and the app restarts into the rebuilt library. Nothing is merged.
+
+**Build alongside, swap at restart.** The new database and vector table are built from the file while the app keeps running, without touching the live library. The restart only swaps folders. So a failure before the swap changes nothing, and there is no rollback to write.
+
+**As built** (`backend/pipeline/library_rebuild.py`, `api/rebuild.py`, `RebuildRow.tsx`), differing from the plan below where noted:
+
+- The file is staged as `{data_dir}/rebuild/staged.jsonl` (gzipped or not; the reader sniffs) by `PUT /library/rebuild/upload` in both modes: the desktop app uploads over localhost too, so there's one route.
+- **Check** is a job (`POST /check`, "Checking the export"): reading a gigabyte file takes minutes. Its result is saved (`check.json`) so Settings picks it up when reopened (`GET /library/rebuild`). A `groups` file (a download or full export) is refused: "Import it instead". Image or group ids missing (a damaged file) are refused.
+- **Build** (`POST /build`) needs a saved check. `init_db` makes the new database; settings come from the file except `library_id`, `active_model` and `setup_completed_at`; one `library_sources` row for this install's linked folder (or `detached`); rows inserted with their ids in batches of 1,000. Colours' Lab values are recomputed from hex. A linked image whose `source_files` row isn't in the file is dropped. Vectors go into a LanceDB beside it, in the live service's table name, only when the encoder matches. Search text, the linked folder's state and missing vectors are made again by the usual startup work. **Not rebuilt:** visual grouping features (`image_grouping_features`): grouping new imports into rebuilt groups goes by names only.
+- **Apply** (`POST /apply`) writes `pending.json` and restarts: the desktop app via `electronAPI.restartBackend`; a server sends itself SIGTERM after replying and relies on its restart policy, the page polling `/health` and reloading. `swap_if_pending` runs first thing in the lifespan after the storage locks, and deletes older `old-*` folders.
+- **Set aside** runs as a job at startup (when the worker runs) while `pending.json` says `swapped`; the orphan sweep returns early meanwhile. It reuses `library_format.group_lines` over the old database (with `keep`/`place`), writing the log with `.part` then rename; vectors aren't included (a re-import embeds them). Thumbnails of set-aside files are left for the orphan sweep (they're derived). A summary is kept in `summary.json` for Settings.
+- Refusals: one check/build at a time; not while a purge or full export runs (and they refuse while a rebuild builds).
+- **Built after review:** the build writes `rebuild/new.part/` and renames it to `new/` when complete (a killed build is never "built"). The swap decides each part by what's where (the live database moves to `old-<id>/` with its WAL, stale `-wal`/`-shm` are removed, the new main file moves last; an empty vector folder at the destination, as `Settings()` recreates at startup, is replaced; anything else there is an error), and never deletes `new/` while it holds anything. A `pending.json` with nothing built is forgotten without touching `old-*`. Every step is refused while a swap waits for its restart or a set-aside runs (`busy()`), under the export lock, and purge refuses then too. Apply refuses if the library changed since the check (a fingerprint: the counts and newest ids of images, groups and tags; not times, which background backfills touch; a rename slips through) or an import is in progress. The built database is checkpointed into one file (`journal_mode=DELETE`); the swap moves the live database's `-wal`/`-shm` before its main file, and always sets the live vectors aside (they're keyed by the old ids), so a build without vectors leaves none behind. `build_in_place` likewise removes a stale WAL and sets surviving vectors aside. Set-aside skips (and lists) a file it can't move rather than failing, and then keeps `pending.json`, so the orphan sweep stays held off it and the next start tries again. Cancel works after Apply until the restart; Dismiss has its own endpoint. POSTs need a JSON body (CSRF). A server exits with 75 after a graceful shutdown, so `Restart=on-failure` supervisors restart it. Kept from this install as well: `moved_from` and the resource-sized worker settings. Settings and categories are upserts. Covers fall back to the group's first image; `source_files` rows whose image wasn't kept go back to `pending`. The check counts linked images apart (missing ones are kept; lost ones come back with the next scan) and refuses reused ids; a failed check's reason is kept for Settings.
+- **§8.5, built:** at startup, after the swap and before the library check, `build_in_place` builds straight into place when there's no database and a staged export (no check: nothing to lose), keeping the store marker's library id and the export's `setup_completed_at`, without vectors (the installed model isn't known that early; reconciliation embeds them). A staged export that fails is renamed `staged-failed.jsonl`, so startup isn't wedged. The refusal prints `SCENE_ATLAS_REFUSAL=app_data_not_here`; Electron's loading page then offers **Rebuild from export…**, which copies the picked file to `rebuild/staged.jsonl` and restarts. The server log says where to put the file.
+- **Thumbnails:** `backfill_thumbnails` makes those whose file is missing from the originals (images and videos), after every swap (`after_rebuild` runs it after set-aside), and from the CLI.
+- **Not built:** an "undo rebuild" (the old database is kept, but set-aside has moved files out of the store layout); visual grouping features.
+
+### 8.1 Upload
+
+The file is staged at `{data_dir}/rebuild/staged.jsonl.gz` in both modes, so the rebuild never depends on a drive that can be unplugged.
+
+- **Server:** one streamed `PUT /api/v1/library/rebuild/upload`, handled like the archive upload (`.part`, then rename). The proxy already has to allow 2 GB bodies for imports (`client_max_body_size 2G` in the server docs), and 2 GB holds about 300k images.
+- **Desktop:** the picked file is copied there.
+
+A new upload replaces the staged one.
+
+### 8.2 Check
+
+`POST /api/v1/library/rebuild/check` reads the staged file once, streaming, and changes nothing:
+
+- **Every line is validated**, not just the header. A file that doesn't validate, or has an unknown major version, is refused with the line it failed on.
+- **From another library** is allowed (user decision 2026-10-31), with a warning: "This export is from a different library." The rebuilt library keeps this store's `library_id`. The counts below are what protect against the wrong file: one from elsewhere shows nearly everything missing.
+- **Missing:** images in the file whose original isn't there, via `originals.original_path`. Stored images that are missing won't be in the rebuilt library. Missing linked images are kept, marked missing, as a scan would mark them. Linked files are only checked when the linked folder is online.
+- **Will be lost:** images in the current library that aren't in the file, matched by `storage_key`, or by `source_files` key for linked images. Their metadata goes. Their files are kept in a readable folder ([§8.4](#84-after-the-swap)). Linked ones are imported again by the next scan, with fresh metadata; the dialog says so.
+- **Vectors:** if the file's `encoder_sha256` doesn't match the installed model, the dialog says the library will be re-embedded afterwards (hours for a large library).
+
+The dialog shows: "**7 images in 3 groups are missing.** 3 images in 1 group in your current library will be lost." Each sentence has a disclosure listing groups, each expandable to its image names. Lists are capped at 500 groups in the response (with "and 12 more"). With nothing missing or lost, it says so. **Rebuild** and **Cancel**; Cancel deletes the staged file.
+
+### 8.3 Build, then swap
+
+**Build** (on **Rebuild**): a JobRunner job, "Rebuilding library", with progress in the activity dock. It writes a new database and vector table into `{data_dir}/rebuild/new/`:
+
+- `init_db` creates the database there. Settings come from the file, except `library_id`, `active_model` and the setup flag, which stay this install's.
+- Then the tag categories, a `library_sources` row for this install's linked folder (`detached` if none), `source_files` (`pending` rows stay `pending`, so the next scan queues them), groups, images, tags and colours, inserted with their ids in batches of about 1,000 per transaction.
+- Vectors go into the active model's table only when `encoder_sha256` matches the installed encoder.
+- Missing stored originals are left out. If more are missing than the check counted, the build stops: a folder has probably gone offline.
+
+A failure, a cancel or a crash leaves the live library untouched: `rebuild/new/` is deleted, and Settings shows the reason. Imports and edits made while the build runs are not in it. Their images are counted when the swap is offered, and their files are set aside like any other lost image.
+
+**Swap:** when the build finishes, the backend writes `rebuild/pending.json` (the rebuild id) and restarts: the in-window backend restart on desktop; on a server it exits and the Compose `restart: unless-stopped` policy brings it back (the docs cover `docker run` without one). In the lifespan, after the storage locks and before `check_library`, `library_rebuild.swap()`:
+
+1. Moves `battlemap.db` (with `-wal` and `-shm`) and the LanceDB folder to `rebuild/old-<id>/`.
+2. Moves `rebuild/new/`'s database and LanceDB folder into place.
+
+Each move is skipped if it is already done, so a crash during the swap is finished by the next start. Then startup continues as usual, and `check_library` and `init_db` see the rebuilt database. `old-<id>/` stays until the next rebuild, as the way back.
+
+### 8.4 After the swap
+
+**Set aside**, a JobRunner job straight after startup. The orphan sweep is held while `pending.json` exists, and the job deletes that file when it finishes.
+
+- Store files (shard layout only, from `maintenance._store_files`) that the rebuilt database doesn't reference go to `{store}/not-in-backup/<timestamp>/` in the readable layout. Their names come from the database in `old-<id>/`.
+- The folder's `scene-atlas.jsonl` is written **first**, with each file's `storage_key`. It is the move log, so a re-run continues from it. Importing the folder brings the images back with their groups, tags and grids.
+- Files are moved by rename on the same volume, with no hashing. This is the folder writer ([§7](#7-full-library-export)) in rename mode. A file counts as moved when it is at the destination and gone from the source.
+- Their thumbnails move into `old-<id>/thumbnails/`.
+- Store files the old database didn't know either go to `unknown/` under their store names.
+
+**Missing thumbnails** (app data was lost) are rebuilt from the originals by a backfill job using `tasks/image_processing.write_thumbnails`, like `backfill_grid_detection.py`. It also covers the backlog's "Regenerate thumbnails" row. Then the usual **vector reconciliation** embeds images without a vector: all of them when the encoder didn't match.
+
+A summary (loaded, missing, set aside) shows once in Settings.
+
+### 8.5 When app data is lost
+
+This is the main reason to rebuild. In this case the app refuses to open the store (`APP_DATA_NOT_HERE`, [library-setup.md](library-setup.md)), so there's no running library to build alongside, and the build runs at startup instead:
+
+- **Desktop:** Electron's refusal handling (`LIBRARY_REFUSED`, and the loading page that already offers "Choose folders") also offers **Rebuild from export…** when the refusal is this one. The backend needs to say which refusal it was: a code of its own, or the reason on stderr. Electron copies the picked file to `rebuild/staged.jsonl.gz` and starts the backend. With a staged file and no database, the backend builds straight into place before `check_library`. Electron started this itself, so it waits for it with no timeout and shows "Rebuilding your library…".
+- **Server:** the refusal message says to place the file at `{data_dir}/rebuild/staged.jsonl.gz` and restart. A staged file is only used this way when there is no database, so a stray copy can never replace a working library.
+
+There is no check step in this case: there's no current library to lose. Set-aside, the thumbnail backfill and the summary run after startup as in §8.4. Store files have no metadata to name them by, so they go to `not-in-backup/<timestamp>/unknown/`.
+
+## 9. Testing
+
+- **Readable layout:** unit tests for names (grid codes, tag truncation at 150 characters, reserved names, case-insensitive collisions, groups of one).
+- **Full export:** export a fixture library, kill it part-way and resume, then import the folder into an empty library and compare.
+- **Round trip:** download fixture groups and import into an empty library, then compare name, author, group, subgroup, type, grid, tags and vector image by image. Also: two downloads of one group imported concurrently, and the same download imported twice.
+- **Rebuild:**
+  - Export metadata, change the library (edits, deletes, a new import, a linked file removed), check that the counts and lists match, rebuild, and compare with the export.
+  - Again with app data deleted ([§8.5](#85-when-app-data-is-lost)).
+  - A failure or kill during the build leaves the live library untouched.
+  - A kill during the swap is finished by the next start; a kill during set-aside continues from the move log.
+  - The store or linked folder going offline during the build stops it without changes.
+  - Another library's file rebuilds, with the warning, and keeps the store's `library_id`.
+  - The set-aside folder re-imports with its metadata.
+  - The vectors are kept when the encoder matches, and re-embedded when it doesn't.
+- **Security:** a cross-site form POST is refused, and a manifest with oversized or hostile values is rejected without failing the import.
+- **Scale:** `stress_tests/export_scale.py` builds a synthetic library and runs Export metadata and every rebuild stage on it, each stage in its own process for its own peak memory, then checks the rebuilt library has every image, tag and vector:
+
+  ```
+  uv run python -m stress_tests.export_scale --dir /tmp/scale --images 200000
+  ```
+
+  The library: groups of about 7, 4 tags and 5 colours per image, a 1,024-dimension vector per image (the large model, the worst case), and a placeholder file per image. The files are a few bytes, so it measures the metadata and vectors, not copying images: the full library export and Move are bound by the disk. Results at 200k images (2026-11-03, a 4-CPU cloud VM with 15 GB RAM; a desktop's disk differs, a USB drive or HDD more so):
+
+  | Stage | Time | Peak memory | Result |
+  |---|---|---|---|
+  | The library (database 443 MB, vectors 822 MB) | 112 s to make | | 200,000 images, 28,571 groups |
+  | Export metadata | 153 s | 914 MB (474 MB on a table in smaller pieces) | 846 MB file |
+  | Rebuild: check | 31 s | 457 MB | nothing missing or lost |
+  | Rebuild: build | 301 s | 612 MB | 200,000 images, none left out |
+  | Rebuild: swap (at the restart) | 3 s | 231 MB | |
+  | Rebuild: set aside | 3 s | 282 MB | nothing to set aside |
+
+  Peak disk was 4.0 GB: the library, the export and its staged copy, and the rebuilt library beside the kept previous one. A process that only imports the backend peaks at about 230 MB, so the stages add 0 to 700 MB.
+
+  The export's memory doesn't grow with the number of lines: it is flat at about 420 MB while the lines are written, and about 150 MB with no vectors. The peak comes from reading the vectors (`LanceDBService.iter_vectors`), and depends on how the table is stored. It was 914 MB on a table written in 40 batches of 5,000 rows, and 474 MB on the rebuilt one, in 200 smaller pieces.
+
+  Found by it: with no model installed, the check said images wouldn't be processed again while the build dropped their vectors (fixed: the check decides as the build does).
+
+## 10. Move library
+
+In 0.2.0 (user decision 2026-10-31). The minimal design:
+
+1. **Copy while the app runs:** the store, thumbnails and models. All three are add-and-delete only, never rewritten in place. This is a background job, using the folder writer's copy step ([§7](#7-full-library-export)): an inline hash checked against `stored_hash`, resumable, and with a marker written into the target first so linked scans skip it.
+2. **On confirm**, Electron saves the new paths plus `pendingMove: {from}` and restarts.
+3. **At startup**, the backend (before `check_library`) copies what changed since step 1 and the database (with `-wal`/`-shm`) and LanceDB from the old folders, then verifies that every row's files exist. On failure it exits with a distinct code, and Electron reverts to the old paths.
+4. The old folder's marker becomes a tombstone (`moved_to`), and Settings offers to delete the old copy.
+
+Desktop only: in server mode the folders are mounts, and the docs say how to move them.
+
+**As built** (`backend/pipeline/library_move.py`, `GET/POST/DELETE /library/move`, `DELETE /library/move/old`, Electron `library:apply-move`, `useLibraryMove`, `MoveLibrary.tsx`), after review:
+
+- **Checks** (`plan`, cheap: no walk): a target is absolute, empty (or this move's unfinished copy, by its `scene-atlas-move.json`'s `from`), outside every library folder and not containing one, the two targets apart. Search data can't move alone when Imported images is inside it (`movable()`; Settings hides that Move…). Free space (what's still to copy, plus 1 GB) is checked by the job.
+- **Copy** (`copy_job`, "Moving library"): every file but the live database files, `lancedb/`, the lock, `.part` files and the move's own records, through `export_library.copy_verified` (synced, times kept); originals checked against `stored_hash`. "Already there" is the same size and a time within 2 s (exFAT and FAT round times), so a second try carries on. Any mismatch fails the job before anything switches. The target's record goes `null` → `copied`; the app data's `move.json` lists the targets, so Settings offers **Restart now** / **Cancel** (which deletes the copies) even when reopened; nothing restarts on its own.
+- **Restart:** Electron checks each target holds a `copied` record from the folder in use, saves the new folders with `pendingMove` and restarts; the sidecar gets `--move-from-…` arguments until the backend is ready, when Electron clears it. Choosing folders again (setup or Settings) drops `pendingMove`.
+- **Finish** (`finish_move`, in `pyinstaller/entry.py` before the app is imported and before its log file opens, logging to stderr): only a pair whose new folder holds a `copied` record from the old one is finished; a `finished` one, or an old folder already retired with a marker in the new one, is a no-op; anything else (the same folder, someone else's) is refused, since the finish deletes files from the new folder. Holding both folders' locks: sync each folder (copy what's new or changed, delete what was deleted, names compared NFC), copy the database files and `lancedb/` file by file (synced), check every `storage_key` whose file is in the old store is in the new one (ones already missing before the move are logged, not held against it), write `move-retire.json` in the new app data, mark the targets `finished`. A failure exits with `MOVE_FAILED` (5).
+- **Retire** (`retire_finished`, in the lifespan once `open_library` has opened the new folders, and only if the folders in use are the recorded new ones: after a start went back to the old folders, the copies are set back to `copied` and offered again): each old folder's marker is renamed `…json.moved` with a `scene-atlas-moved.txt` note (linked scans skip a folder holding it), `moved_from` is recorded, and the records go. A folder in use that carries a moved note (gone back to after its retire) is un-retired (`unretire_live`). Until then the old folders are as they were, so **any** start that fails before ready while `pendingMove` is set goes back to them (`revertMove`), with a dialog that says the copy is kept.
+- **The old copy:** Settings shows it while its note is there; **Delete old copy** removes folders with the note that aren't inside, and don't hold, a folder in use (read-only files made writable first); what's kept is said, and the record stays until nothing is left.
+- **Refusals:** purge, rebuild and export refuse while a move copies; a move refuses while they run.
+- **Not covered:** progress on the loading page during the finish; the developer setup (Electron can't restart a backend it didn't start; Move… is hidden when the backend says it can't move).
+
+## 11. Reuse
+
+Most of this extends code that exists:
+
+| Here | Extends |
+|---|---|
+| `/downloads` | `api/groups.py:download_group` (already streams a `zipstream-ng` zip and skips missing originals); `api/export.py` is deleted |
+| Readable layout, format entries | `pipeline/naming.py`: `export_path`, `unique_export_path`, `export_metadata`, `sanitize_segment` |
+| Folder writer (full export, set-aside, Move library's copy) | `pipeline/export_library.py` (CLI, batching, shutdown checks, JobRunner progress) |
+| Rebuild upload | The archive upload's streamed PUT |
+| Missing originals | `services/originals.original_path` |
+| Unreferenced store files | `maintenance._store_files` |
+| Joining groups by `uid` on import | The grouping phase's existing-group lookup (`GroupingState.existing`, `merged_into_existing`) |
+| Matched items' fixed type | The fixed item type Include already sets, so Auto is skipped by the existing path |
+| Thumbnail backfill | `tasks/image_processing.write_thumbnails`, as `backfill_grid_detection.py` does |
+| Re-embedding | Vector reconciliation, unchanged |
+| Rebuild swap, Move library's finish | One hook in the lifespan, beside `check_library` |
+| Progress | JobRunner's `progress_fn` everywhere |
+
+## 12. Order of work
+
+1. The format (writer, reader, validation), the readable layout, group `uid`.
+2. Export metadata.
+3. Export groups: the endpoint, `check`, the download mechanism and the Electron handler. The old endpoints go.
+4. Import recognition.
+5. The folder writer and full library export.
+6. Rebuild, with set-aside on the folder writer.
+7. Move library.

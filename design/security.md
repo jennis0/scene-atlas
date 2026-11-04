@@ -58,7 +58,7 @@ Staging is per job: `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}`. `st
 
 `slowapi`, keyed on the client address (`request.client.host`), with two tiers:
 
-- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `GET /export/library`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
+- **expensive** (`SCENE_ATLAS_RATE_LIMIT_EXPENSIVE`, default `2/minute`): `POST /search/rebuild-embeddings`, `POST /library/metadata-export`, `PATCH /settings/`, `POST /tags/retag-all`, `POST /tags/packs/{name}/import`, `POST /images/backfill-grids`
 - **destructive** (`SCENE_ATLAS_RATE_LIMIT_DESTRUCTIVE`, default `1/minute`): `DELETE /system/library`, `POST /system/tags/reset`
 
 `SCENE_ATLAS_RATE_LIMIT_ENABLED=false` disables it.
@@ -123,7 +123,7 @@ There is no restriction on which absolute paths are accepted, so code running in
 
 `POST /imports/{id}/local-sources` lists and reads files at paths the client sends ([local-ingest.md](local-ingest.md#6-security)). Controls:
 
-- Desktop app only: the route returns 404 unless `SCENE_ATLAS_APP_MODE=app`, where the sidecar binds `127.0.0.1` and any caller is already a local process running as the user.
+- Desktop app only: the route returns 404 unless `SCENE_ATLAS_APP_MODE=app`, where the sidecar binds `127.0.0.1` and refuses any caller without the launch token ([§6d](#6d-medium-who-can-call-the-desktop-backend)).
 - DNS rebinding: in app mode `LoopbackHostMiddleware` (`backend/app/host_check.py`) rejects requests whose `Host` isn't `127.0.0.1`, `localhost` or `[::1]` (400), so a rebound web page can't reach this or any other endpoint.
 - Only media is ingested: each file passes the magic-byte check (`verify_media_mime`) before it's copied; symlinks aren't followed; sources are never written.
 
@@ -139,6 +139,42 @@ There is no restriction on which absolute paths are accepted, so code running in
 - The folders themselves are never set through the API: they reach the backend only as sidecar arguments or env vars.
 - Admission-controlled (`acquire_heavy_op`), since counting a large folder takes seconds.
 
+### 6b-1. LOW: Downloads
+
+`POST /downloads` ([export-backup-move.md §5](export-backup-move.md#5-export-groups)) streams the chosen groups' originals as a zip. It is a form POST, a request any site can send, so it refuses one another site sent: `Sec-Fetch-Site` must be `same-origin` (or `none`), or, from a browser that doesn't send it, `Origin` must match `Host`. A request with neither header comes from no browser (a browser sends `Origin` with every cross-origin POST), so it can't be another site's page, and is allowed. Behind a proxy, `Host` must be passed through (`proxy_set_header Host $host`) for the `Origin` comparison. Ids are numbers only; the selection is capped (999 files, 2 GB, 10,000 ids). Not rate-limited: the caps bound a download's cost. Its error responses are plain text and may be framed by the app's own origin (`X-Frame-Options: SAMEORIGIN`), so the app can show them; every other response keeps `DENY`. Files are read through `originals.original_path`, so the linked folder's containment check applies; zip member names come from `ReadableLayout`, never from stored paths. `POST /downloads/check` takes JSON and only counts.
+
+### 6b-2. LOW: Metadata export
+
+`POST /library/metadata-export` ([export-backup-move.md §4](export-backup-move.md#4-export-metadata)) starts a background export. Controls:
+
+- **A JSON body**, so a page on another site can't start one: a cross-origin JSON POST needs a CORS preflight, which only configured origins pass. Rate-limited as expensive; one export at a time (409).
+- **A path only in the desktop app** (`app_mode == "app"`; 422 on servers): it must be absolute, in an existing folder, not a folder itself, and not inside the library's own folders (app data, the store, the linked library: `library_identity.inside_any`), so an export can't replace the live database. On a server the file goes to `{SCENE_ATLAS_DATA_DIR}/exports/` under a name the server makes.
+- **`GET /library/metadata-export`** reports the running export's job id and the newest finished file's name, nothing else.
+- **Served back by name only**: `GET /library/metadata-export/{name}` serves a file from that folder only if the name matches the pattern the server writes (`scene-atlas-metadata-<date>-<time>.jsonl.gz`), so no other file can be named. The name is matched in full (`fullmatch`, ASCII digits). Exports are deleted after 24 hours (an hourly task), and partial files at startup.
+- The export holds the library's metadata and settings, not secrets: there are none in `app_settings`. Server mode's lack of authentication applies as to every other endpoint.
+
+### 6b-3. LOW: Metadata in an import
+
+A `scene-atlas.jsonl` in an import ([export-backup-move.md §6](export-backup-move.md#6-import)) is untrusted: it goes through the lenient reader, its paths are only compared with file names (never opened), a recorded filename is reduced to a plain name with the file's own extension (`ingest_process.restored_filename`), text is cut to the API's limits, and a file that fails validation is ignored. It is applied only to files whose bytes hash to one of its entries. **A file can name any group `uid`**: an image imported with it joins the library's group with that uid, if there is one. Uids are random and not shown in the UI, so naming one needs a copy of an export from this library; whoever can import can already edit groups through the API, so this grants nothing new.
+
+### 6b-4. MEDIUM: Rebuild from export
+
+`/library/rebuild` ([export-backup-move.md §8](export-backup-move.md#8-rebuild)) replaces the library's metadata, and `POST /apply` stops a server. Controls: the POSTs (check, build, apply) require a JSON body and the upload is a PUT, so a cross-origin page can't send any of them without a CORS preflight; the upload is under the import size limit; apply refuses if the library changed since the check; check and build are rate-limited as expensive and apply as destructive, and nothing changes the live library until apply. The file is untrusted: it's read by the lenient reader, and nothing in it is used as a path (storage keys are looked up through `ImageStore`, linked paths only checked with `is_file`, and only when they resolve inside the configured folder). The previous database is kept in `rebuild/old-<id>/`. As for every endpoint, server mode has no authentication: anyone who can reach it can rebuild, as they can already purge.
+
+### 6b-5. LOW: Move library
+
+`/library/move` is desktop-only (404 on servers). Its targets are checked like the library folders (absolute, outside and not containing them); the copy writes only under the target. `DELETE /library/move/old` deletes only the folders recorded in `app_settings.moved_from` that hold the note a finished move wrote and are not, and don't contain, a folder in use.
+
+### 6b-6. MEDIUM: Full library export, and paths the desktop app names
+
+`POST /library/full-export` ([export-backup-move.md §7](export-backup-move.md#7-full-library-export)) copies every image and its metadata into a folder. With Export metadata (§6b-2) and Move (§6b-5), it is one of three endpoints that **write to a path the client names**. CodeQL reports these as `py/path-injection` ([Accepted scanner findings](#accepted-scanner-findings)). Its fix, checking the path against a fixed root, doesn't apply: the point is a folder the user picks anywhere (another drive, a USB stick, a NAS). What is checked instead:
+
+- **Who can name a path.** Only the desktop app's own window. A server never takes one: Export metadata and Full export answer 422 to a path and write only into `{SCENE_ATLAS_DATA_DIR}/exports/`, under names the server makes; Move answers 404. In the desktop app the backend binds `127.0.0.1` and refuses a caller without the launch token ([§6d](#6d-medium-who-can-call-the-desktop-backend)), so the caller is the user, through the app.
+- **Which paths.** Absolute, and not the library's own folders or inside them (`library_identity.inside_any`), so the live database and store can't be overwritten. Full export only writes into an empty folder (a file manager's own files aside) or one holding this library's own export, checked by its first line's library id (`check_target`, `check_export_header`), so it can't mix its files into, or truncate, someone else's. Its files are written as `.part` and renamed, under names from `ReadableLayout`, never from stored paths.
+- **A JSON body**, rate-limited as expensive, and one export at a time, as §6b-2.
+
+Accepted: the user can export to any folder they can write to, including ones where that is unwise (a system folder, if they run the app with rights to it). The app runs as the user and writes nothing they couldn't.
+
 ### 6c. MEDIUM: Reading the linked folder
 
 **Status**: Mitigated.
@@ -152,6 +188,28 @@ The linked folder ([library-setup.md §4](library-setup.md#4-linked-library)) is
 - **Server deployments** are documented with a read-only mount (`-v /srv/maps:/library:ro`), so even a bug can't write to the folder.
 
 Accepted: a file swapped for a symlink between the check and the read (a TOCTOU window) could be followed. That needs write access to the user's own maps folder, which already implies control of the files being served.
+
+### 6d. MEDIUM: Who can call the desktop backend
+
+**Status**: Mitigated (the launch token).
+
+The desktop app's backend serves the app's window on `127.0.0.1`, without user accounts. Loopback is not private to the user running the app: **every user and program on the computer can connect to it**. Several endpoints act on paths the caller names: local imports (§6a), library inspection (§6b) and export and move (§6b-6). So without a check, another user on a shared computer could have the app read or write files as the person running it.
+
+Two checks run on every request in app mode (`backend/app/host_check.py`):
+
+- **Host.** Only `127.0.0.1`, `localhost` and `[::1]` (400 otherwise), against DNS rebinding: a web page whose domain re-resolves to loopback still sends its own domain.
+- **The launch token.** Electron makes a random 256-bit token for each backend it starts (`electron/src/appToken.ts`). It passes it to the backend in the sidecar's environment as `SCENE_ATLAS_APP_TOKEN`. On Linux and macOS any user can list another user's command lines; a process's environment can only be read by its own user, root or an administrator, on all three systems. Electron adds the token as the `X-Scene-Atlas-Token` header to every request its window sends to that backend's origin (the exact host and port): page loads, `fetch`, images and downloads (`session.webRequest.onBeforeSendHeaders`, `sendTokenTo` in `main.ts`). It also sends the token on its own `/health` polling. The page's scripts never see the token, and it is never written to disk. A request without it, or with the wrong one (compared in constant time), gets 403.
+
+A new token for each backend means one that has stopped, whose port anything may take next, is never trusted with the next one's. A restarted backend (a rebuild, a move, changed folders, the port retry) gets a new token, and the window's header follows it.
+
+Not enforced when no token is set: development (`scripts/app/start.py`, where the developer runs the backend) and the browser E2E tests. Server mode never checks it; access there is the reverse proxy's job ([Server mode has no built-in authentication](#server-mode-has-no-built-in-authentication)).
+
+What it doesn't stop:
+
+- **A program running as the same user, or an administrator.** It can read the app's memory or environment, and doesn't need the API anyway: it can already read and write the user's files.
+- **A port squatted during a crash restart.** After a crash, `entry.py` restarts uvicorn in the same process, on the same port, with the same token, after a backoff of a second or more. Another user who binds that port in the gap receives the window's next requests, token included, and serves the window as if it were the app. That needs them to win a race they can't start, in a window of about a second. Closing it would mean exiting after a crash instead, so that Electron starts a new backend on a new port with a new token, at the cost of the silent in-process recovery.
+
+The packaged-app tests start the app with a token they choose (`e2e/helpers/appToken.ts`); `makeAppToken` takes one from the environment, because whoever starts the app sets its environment already.
 
 ### 7. MEDIUM: CORS Configuration
 
@@ -173,12 +231,13 @@ Electron loads the UI from the backend sidecar, so the frontend is always same-o
 
 ## Accepted scanner findings
 
-Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-10-18.
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-11-03.
 
 | Scanner | Finding | Why accepted |
 |---|---|---|
 | Opengrep `httpsconnection-detected` | `http.client.HTTPSConnection` in `backend/app/services/update_check.py` (`# nosemgrep`) | An audit rule that flags every `HTTPSConnection`, for Python versions that didn't verify certificates. On 3.12 it does, and the call passes `ssl.create_default_context()` (certificate and host name checked; a unit test asserts it). It replaced `urllib.request.urlopen`, whose rules flag that urllib also opens `file://`; the host and path here are constants. |
 | Opengrep `dangerous-subprocess-use-audit`, bandit B603 / ruff S603 | `subprocess.run` in `check_cuda_libs()`, `backend/app/services/ort_providers.py` (`# nosemgrep`, `# nosec`, `# noqa`) | An audit rule that flags every `subprocess` call whose arguments aren't string literals. The arguments are `sys.executable`, `-c`, a constant script and a library name from the constant `_CUDA_REQUIRED_LIBS`; no shell, nothing from a request, file or the environment. The child process is the point: loading a CUDA library with a broken driver can crash the dynamic loader, which no in-process handler survives (design/gpu-acceleration.md, fallback layer 1). |
+| CodeQL `py/path-injection` | Export and Move: `_export_target` and `_full_export_target` in `backend/app/api/library.py`, `inside_any` in `backend/app/library_identity.py`, `check_export_header` / `check_target` in `backend/pipeline/export_library.py` | The desktop app's user picks the file or folder an export or move writes to, so it can be anywhere on their disk: there is no fixed root to check it against. Only the app's own window can name one (a server refuses them, and the desktop backend requires the launch token): see [§6b-6](#6b-6-medium-full-library-export-and-paths-the-desktop-app-names) and [§6d](#6d-medium-who-can-call-the-desktop-backend). Dismiss as "won't fix" in code scanning. |
 | bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `SCENE_ATLAS_API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
 | npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4. |
 | npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` 3 → `app-builder-lib` | Build-time only (roarr formats its own log messages); no patched `sprintf-js`. electron-builder 27 moves to `@electron/get` 5 and drops the chain; it is still alpha. |

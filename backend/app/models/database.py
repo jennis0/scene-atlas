@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -273,6 +274,11 @@ class ImageGroup(Base):
     __tablename__ = "variant_groups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Stable across libraries: exports carry it and import keeps it (migration 030).
+    # Nullable in SQLite only because the column was added later; always set here.
+    uid: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, unique=True, index=True, default=lambda: uuid.uuid4().hex
+    )
     base_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     author: Mapped[str | None] = mapped_column(String, index=True)
     primary_image_id: Mapped[int | None] = mapped_column(
@@ -430,6 +436,14 @@ class ImportJob(Base):
     # When the grouping phase last grouped the job's images (ADR-028). A sealed job with
     # nothing open and this unset is in the grouping phase; cleared when items re-open
     grouped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Scene Atlas metadata it carried (design/export-backup-move.md §6): the first file's
+    # header model as JSON. Set iff it has some.
+    export_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why its metadata wasn't used (unreadable, a newer version), for the report
+    export_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Its metadata files still to load, as JSON (pipeline/import_metadata.py): the worker
+    # claims none of its items until they are
+    metadata_pending: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     import_groups: Mapped[list["ImportGroup"]] = relationship(
         "ImportGroup", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
@@ -455,6 +469,23 @@ class AppSetting(Base):
 
     def __repr__(self):
         return f"<AppSetting(key='{self.key}', value_json='{self.value_json}')>"
+
+
+class ImportExportEntry(Base):
+    """One image entry of the ``scene-atlas.jsonl`` an import carried, waiting for the file
+    it describes (design/export-backup-move.md §6). Deleted with its job."""
+
+    __tablename__ = "import_export_entries"
+    __table_args__ = (Index("ix_import_export_entries_job_hash", "job_id", "stored_hash"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[str] = mapped_column(String, ForeignKey("import_jobs.id"), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)  # the metadata file (a uuid)
+    stored_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    encoder: Mapped[str | None] = mapped_column(String(64), nullable=True)  # of its vector
+    path: Mapped[str | None] = mapped_column(Text, nullable=True)  # as the file named it
+    image: Mapped[str] = mapped_column(Text, nullable=False)  # library_format.ImageEntry JSON
+    group_entry: Mapped[str | None] = mapped_column(Text, nullable=True)  # GroupEntry JSON
 
 
 class ImportGroup(Base):

@@ -108,3 +108,24 @@ def test_a_file_takes_the_subgroup_of_its_folder_when_its_maps_share_one():
 
 def test_mixed_labels_in_a_folder_give_no_subgroup():
     assert joined_subgroups([(1, 2)], [{2: "Night"}], FOLDERS, {10: 0}) == {10: None}
+
+
+def test_a_group_from_metadata_joins_the_librarys_group_with_its_uid():
+    """design/export-backup-move.md §6: the uid wins over names, and a group new to the
+    library is minted carrying the uid, so later parts of it join it."""
+    state = JobState(
+        pending={1: 10, 2: 20, 3: 30},
+        existing={("Forest", "Czepeku"): 77},
+        by_uid={"a" * 32: 55},
+    )
+    plan = plan_grouping(
+        [
+            Proposal((1,), "Forest", "Czepeku", match_existing=False, uid="a" * 32),
+            Proposal((2,), "Forest", "Czepeku", match_existing=False, uid="b" * 32),
+            Proposal((3,), "Forest", "Czepeku"),  # no metadata: matched by name, as before
+        ],
+        state,
+    )
+    assert plan.galleries[-1] == GalleryChoice(55, True)
+    assert plan.galleries[-2] == GalleryChoice(None, False, "Forest", "Czepeku", uid="b" * 32)
+    assert plan.galleries[-3] == GalleryChoice(77, True)

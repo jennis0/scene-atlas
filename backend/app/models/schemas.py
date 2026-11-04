@@ -1,9 +1,21 @@
 """Pydantic schemas for API request/response models."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+# What clients may write. Anything longer or odder would be cut short or dropped when the
+# library is exported (pipeline/library_format.py), so it's refused here instead. Response
+# models stay unconstrained: rows written before these limits must still be returned.
+GridType = Literal["square", "hex"]
+GridCount = Annotated[int, Field(ge=1, le=10_000)]
+NameText = Annotated[str, Field(max_length=500)]
+GroupName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+TAG_MAX_LENGTH = 100
+TagText = Annotated[str, Field(min_length=1, max_length=TAG_MAX_LENGTH)]
+LongText = Annotated[str, Field(max_length=2_000)]
+StyleName = Annotated[str, Field(max_length=50)]  # a colour preset or an icon name
 
 
 class TagBase(BaseModel):
@@ -17,6 +29,11 @@ class TagBase(BaseModel):
 
 class TagCreate(TagBase):
     """Tag creation schema."""
+
+    category: TagText
+    value: TagText
+    confidence: float = Field(1.0, ge=0, le=1)
+    source: Annotated[str, Field(max_length=20)] = "manual"
 
 
 class TagResponse(TagBase):
@@ -136,10 +153,10 @@ class BulkImageChanges(BaseModel):
 
     image_type: Literal["battlemap", "scene"] | None = None
     gridded: bool | None = None
-    grid_type: str | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    subgroup: str | None = None
+    grid_type: GridType | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    subgroup: NameText | None = None
 
 
 class TagRef(BaseModel):
@@ -258,7 +275,7 @@ class GroupBulkUpdateRequest(BaseModel):
     """Set the author of many groups (and their images) at once."""
 
     ids: list[int] = Field(min_length=1, max_length=MAX_GROUP_SUMMARY_IDS)
-    author: str | None = None
+    author: NameText | None = None
 
 
 class GroupBulkUpdateResponse(BaseModel):
@@ -370,14 +387,14 @@ class ImageEditPayload(BaseModel):
     """Per-image edit data sent from the edit dialog."""
 
     id: int
-    name: str | None = None
-    tags: list[TagBase] = []
+    name: NameText | None = None
+    tags: list[TagCreate] = []
     gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
-    subgroup: str | None = None
-    image_type: str | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    grid_type: GridType | None = None
+    subgroup: NameText | None = None
+    image_type: Literal["battlemap", "scene"] | None = None
 
 
 # Bounds a group edit's explicit deletions (a group is far smaller than this).
@@ -387,16 +404,16 @@ MAX_GROUP_EDIT_DELETES = 100_000
 class NewGroupPayload(BaseModel):
     """A split-off group to create during a group edit."""
 
-    base_name: str
-    author: str | None = None
+    base_name: GroupName
+    author: NameText | None = None
     image_ids: list[int]
 
 
 class GroupEditRequest(BaseModel):
     """Full edit payload for a group."""
 
-    base_name: str
-    author: str | None = None
+    base_name: GroupName
+    author: NameText | None = None
     images: list[ImageEditPayload]  # metadata updates for images in the group
     new_groups: list[NewGroupPayload] = []  # split-off groups; their images are moved, not deleted
     # Deletion is explicit: an image the client doesn't mention is left alone. The editor
@@ -427,27 +444,27 @@ class TagCategoryBase(BaseModel):
 class TagCategoryCreate(BaseModel):
     """Schema for creating a new tag category."""
 
-    name: str
-    description: str | None = None
-    color: str | None = None
-    icon: str | None = None
+    name: TagText
+    description: LongText | None = None
+    color: StyleName | None = None
+    icon: StyleName | None = None
     display_order: int = 0
 
 
 class TagCategoryUpdate(BaseModel):
     """Schema for updating a tag category (all fields optional)."""
 
-    name: str | None = None
-    description: str | None = None
-    color: str | None = None
-    icon: str | None = None
+    name: TagText | None = None
+    description: LongText | None = None
+    color: StyleName | None = None
+    icon: StyleName | None = None
     display_order: int | None = None
 
 
 class TagValueUpdate(BaseModel):
     """Schema for renaming a tag value."""
 
-    new_value: str
+    new_value: TagText
 
 
 class TagCategoryResponse(TagCategoryBase):
@@ -599,6 +616,73 @@ class LibraryStatus(BaseModel):
 class LibraryScanRequest(BaseModel):
     # manual: Check for changes; focus: the desktop window regained focus
     reason: Literal["manual", "focus"]
+
+
+class MetadataExportRequest(BaseModel):
+    """Where to write a metadata export. A path only in the desktop app, which picks it with
+    a save dialog; omitted, the export goes to the exports folder, to be downloaded."""
+
+    path: str | None = Field(default=None, max_length=4096)
+
+
+class MetadataExportStarted(BaseModel):
+    job_id: str
+
+
+class MetadataExportStatus(BaseModel):
+    job_id: str | None  # the export running now
+    latest: str | None  # server: the newest finished export, to download
+
+
+class FullExportRequest(BaseModel):
+    """Where to export the library (design/export-backup-move.md §7). A folder only in the
+    desktop app, which picks it; a server writes to its images folder's ``exports/``, and
+    with ``resume`` carries on its newest export there."""
+
+    path: str | None = Field(default=None, max_length=4096)
+    include_linked: bool = True
+    resume: bool = False
+
+
+class FullExportStarted(BaseModel):
+    job_id: str
+    path: str
+
+
+class FullExportStatus(BaseModel):
+    job_id: str | None  # the export running now
+    folder: str  # server: where exports go; desktop: ""
+    latest: str | None  # server: the newest export's folder, to resume
+
+
+class RebuildStatus(BaseModel):
+    """Where a rebuild from an export has got to (design/export-backup-move.md §8)."""
+
+    staged: bool  # an export is uploaded
+    check: dict | None  # what checking it found (library_rebuild.CheckResult)
+    check_error: str | None  # why checking it failed
+    built: bool  # built, waiting to be applied
+    job_id: str | None  # the check or build running now
+    summary: dict | None  # the last rebuild's set-aside summary
+    set_aside_running: bool
+
+
+class RebuildApplied(BaseModel):
+    restart: Literal["app", "server"]  # who restarts the backend
+
+
+class MoveRequest(BaseModel):
+    """Where to move the library's folders (desktop app; design/export-backup-move.md §10)."""
+
+    app_data: str | None = Field(default=None, max_length=4096)
+    store: str | None = Field(default=None, max_length=4096)
+
+
+class MoveStatus(BaseModel):
+    job_id: str | None  # the copy running now
+    copied: dict[str, str] | None  # a finished copy's new folders, waiting for the restart
+    movable: dict[str, bool]  # which folders can be moved
+    moved_from: dict[str, str] | None  # the last move's old folders, still there
 
 
 class LibraryScanStarted(BaseModel):

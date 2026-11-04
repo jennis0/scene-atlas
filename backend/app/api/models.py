@@ -222,8 +222,11 @@ def get_embedding_status() -> EmbeddingStatusResponse:
     )
 
 
+ACTIVATION_JOB_PREFIX = "Activate model: "
+
+
 def _activation_job_name(model_name: str) -> str:
-    return f"Activate model: {model_name}"
+    return f"{ACTIVATION_JOB_PREFIX}{model_name}"
 
 
 def _model_activating() -> bool:

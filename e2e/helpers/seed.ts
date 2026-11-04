@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { BACKEND_URL } from "./config";
 import { listMediaFiles } from "./images";
+import { tokenHeader } from "./appToken";
 
 // Seeds the backend through the import API (ADR-018, design/ingestion.md §7).
 
@@ -27,11 +28,14 @@ async function api<T>(
 ): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: init.bytes
-      ? { "Content-Type": "application/octet-stream" }
-      : init.json !== undefined
-        ? { "Content-Type": "application/json" }
-        : undefined,
+    headers: {
+      ...tokenHeader(),
+      ...(init.bytes
+        ? { "Content-Type": "application/octet-stream" }
+        : init.json !== undefined
+          ? { "Content-Type": "application/json" }
+          : {}),
+    },
     body: init.bytes ? new Uint8Array(init.bytes) : JSON.stringify(init.json),
   });
   if (!res.ok) {

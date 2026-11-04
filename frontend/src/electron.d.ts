@@ -92,6 +92,10 @@ export interface ElectronAPI {
    * false when it can't (dev, where the developer runs the backend); otherwise it never
    * resolves: the loading page, then the UI reloads. */
   restartBackend(): Promise<boolean>
+  /** Move library (design/export-backup-move.md §10): restart on the folders the backend
+   * copied to (POST /library/move's result), finishing the move first. Resolves with an
+   * error only when it can't; otherwise it never resolves (the UI reloads). */
+  applyMove(moved: { app_data?: string; store?: string }): Promise<ApplyLibraryResult>
 
   // Local imports (design/local-ingest.md)
   /** The file's path on disk, or '' if it has none. */
@@ -99,6 +103,10 @@ export interface ElectronAPI {
   /** Native pickers; resolve to [] when cancelled. */
   chooseImportFolders(): Promise<string[]>
   chooseImportFiles(): Promise<string[]>
+  /** The save dialog for a metadata export; null when cancelled. */
+  chooseExportFile(defaultName: string): Promise<string | null>
+  /** The folder picker for a library export; null when cancelled. */
+  chooseExportFolder(): Promise<string | null>
 
   // Zoom (lib/zoom.ts)
   /** Zoom the page to this percentage (50–300) */

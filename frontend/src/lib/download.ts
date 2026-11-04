@@ -1,49 +1,69 @@
-import axios, { type AxiosRequestConfig } from 'axios'
-import type { Image } from '@/types'
-
-/**
- * Fetches `url` as a blob and saves it via a temporary <a download>. Fetching first
- * (rather than linking straight to the URL) lets callers show a busy state and toast
- * on failure instead of the browser navigating to an error response.
- */
-export async function downloadFile(
-  url: string,
-  filename: string,
-  axiosOpts?: AxiosRequestConfig,
-): Promise<void> {
-  const resp = await axios.get<Blob>(url, { ...axiosOpts, responseType: 'blob' })
-  const objectUrl = URL.createObjectURL(resp.data)
+/** Let the browser download *url* itself, streaming to disk. The response must be an
+ * attachment, or the page would navigate to it. An empty *filename* takes the server's. */
+export function saveUrl(url: string, filename: string): void {
   const a = document.createElement('a')
-  a.href = objectUrl
+  a.href = url
   a.download = filename
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(objectUrl)
 }
 
-const sanitizeSegment = (s: string) =>
-  s
-    .replace(/[/\\:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+const DOWNLOAD_FRAME = 'scene-atlas-download'
 
-/** "Group - Subgroup - Name - Grid 20x15.ext", so downloaded files sort and read well. */
-export function imageDownloadFilename(img: Image): string {
-  const parts: string[] = []
-  if (img.group_name && img.group_name !== img.name) parts.push(sanitizeSegment(img.group_name))
-  if (img.subgroup) parts.push(sanitizeSegment(img.subgroup))
-  parts.push(sanitizeSegment(img.name))
+function downloadFrame(): HTMLIFrameElement {
+  const found = document.querySelector<HTMLIFrameElement>(`iframe[name="${DOWNLOAD_FRAME}"]`)
+  if (found) return found
+  const frame = document.createElement('iframe')
+  frame.name = DOWNLOAD_FRAME
+  frame.title = 'Downloads'
+  frame.hidden = true
+  document.body.appendChild(frame)
+  return frame
+}
 
-  if (img.gridded === true) {
-    const label = img.grid_type === 'hex' ? 'Hex' : 'Grid'
-    const dims = img.grid_width && img.grid_height ? ` ${img.grid_width}x${img.grid_height}` : ''
-    parts.push(`${label}${dims}`)
-  } else {
-    parts.push('No Grid')
+/**
+ * POST *fields* as a form whose attachment response the browser saves itself: a form,
+ * not a fetch, so nothing is held in memory (design/export-backup-move.md §5.2).
+ *
+ * It's submitted into a hidden frame of the app's own, so a response that isn't a download
+ * can't replace the app. A download leaves the frame as it was; an error loads into it as
+ * plain text (the endpoint lets this frame show it), which goes to *onError*, as does a
+ * page the app can't read (the request didn't reach the server).
+ */
+export function postForDownload(
+  url: string,
+  fields: Record<string, string>,
+  onError?: (message: string) => void,
+): void {
+  const frame = downloadFrame()
+  frame.onload = () => {
+    // A page the app can't read (the browser's own error page, a proxy's: contentDocument
+    // is null for those, or reading it throws) means the request never reached the endpoint
+    const unread = "The download didn't start. Check the connection and try again."
+    let message: string
+    try {
+      const body = frame.contentDocument?.body
+      message = body ? (body.textContent?.trim() ?? '') : unread
+      if (body) body.textContent = '' // so a later load can't show it again
+    } catch {
+      message = unread
+    }
+    if (message) onError?.(message)
   }
-
-  // The stored file's extension, which differs from the upload's after conversion.
-  const ext = (img.storage_key || img.filename).match(/\.[^.]+$/)?.[0] ?? ''
-  return parts.join(' - ') + ext
+  const form = document.createElement('form')
+  form.method = 'post'
+  form.action = url
+  form.target = DOWNLOAD_FRAME
+  form.hidden = true
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    form.appendChild(input)
+  }
+  document.body.appendChild(form)
+  form.submit()
+  document.body.removeChild(form)
 }

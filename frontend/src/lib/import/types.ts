@@ -68,6 +68,9 @@ export interface ImportJobSummary {
    * files it re-opened import. The gallery refreshes when it changes.
    */
   grouped_at: string | null
+  /** It carried Scene Atlas metadata (a download or export), and why that wasn't used */
+  with_metadata?: boolean
+  metadata_note?: string | null
 }
 
 export interface ImportJobDetail extends ImportJobSummary {

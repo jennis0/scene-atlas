@@ -165,7 +165,7 @@ JobRunner jobs and scheduler tasks run on pool threads that can't be killed, and
 | `export_library` (CLI) | per batch | re-running; an interrupted export has no `metadata.json` |
 | `run_ingest_maintenance`, `sweep_orphaned_store_files` | between steps / stores | next scheduled run |
 
-Not interruptible: `backup_database` (a partial backup could be rotated in as a good one), library purge (stopping half way leaves rows and files out of step), and model download (one `snapshot_download` call). The ZIP export endpoint is a streaming response, which uvicorn drains before the lifespan shutdown runs.
+Not interruptible: library purge (stopping half way leaves rows and files out of step), and model download (one `snapshot_download` call). The ZIP export endpoint is a streaming response, which uvicorn drains before the lifespan shutdown runs.
 
 ## Why Not Async SQLAlchemy
 

@@ -8,8 +8,8 @@ RuntimeError if called after close().
 """
 
 import logging
-import shutil
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import lancedb
@@ -281,6 +281,39 @@ class LanceDBService:
             logger.warning("Error retrieving embeddings for %d ids: %s", len(image_ids), e)
             return {}
 
+    def get_vectors(self, image_ids: list[int]) -> dict[int, np.ndarray]:
+        """Like ``get_embeddings``, but raises on a read error rather than returning
+        nothing: for exports, which must not leave vectors out silently. Scans the table,
+        so it's for small id lists (a download); a full export uses ``iter_vectors``."""
+        if not image_ids:
+            return {}
+        ids = ", ".join(str(int(i)) for i in image_ids)
+        rows = (
+            self._tbl.search()
+            .where(f"id IN ({ids})")
+            .select(["id", "vector"])
+            .limit(len(image_ids))
+            .to_arrow()
+        )
+        flat = rows.column("vector").combine_chunks().flatten().to_numpy()
+        vectors = flat.reshape(rows.num_rows, self._vector_size)
+        return dict(zip(rows.column("id").to_pylist(), vectors, strict=True))
+
+    @property
+    def vector_size(self) -> int:
+        return self._vector_size
+
+    def iter_vectors(self, batch_size: int = 4096) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Every ``(ids, vectors)`` in the table, a batch at a time, in no particular order.
+
+        Raises on a read error, unlike the lookups above: an export must not lose vectors
+        silently (design/export-backup-move.md §2)."""
+        reader = self._tbl.search().select(["id", "vector"]).limit(None).to_batches(batch_size)
+        for batch in reader:
+            ids = batch.column("id").to_numpy()
+            vectors = batch.column("vector").flatten().to_numpy()
+            yield ids, vectors.reshape(len(ids), self._vector_size)
+
     def get_all_ids(self) -> set[int]:
         """Every image id in the table, without loading vectors (for reconciliation)."""
         table = self._tbl
@@ -306,14 +339,6 @@ class LanceDBService:
         if not self.table_exists(collection_name):
             return None
         return self._conn.open_table(collection_name).count_rows()
-
-    def backup_storage(self, target_dir: Path) -> Path:
-        """Copy the LanceDB storage directory for backup."""
-        with self._lock:
-            dest = target_dir / "lancedb"
-            shutil.copytree(str(self._path), str(dest))
-            logger.info("LanceDB storage backed up to %s", dest)
-            return dest
 
     def delete_collection_by_name(self, collection_name: str) -> None:
         """Delete a LanceDB table by name.

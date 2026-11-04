@@ -5,17 +5,19 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { getLibraryExportUrl, systemApi } from '@/lib/api'
+import { systemApi } from '@/lib/api'
 import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { QUERY_KEYS, invalidateTagQueries } from '@/lib/queryKeys'
 import { useJobPolling } from '@/hooks/useJobPolling'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import { LinkedFolderSection } from './LinkedFolderSection'
-import { downloadFile } from '@/lib/download'
+import { FullExportRow } from './FullExportRow'
+import { MetadataExportRow } from './MetadataExportRow'
+import { RebuildRow } from './RebuildRow'
 import { formatBytes } from '@/lib/format'
 
 interface SystemInfo {
@@ -39,8 +41,11 @@ export function LibraryTab({ open }: { open: boolean }) {
       <LibraryOverview open={open} />
       <LinkedFolderSection open={open} />
       <div className="border-t border-border/50" />
-      <ExportLibraryButton />
+      <MetadataExportRow />
+      <FullExportRow />
       <section className="rounded-md border border-destructive/15 bg-destructive/[0.03] p-3 space-y-2.5">
+        <RebuildRow />
+        <div className="border-t border-destructive/10" />
         <DeleteLibraryRow />
         <div className="border-t border-destructive/10" />
         <ResetTagsRow />
@@ -182,42 +187,6 @@ function StorageBar({ storage }: { storage: SystemInfo['storage'] }) {
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// Export
-
-function ExportLibraryButton() {
-  const [exporting, setExporting] = useState(false)
-
-  const exportLibrary = async () => {
-    setExporting(true)
-    try {
-      await downloadFile(getLibraryExportUrl(), 'scene-atlas-library.zip', { timeout: 300_000 })
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Library export failed'))
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={exportLibrary}
-        disabled={exporting}
-        className="gap-1.5 h-8"
-      >
-        {exporting ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Download className="h-3.5 w-3.5" />
-        )}
-        {exporting ? 'Exporting…' : 'Export library'}
-      </Button>
     </div>
   )
 }

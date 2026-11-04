@@ -1,8 +1,8 @@
 import { Download, FolderInput, Pencil } from 'lucide-react'
 import { CardActionsMenu } from '@/components/CardActionsMenu'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { getImageUrl } from '@/lib/api'
-import { imageDownloadFilename } from '@/lib/download'
+import { getImageDownloadUrl } from '@/lib/api'
+import { saveUrl } from '@/lib/download'
 import { fullImageName } from '@/lib/format'
 import type { Image } from '@/types'
 
@@ -19,9 +19,7 @@ export function ImageCardMenu({ image, actions }: { image: Image; actions: Image
     <CardActionsMenu
       label={fullImageName(image)}
       download={{
-        url: getImageUrl(image),
-        filename: imageDownloadFilename(image),
-        failure: 'Download failed',
+        onDownload: () => saveUrl(getImageDownloadUrl(image), ''),
         icon: <Download className="h-4 w-4 mr-2" />,
       }}
       onDelete={() => actions.onDelete(image)}

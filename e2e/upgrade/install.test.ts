@@ -15,11 +15,20 @@ describe("parseRanges", () => {
       { start: 0, end: 1 },
       { start: 5, end: 6 },
     ]);
-    assert.deepEqual(parseRanges("bytes=95-200", 100), [{ start: 95, end: 99 }]);
+    assert.deepEqual(parseRanges("bytes=95-200", 100), [
+      { start: 95, end: 99 },
+    ]);
   });
 
   test("sends the whole file for no header or one it can't satisfy", () => {
-    for (const header of [undefined, "items=0-1", "bytes=", "bytes=9-1", "bytes=100-", "bytes=a-b"]) {
+    for (const header of [
+      undefined,
+      "items=0-1",
+      "bytes=",
+      "bytes=9-1",
+      "bytes=100-",
+      "bytes=a-b",
+    ]) {
       assert.equal(parseRanges(header, 100), null, String(header));
     }
   });
@@ -57,10 +66,15 @@ describe("serveFeed", () => {
   });
 
   test("serves one range", async () => {
-    const res = await fetch(`${feed.url}Scene-Atlas-Setup-0.1.0.exe`, { headers: { Range: "bytes=10-19" } });
+    const res = await fetch(`${feed.url}Scene-Atlas-Setup-0.1.0.exe`, {
+      headers: { Range: "bytes=10-19" },
+    });
     assert.equal(res.status, 206);
     assert.equal(res.headers.get("content-range"), "bytes 10-19/256");
-    assert.deepEqual(Buffer.from(await res.arrayBuffer()), content.subarray(10, 20));
+    assert.deepEqual(
+      Buffer.from(await res.arrayBuffer()),
+      content.subarray(10, 20),
+    );
   });
 
   test("serves several ranges as multipart/byteranges", async () => {
@@ -68,7 +82,10 @@ describe("serveFeed", () => {
       headers: { Range: "bytes=0-3,100-103" },
     });
     assert.equal(res.status, 206);
-    assert.equal(res.headers.get("content-type"), "multipart/byteranges; boundary=scene-atlas-feed");
+    assert.equal(
+      res.headers.get("content-type"),
+      "multipart/byteranges; boundary=scene-atlas-feed",
+    );
     const body = Buffer.from(await res.arrayBuffer());
     const part = (start: number, end: number) =>
       Buffer.concat([
@@ -79,7 +96,14 @@ describe("serveFeed", () => {
         content.subarray(start, end + 1),
         Buffer.from("\r\n"),
       ]);
-    assert.deepEqual(body, Buffer.concat([part(0, 3), part(100, 103), Buffer.from("--scene-atlas-feed--\r\n")]));
+    assert.deepEqual(
+      body,
+      Buffer.concat([
+        part(0, 3),
+        part(100, 103),
+        Buffer.from("--scene-atlas-feed--\r\n"),
+      ]),
+    );
   });
 
   test("404s for missing files and anything outside its folder", async () => {

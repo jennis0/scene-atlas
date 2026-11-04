@@ -1,6 +1,8 @@
-// Native folder and file pickers: the library's folders (setup and Settings) and local
-// imports. main.ts registers the IPC that opens them; each picker opens over the window
-// that asked, or on its own if that window has gone.
+// Native folder and file pickers: the library's folders (setup and Settings), local
+// imports, and where to save a metadata export or the library's export. main.ts registers the IPC that opens
+// them; each picker opens over the window that asked, or on its own if that window has
+// gone.
+import * as path from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
 import type { FolderKind } from './libraryDirs'
 
@@ -47,21 +49,69 @@ export async function pickLibraryFolder(
   }
 }
 
+/** Where to save a metadata export (design/export-backup-move.md §4). Null when cancelled,
+ * and when the dialog fails. */
+export async function pickExportFile(
+  sender: Electron.WebContents,
+  defaultName: string,
+): Promise<string | null> {
+  const win = BrowserWindow.fromWebContents(sender)
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export metadata',
+    // A file name only: the renderer suggests it, the dialog's folder is ours
+    defaultPath: path.join(app.getPath('documents'), path.basename(defaultName)),
+    filters: [{ name: 'Scene Atlas metadata', extensions: ['gz'] }],
+    buttonLabel: 'Export',
+  }
+  try {
+    const result = win
+      ? await dialog.showSaveDialog(win, options)
+      : await dialog.showSaveDialog(options)
+    return result.canceled || !result.filePath ? null : result.filePath
+  } catch (err) {
+    console.error('[electron] Save dialog failed:', err)
+    return null
+  }
+}
+
+/** The folder to export the library into (design/export-backup-move.md §7): an empty one,
+ * or an unfinished export to carry on. Null when cancelled, and when the dialog fails. */
+export async function pickExportFolder(sender: Electron.WebContents): Promise<string | null> {
+  try {
+    const paths = await openDialog(sender, {
+      title: 'Export library to',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Export here',
+    })
+    return paths[0] ?? null
+  } catch (err) {
+    console.error('[electron] Folder picker failed:', err)
+    return null
+  }
+}
+
 /** Files and folders to import (design/local-ingest.md). Empty when cancelled, and when
  * the dialog fails. */
 export async function pickImportPaths(
   sender: Electron.WebContents,
-  kind: 'folders' | 'files',
+  kind: 'folders' | 'files' | 'export',
 ): Promise<string[]> {
   const options: Electron.OpenDialogOptions =
     kind === 'folders'
       ? { title: 'Import folders', properties: ['openDirectory', 'multiSelections'] }
-      : {
-          title: 'Import files',
-          properties: ['openFile', 'multiSelections'],
-          filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
-        }
-  options.buttonLabel = 'Import'
+      : kind === 'export'
+        ? {
+            title: 'Rebuild from a metadata export',
+            properties: ['openFile'],
+            filters: [{ name: 'Scene Atlas metadata', extensions: ['gz', 'jsonl'] }],
+          }
+        : {
+            title: 'Import files',
+            properties: ['openFile', 'multiSelections'],
+            filters: [{ name: 'Images, videos and zips', extensions: IMPORT_EXTENSIONS }],
+          }
+  options.buttonLabel = kind === 'export' ? 'Rebuild' : 'Import'
   try {
     return await openDialog(sender, options)
   } catch (err) {

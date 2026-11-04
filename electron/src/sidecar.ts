@@ -3,6 +3,7 @@ import * as net from 'net'
 import * as path from 'path'
 import { Readable } from 'stream'
 import { app } from 'electron'
+import { TOKEN_ENV } from './appToken'
 
 /** *preferred* if it is free, otherwise any free port (bind to 0, read what the OS assigned). */
 export async function findFreePort(preferred?: number): Promise<number> {
@@ -68,6 +69,11 @@ export interface SidecarOptions {
   /** The user's own maps folder, passed only when one is configured. It may be missing
    * (a drive that isn't plugged in): the backend reports it as offline. */
   linkedLibraryDir?: string | null
+  /** A library move to finish before starting: the folders it moves from (§10) */
+  moveFrom?: { appData?: string; store?: string }
+  /** The launch token, passed in the environment: never on the command line, which any
+   * user on the computer can read */
+  token: string
   /** Called when the backend prints SCENE_ATLAS_READY on stdout. */
   onReady: (port: number) => void
   onLog: (line: string) => void
@@ -77,7 +83,8 @@ export interface SidecarOptions {
 
 /** Spawn the backend sidecar; calls onReady(port) when it prints SCENE_ATLAS_READY. */
 export function spawnSidecar(options: SidecarOptions): ChildProcess {
-  const { port, appDataDir, imageLibraryDir, linkedLibraryDir, onReady, onLog, onError } = options
+  const { port, appDataDir, imageLibraryDir, linkedLibraryDir, moveFrom, token } = options
+  const { onReady, onLog, onError } = options
   const child = spawn(
     getSidecarPath(),
     [
@@ -88,6 +95,8 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       '--image-library-dir',
       imageLibraryDir,
       ...(linkedLibraryDir ? ['--linked-library-dir', linkedLibraryDir] : []),
+      ...(moveFrom?.appData ? ['--move-from-app-data-dir', moveFrom.appData] : []),
+      ...(moveFrom?.store ? ['--move-from-image-library-dir', moveFrom.store] : []),
       '--parent-pid',
       String(process.pid),
     ],
@@ -95,6 +104,7 @@ export function spawnSidecar(options: SidecarOptions): ChildProcess {
       // stdin is a pipe we never write to: when this process exits, however it exits,
       // the OS closes it and the sidecar's watchdog shuts the backend down.
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, [TOKEN_ENV]: token },
       // The sidecar is a console program (its stdout carries SCENE_ATLAS_READY); without
       // this Windows opens a console window for it next to the app.
       windowsHide: true,

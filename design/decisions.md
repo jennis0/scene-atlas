@@ -179,7 +179,7 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Decision:** Two separate concerns addressed together:
 
-1. **Automated backups**: A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a LanceDB backup. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
+1. **Automated backups** (removed 2026-10-31, user decision: no scheduled backups): A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a LanceDB backup. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
 
 2. **Alembic for schema migrations**: The hand-rolled migration code in `init_db()` is replaced with Alembic. A single initial migration (`001_initial_schema.py`) captures the complete current schema including FTS5 virtual table and triggers. `init_db()` now detects whether the database is fresh (runs all migrations), pre-Alembic (stamps at head), or already Alembic-managed (runs pending migrations). Future schema changes are added as numbered Alembic migration files.
 
@@ -190,7 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
-- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
