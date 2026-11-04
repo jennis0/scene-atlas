@@ -148,11 +148,9 @@ What grows with the size of an import, measured with `stress_tests/ingest_scale.
   every manifest it reads in a metadata cache of up to 1 GiB (and an index cache of up to 6 GiB),
   so through a first import it grew quadratically: about 120 MB after 11k images, toward 1 GiB
   at 50k. Both caches are bounded at 64 MiB; writes and searches were no slower with the bound.
-  The table is never compacted, so it still accrues a fragment and a version per batch. On a
-  very large table that is never compacted (about 12.5k fragments at 200k images) the 64 MiB
-  metadata cache could thrash: lookups re-read fragment metadata from disk, which costs latency,
-  not memory. Compaction is the real fix, tracked by the roadmap's "Compact the vector table"
-  row.
+  Each batch still adds a fragment and a version, but the table is now compacted as it grows
+  (`compact_if_fragmented`, design/storage.md, ADR-029), so the fragment count, and with it
+  each manifest, stays bounded and the 64 MiB cache holds them.
 - **The grouping phase** (`group_jobs.group_job`), measured on a 10k-image import grouped alone
   (RSS above the process before the run):
 
@@ -176,6 +174,17 @@ What grows with the size of an import, measured with `stress_tests/ingest_scale.
   `process_utils.release_freed_memory` (`gc.collect`, then `malloc_trim(0)` on Linux): ~90 MB
   back at 10k. macOS and Windows allocators return memory on their own terms; there it only
   collects.
+
+**10k local import, whole server** (`ingest_scale --images 10000 --paths local`, battlemap,
+small model, 4 cores):
+
+| | peak RSS | images/s | total | first → last decile |
+|---|---|---|---|---|
+| main (busy machine) | 1859 MB | 9.1 | 18.4 min | erratic |
+| these fixes + compaction + annulus (quiet machine) | 1211 MB | 14.2 | 11.7 min | 15.2 → 13.8 |
+
+RSS stays near 1 GB through the import; the peak is the grouping step at the end. The
+main run shared the machine with other benchmarks, so only its memory figure compares.
 
 ## Startup and Shutdown
 
