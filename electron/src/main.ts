@@ -1,7 +1,18 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, nativeTheme, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  IpcMainInvokeEvent,
+  nativeTheme,
+  session,
+  shell,
+} from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { ChildProcess } from 'child_process'
+import { makeAppToken, TOKEN_HEADER } from './appToken'
+import { portWasTaken } from './backendExit'
 import { findFreePort, spawnSidecar } from './sidecar'
 import {
   getDefaultDirs,
@@ -13,8 +24,11 @@ import {
 import {
   firstLaunchConfig,
   libraryDirsOf,
+  revertMove,
   withChosenLibrary,
   withDefaultLibrary,
+  withMove,
+  withoutMove,
   type AppConfig,
 } from './appConfig'
 import {
@@ -35,7 +49,8 @@ import {
   type LibraryDirs,
 } from './libraryDirs'
 import { isAbsolutePath, prepareStorageDirs } from './storageDirs'
-import { pickImportPaths, pickLibraryFolder } from './pickers'
+import { pickExportFile, pickExportFolder, pickImportPaths, pickLibraryFolder } from './pickers'
+import { showDownloadProgress } from './downloads'
 import { Updater } from './updater'
 import { parseUpdateChoice, type UpdateState } from './updatePolicy'
 import {
@@ -59,6 +74,8 @@ const MAX_LOG_BYTES = 5 * 1024 * 1024
 const QUIT_GRACE_MS = 15_000
 // The backend's exit code when its library check refused the folders (pyinstaller/entry.py)
 const LIBRARY_REFUSED = 4
+// Finishing a library move failed (backend/pyinstaller/entry.py MOVE_FAILED)
+const MOVE_FAILED = 5
 
 let mainWindow: BrowserWindow | null = null
 let sidecarProcess: ChildProcess | null = null
@@ -75,6 +92,9 @@ let backendError: string | null = null
 // The failure is about the folders (refused by the library check, or unusable), so the
 // loading page also offers to choose them again (design/library-setup.md §3.3).
 let backendErrorIsFolders = false
+// The refusal was that the app data isn't there: the loading page offers to rebuild
+// it from a metadata export (design/export-backup-move.md §8.5)
+let backendErrorCanRebuild = false
 
 // The installer's shortcuts carry electron-builder's appId as their AppUserModelID; the
 // process must match, or Windows shows a pinned shortcut and the running app as two
@@ -190,6 +210,15 @@ handleTrusted('window:set-colors', (event, raw) => {
 
 handleTrusted('imports:choose-folders', (event) => pickImportPaths(event.sender, 'folders'))
 handleTrusted('imports:choose-files', (event) => pickImportPaths(event.sender, 'files'))
+handleTrusted('export:choose-file', (event, defaultName) =>
+  pickExportFile(
+    event.sender,
+    typeof defaultName === 'string' && /^[\w .-]{1,200}$/.test(defaultName)
+      ? defaultName
+      : 'scene-atlas-metadata.jsonl.gz',
+  ),
+)
+handleTrusted('export:choose-folder', (event) => pickExportFolder(event.sender))
 
 // The library's folders (design/library-setup.md): the setup wizard's library step and
 // Settings choose them; the backend checks them (POST /library/inspect) before they're applied.
@@ -240,6 +269,52 @@ handleTrusted('library:apply', (_event, raw) => {
   }
 
   restartBackend(next, replaced)
+  return new Promise(() => {})
+})
+
+/** *target* holds the backend's finished copy of *source* (its scene-atlas-move.json). */
+function isCopyOf(target: string, source: string): boolean {
+  try {
+    const record = JSON.parse(fs.readFileSync(path.join(target, 'scene-atlas-move.json'), 'utf8'))
+    return record?.from === source && record?.state === 'copied'
+  } catch {
+    return false
+  }
+}
+
+// Move library (design/export-backup-move.md §10): the backend has copied the folders
+// (POST /library/move); restart on them, finishing the move first. Resolves only when it
+// can't (dev, or nothing to move); otherwise the page is replaced.
+handleTrusted('library:apply-move', (_event, raw) => {
+  if (restarting) return new Promise(() => {})
+  const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const moved = {
+    ...(isAbsolutePath(value.app_data) ? { appData: value.app_data } : {}),
+    ...(isAbsolutePath(value.store) ? { store: value.store } : {}),
+  }
+  const config = loadConfig()
+  if (!config) return { error: "Couldn't read the app's settings file.", restarted: false }
+  if (!moved.appData && !moved.store) return { error: 'Nothing to move.', restarted: false }
+  // Only to a folder the backend's copy filled from the folder in use: the finish makes
+  // it hold what that folder does, deleting anything else
+  const from = { appData: config.appDataDir, store: config.imageLibraryDir }
+  for (const kind of ['appData', 'store'] as const) {
+    const target = moved[kind]
+    if (target && !isCopyOf(target, from[kind])) {
+      return { error: `${target} isn't a finished copy of the library.`, restarted: false }
+    }
+  }
+  if (isDev) {
+    return {
+      error:
+        'In development, restart the backend yourself with the new folders, after finishing ' +
+        'the copy by hand.',
+      restarted: false,
+    }
+  }
+  const next = withMove(config, moved)
+  saveConfig(next)
+  restartBackend(libraryDirsOf(next))
   return new Promise(() => {})
 })
 
@@ -323,11 +398,12 @@ function createMainWindow(): BrowserWindow {
   return win
 }
 
-async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boolean> {
+async function waitForHealth(origin: string, token: string, timeoutMs = 120_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${origin}/health`)).ok) return true
+      const headers = { [TOKEN_HEADER]: token }
+      if ((await fetch(`${origin}/health`, { headers })).ok) return true
     } catch {
       // Not accepting connections yet.
     }
@@ -336,9 +412,31 @@ async function waitForHealth(origin: string, timeoutMs = 120_000): Promise<boole
   return false
 }
 
-async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
+/**
+ * Give the window's requests to *origin*, and only to it, the backend's launch token
+ * (design/security.md §6d): page loads, fetches, images and downloads alike. Added by
+ * Electron as the requests leave, so the page's scripts never see it and nothing is
+ * stored. A session has one such listener: this replaces the last backend's.
+ */
+function sendTokenTo(origin: string, token: string): void {
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    let sameOrigin = false
+    try {
+      sameOrigin = new URL(details.url).origin === origin
+    } catch {
+      // Not a URL with an origin
+    }
+    callback({
+      requestHeaders: sameOrigin
+        ? { ...details.requestHeaders, [TOKEN_HEADER]: token }
+        : details.requestHeaders,
+    })
+  })
+}
+
+async function showBackendUi(port: number, child: ChildProcess, token: string): Promise<void> {
   const origin = `http://127.0.0.1:${port}`
-  const healthy = await waitForHealth(origin)
+  const healthy = await waitForHealth(origin, token)
   // It exited or was replaced meanwhile, and whatever did that has reported it.
   if (child !== sidecarProcess) return
   if (!healthy) {
@@ -346,12 +444,14 @@ async function showBackendUi(port: number, child: ChildProcess): Promise<void> {
     return
   }
   backendOrigin = origin
+  sendTokenTo(origin, token)
   await mainWindow?.loadURL(`${origin}/`)
 }
 
-function signalBackendError(message: string, aboutFolders = false): void {
+function signalBackendError(message: string, aboutFolders = false, canRebuild = false): void {
   backendError = message
   backendErrorIsFolders = aboutFolders
+  backendErrorCanRebuild = canRebuild
   const win = mainWindow
   if (!win) return
   // A crash after startup leaves the UI on a dead origin; go back to the loading page,
@@ -374,7 +474,11 @@ function canChooseFoldersAgain(): boolean {
 
 function sendBackendError(win: BrowserWindow): void {
   const chooseFolders = canChooseFoldersAgain()
-  win.webContents.send('backend-error', backendError, { chooseFolders, retry: !isDev })
+  win.webContents.send('backend-error', backendError, {
+    chooseFolders,
+    retry: !isDev,
+    rebuild: backendErrorCanRebuild && !isDev,
+  })
 }
 
 // Backend sidecar
@@ -394,8 +498,11 @@ function launchApp(dirs: LibraryDirs): void {
   void startBackend(dirs)
 }
 
-/** Start the sidecar on *dirs*; the main window shows its UI once it is ready. */
-async function startBackend(dirs: LibraryDirs): Promise<void> {
+/**
+ * Start the sidecar on *dirs*; the main window shows its UI once it is ready. With
+ * *anyPort*, on whatever port the OS gives rather than the usual one (that one was taken).
+ */
+async function startBackend(dirs: LibraryDirs, anyPort = false): Promise<void> {
   currentDirs = dirs
   backendOrigin = null
   backendError = null
@@ -414,7 +521,7 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
 
   let port: number
   try {
-    port = await findFreePort(PREFERRED_PORT)
+    port = await findFreePort(anyPort ? undefined : PREFERRED_PORT)
   } catch (err) {
     console.error('Failed to find a free port:', err)
     signalBackendError('Could not find a free port')
@@ -449,15 +556,29 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
   }
 
   let ready = false
+  // A new one for each backend: one that has stopped (and its port, which anything may
+  // take next) is never trusted with the next one's
+  const token = makeAppToken()
+  const moveFrom = loadConfig()?.pendingMove
+  if (moveFrom) logLine(`[electron] Finishing the library move from ${JSON.stringify(moveFrom)}`)
   const child = spawnSidecar({
     port,
+    token,
     appDataDir,
     imageLibraryDir,
     linkedLibraryDir,
+    moveFrom,
     onReady: (readyPort) => {
       ready = true
+      if (moveFrom) {
+        // Finished: the backend only reports ready once the move is in place
+        const config = loadConfig()
+        if (config?.pendingMove) saveConfig(withoutMove(config))
+      }
       console.log(`[electron] Backend ready on port ${readyPort}`)
-      void showBackendUi(readyPort, child)
+      showBackendUi(readyPort, child, token).catch((err: unknown) => {
+        if (child === sidecarProcess) signalBackendError(`Could not open the app: ${String(err)}`)
+      })
     },
     onLog: logLine,
     onError: (message) => {
@@ -479,11 +600,39 @@ async function startBackend(dirs: LibraryDirs): Promise<void> {
     // Before ready, any exit is a startup failure (even code 0). After ready, only a
     // non-zero code is a crash.
     if (ready && (code === 0 || code === null)) return
+    if (!ready && !anyPort && portWasTaken(code, recentLines)) {
+      // Taken between findFreePort and the backend binding it: once, on another port.
+      // A pending move is still pending, and finishing it again is safe.
+      console.log(`[electron] Port ${port} was taken as the backend started; trying another`)
+      void startBackend(dirs, true)
+      return
+    }
     const tail = recentLines.slice(-10).join('\n')
+    const config = loadConfig()
+    if (!ready && config?.pendingMove) {
+      // A start on a move's new folders failed (finishing it, or opening them): back to
+      // the folders it moved from, which aren't changed until the new ones have opened
+      const back = revertMove(config)
+      saveConfig(back)
+      void dialog.showMessageBox({
+        type: 'error',
+        message:
+          code === MOVE_FAILED
+            ? "Scene Atlas couldn't finish moving the library"
+            : "Scene Atlas couldn't open the library in its new folder",
+        detail:
+          "It's using the folders it was in before, which are as they were. The copy in " +
+          'the new folder is kept: move again from Settings to carry on, or delete it.' +
+          `\n\n${tail}\n\nFull log: ${logPath}`,
+      })
+      restartBackend(libraryDirsOf(back))
+      return
+    }
     const what = ready ? 'Backend crashed' : 'Backend exited during startup'
     signalBackendError(
       `${what} (exit code ${code ?? signal}).\n\nLast output:\n${tail}\n\nFull log: ${logPath}`,
       !ready && code === LIBRARY_REFUSED,
+      !ready && recentLines.some((l) => l.includes('SCENE_ATLAS_REFUSAL=app_data_not_here')),
     )
   })
 }
@@ -525,6 +674,19 @@ function stopSidecar(timeoutMs = 5000, force = false): Promise<void> {
 handleTrusted('startup:retry', () => {
   if (restarting || !currentDirs || isDev || backendError === null) return
   restartBackend(currentDirs)
+})
+
+// The app data is gone (§8.5): pick a metadata export, stage it where the backend builds
+// from at startup, and start again on the same folders.
+handleTrusted('startup:rebuild-from-export', async (event) => {
+  if (restarting || !currentDirs || isDev || !backendErrorCanRebuild) return
+  const picked = await pickImportPaths(event.sender, 'export')
+  if (!picked[0]) return
+  const dirs = currentDirs
+  const staged = path.join(dirs.appData, 'rebuild', 'staged.jsonl')
+  await fs.promises.mkdir(path.dirname(staged), { recursive: true })
+  await fs.promises.copyFile(picked[0], staged)
+  restartBackend(dirs)
 })
 
 // Back to the default folders, with the setup wizard's library step to choose the real
@@ -593,6 +755,7 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   if (!hasInstanceLock) return
+  showDownloadProgress(session.defaultSession, () => mainWindow)
   setMacMenu()
   startUpdater()
   start()

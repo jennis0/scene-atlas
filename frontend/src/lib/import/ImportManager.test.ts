@@ -86,6 +86,10 @@ function fakeClient(calls: Calls, overrides: Partial<Record<keyof ImportClient, 
       calls.push(`archive:${archive.relativePath}`)
       return { name: archive.relativePath, created: 1, skipped: 0, failed: 0 }
     }),
+    uploadExportMetadata: vi.fn(async () => {
+      calls.push('metadata')
+      return { loading: true }
+    }),
     seal: vi.fn(async () => {
       calls.push('seal')
       return {}
@@ -312,6 +316,46 @@ describe('startImport', () => {
     // Sent with its folder, which names the zip's contents
     expect(calls.indexOf('archive:Creator/Pack.zip')).toBeLessThan(calls.indexOf('seal'))
     expect(calls).toContain('manifest:1') // the zip isn't in the manifest
+  })
+
+  it("sends a folder's Scene Atlas metadata before its manifest, and not as a file", async () => {
+    const calls: Calls = []
+    const { manager } = track(makeManager(fakeClient(calls)))
+    const jobId = await manager.startImport([
+      picked('Czepeku_Forest/scene-atlas.jsonl'),
+      picked('Czepeku_Forest/Czepeku_Forest_Day_G.png'),
+    ])
+    await manager.whenSettled(jobId)
+    expect(calls.indexOf('metadata')).toBeLessThan(calls.indexOf('manifest:1'))
+    expect(calls).not.toContain('manifest:2')
+  })
+
+  it("imports the files without the metadata when it's refused", async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      uploadExportMetadata: vi.fn(async () => {
+        throw httpError(413, 'File is larger than the import size limit')
+      }),
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startImport([picked('F/scene-atlas.jsonl'), picked('F/a.png')])
+    await manager.whenSettled(jobId)
+    expect(calls).toContain('seal')
+    expect(calls.some((c) => c.startsWith('upload:'))).toBe(true)
+  })
+
+  it('stops the import when the job went while its metadata was sent', async () => {
+    const calls: Calls = []
+    const client = fakeClient(calls, {
+      uploadExportMetadata: vi.fn(async () => {
+        throw httpError(404, 'Import not found')
+      }),
+    })
+    const { manager } = track(makeManager(client))
+    const jobId = await manager.startImport([picked('F/scene-atlas.jsonl'), picked('F/a.png')])
+    await manager.whenSettled(jobId)
+    expect(calls).not.toContain('seal')
   })
 
   it('skips uploading files the server already has (client hash)', async () => {

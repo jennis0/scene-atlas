@@ -2,6 +2,7 @@
  * Building a library in a running app and reading it back through its API, for the
  * upgrade test (design/testing.md#upgrade-test). The comparison itself is in checks.ts.
  */
+import { tokenHeader } from "../helpers/appToken";
 import { seedTestData } from "../helpers/seed";
 import type {
   GroupRecord,
@@ -15,25 +16,41 @@ import type {
 const MODEL = "small";
 const PAGE = 500;
 
-async function call<T>(base: string, method: string, path: string, json?: unknown): Promise<T> {
+async function call<T>(
+  base: string,
+  method: string,
+  path: string,
+  json?: unknown,
+): Promise<T> {
   const res = await fetch(`${base}/api/v1${path}`, {
     method,
-    headers: json === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...tokenHeader(),
+      ...(json === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     body: json === undefined ? undefined : JSON.stringify(json),
   });
-  if (!res.ok) throw new Error(`${method} ${path} failed: ${res.status} ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(
+      `${method} ${path} failed: ${res.status} ${await res.text()}`,
+    );
   return (await res.json()) as T;
 }
 
 function query(params: Record<string, string | string[]>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    for (const v of Array.isArray(value) ? value : [value]) search.append(key, v);
+    for (const v of Array.isArray(value) ? value : [value])
+      search.append(key, v);
   }
   return search.toString();
 }
 
-async function waitFor(description: string, check: () => Promise<boolean>, timeoutMs: number) {
+async function waitFor(
+  description: string,
+  check: () => Promise<boolean>,
+  timeoutMs: number,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -48,8 +65,13 @@ export async function activateSearchModel(base: string): Promise<void> {
   await waitFor(
     "the search model to load",
     async () => {
-      const { status } = await call<{ status: string }>(base, "GET", "/models/embedding-status");
-      if (status === "error" || status === "missing") throw new Error(`Search model ${status}`);
+      const { status } = await call<{ status: string }>(
+        base,
+        "GET",
+        "/models/embedding-status",
+      );
+      if (status === "error" || status === "missing")
+        throw new Error(`Search model ${status}`);
       return status === "ready";
     },
     15 * 60_000,
@@ -88,12 +110,16 @@ export interface Edits {
 }
 
 /** Import the test images, finish setup, and make the kinds of edit users make. */
-export async function buildLibrary(base: string, imageDir: string): Promise<Edits> {
+export async function buildLibrary(
+  base: string,
+  imageDir: string,
+): Promise<Edits> {
   await call(base, "POST", "/models/setup-complete");
   await seedTestData(imageDir, base);
 
   const images = await listImages(base);
-  if (images.length < 3) throw new Error(`Expected at least 3 test images, got ${images.length}`);
+  if (images.length < 3)
+    throw new Error(`Expected at least 3 test images, got ${images.length}`);
   const [first, second, third] = images;
 
   const renamed = { id: first.id, name: "Upgrade test rename" };
@@ -106,7 +132,10 @@ export async function buildLibrary(base: string, imageDir: string): Promise<Edit
     grid_height: grid.grid_height,
   });
   const tagged = { id: third.id, tag: "upgrade-test:kept" };
-  await call(base, "POST", `/tags/image/${tagged.id}`, { category: "upgrade-test", value: "kept" });
+  await call(base, "POST", `/tags/image/${tagged.id}`, {
+    category: "upgrade-test",
+    value: "kept",
+  });
   return { renamed, grid, tagged };
 }
 
@@ -114,7 +143,8 @@ export async function buildLibrary(base: string, imageDir: string): Promise<Edit
 export function missingEdits(edits: Edits, integrity: Integrity): string[] {
   const problems: string[] = [];
   const byId = (id: number) => integrity.images[String(id)];
-  if (byId(edits.renamed.id)?.name !== edits.renamed.name) problems.push("the rename");
+  if (byId(edits.renamed.id)?.name !== edits.renamed.name)
+    problems.push("the rename");
   const grid = byId(edits.grid.id);
   if (
     grid?.grid_width !== edits.grid.grid_width ||
@@ -123,7 +153,8 @@ export function missingEdits(edits: Edits, integrity: Integrity): string[] {
   ) {
     problems.push("the grid edit");
   }
-  if (!byId(edits.tagged.id)?.tags.includes(edits.tagged.tag)) problems.push("the added tag");
+  if (!byId(edits.tagged.id)?.tags.includes(edits.tagged.tag))
+    problems.push("the added tag");
   return problems;
 }
 
@@ -140,7 +171,9 @@ async function listImages(base: string): Promise<ApiImage[]> {
   }
 }
 
-async function listGroups(base: string): Promise<{ total: number; groups: ApiGroup[] }> {
+async function listGroups(
+  base: string,
+): Promise<{ total: number; groups: ApiGroup[] }> {
   const groups: ApiGroup[] = [];
   for (let offset = 0; ; offset += PAGE) {
     const page = await call<{ total_groups: number; groups: ApiGroup[] }>(
@@ -157,7 +190,7 @@ async function listGroups(base: string): Promise<{ total: number; groups: ApiGro
 
 async function readable(base: string, path: string): Promise<boolean> {
   try {
-    const res = await fetch(`${base}${path}`);
+    const res = await fetch(`${base}${path}`, { headers: tokenHeader() });
     return res.ok && (await res.arrayBuffer()).byteLength > 0;
   } catch {
     return false;
@@ -184,7 +217,11 @@ function record(image: ApiImage): ImageRecord {
 }
 
 export async function readIntegrity(base: string): Promise<Integrity> {
-  const facets = await call<{ total_images: number }>(base, "GET", "/search/facets");
+  const facets = await call<{ total_images: number }>(
+    base,
+    "GET",
+    "/search/facets",
+  );
   const images = await listImages(base);
   const { total, groups } = await listGroups(base);
 
@@ -219,13 +256,25 @@ async function runQuery(base: string, spec: QuerySpec): Promise<QueryResult> {
   const path = spec.endpoint === "groups" ? "/search/groups" : "/search/";
   try {
     if (spec.endpoint === "groups") {
-      const res = await call<{ groups: ApiGroup[] }>(base, "GET", `${path}?${query(spec.params)}`);
+      const res = await call<{ groups: ApiGroup[] }>(
+        base,
+        "GET",
+        `${path}?${query(spec.params)}`,
+      );
       return { id: spec.id, ids: res.groups.map((g) => g.group_id) };
     }
-    const res = await call<{ images: ApiImage[] }>(base, "GET", `${path}?${query(spec.params)}`);
+    const res = await call<{ images: ApiImage[] }>(
+      base,
+      "GET",
+      `${path}?${query(spec.params)}`,
+    );
     return { id: spec.id, ids: res.images.map((i) => i.id) };
   } catch (err) {
-    return { id: spec.id, ids: [], error: err instanceof Error ? err.message : String(err) };
+    return {
+      id: spec.id,
+      ids: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

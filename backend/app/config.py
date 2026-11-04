@@ -5,13 +5,17 @@ from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend import __version__
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _LEGACY_LIBRARY_DIR = _REPO_ROOT / "images"
+
+
+# Folders of the user's own in the images folder: never purged, nor counted as images
+USER_FOLDERS = ("exports", "not-in-backup", "backups")
 
 
 def default_images_dir(data_dir: Path) -> Path:
@@ -54,6 +58,11 @@ class Settings(BaseSettings):
     # Deployment mode: 'app' when running as Electron desktop sidecar,
     # 'server' when running standalone via uvicorn.  Set via SCENE_ATLAS_APP_MODE.
     app_mode: Literal["app", "server"] = "server"
+
+    # Desktop app: a secret Electron makes for each backend it starts and passes in the
+    # environment, not on the command line. When set, every request must carry it in the
+    # X-Scene-Atlas-Token header, which Electron adds to its window's requests (host_check.py).
+    app_token: str | None = Field(default=None, repr=False)
 
     # Server mode: ask GitHub once a day whether a newer release is out, to show in
     # Settings (services/update_check.py). False makes no request at all. The desktop
@@ -147,6 +156,10 @@ class Settings(BaseSettings):
     @cached_property
     def staging_dir(self) -> Path:
         return self.data_dir / "staging"
+
+    @cached_property
+    def metadata_exports_dir(self) -> Path:
+        return self.data_dir / "exports"
 
     @cached_property
     def vector_db_path(self) -> Path:

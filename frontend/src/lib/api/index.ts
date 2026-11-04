@@ -10,6 +10,7 @@ export {
   getThumbnailUrlById,
   getImageUrl,
   getImageUrlById,
-  getGroupDownloadUrl,
-  getLibraryExportUrl,
+  getImageDownloadUrl,
+  getDownloadUrl,
+  getMetadataExportUrl,
 } from './urls'

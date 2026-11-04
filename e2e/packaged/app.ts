@@ -17,6 +17,7 @@ import net from "net";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
+import { useAppToken } from "../helpers/appToken";
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -27,7 +28,14 @@ export function appExecutable(): string {
   const candidates: Record<string, string> = {
     win32: path.join(DIST, "win-unpacked", "Scene Atlas.exe"),
     linux: path.join(DIST, "linux-unpacked", "scene-atlas"),
-    darwin: path.join(DIST, "mac-arm64", "Scene Atlas.app", "Contents", "MacOS", "Scene Atlas"),
+    darwin: path.join(
+      DIST,
+      "mac-arm64",
+      "Scene Atlas.app",
+      "Contents",
+      "MacOS",
+      "Scene Atlas",
+    ),
   };
   const exe = process.env.SCENE_ATLAS_EXE ?? candidates[process.platform];
   if (!exe || !fs.existsSync(exe)) {
@@ -74,7 +82,10 @@ export function makeProfile(seedConfig: boolean | SeedConfig): Profile {
     userData: path.join(root, "user-data"),
     appData: path.join(root, "app-data"),
     images: path.join(root, "images"),
-    defaults: { appData: path.join(defaultBase, "data"), store: path.join(defaultBase, "images") },
+    defaults: {
+      appData: path.join(defaultBase, "data"),
+      store: path.join(defaultBase, "images"),
+    },
     home,
     backendLog: path.join(root, "user-data", "backend.log"),
   };
@@ -136,7 +147,9 @@ async function freePort(): Promise<number> {
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       server.close(() =>
-        typeof address === "object" && address ? resolve(address.port) : reject(),
+        typeof address === "object" && address
+          ? resolve(address.port)
+          : reject(),
       );
     });
   });
@@ -146,6 +159,8 @@ async function freePort(): Promise<number> {
  * point it at a closed loopback port instead, so a check fails at once and nothing is
  * downloaded; the upgrade test passes its own feed. */
 const NO_UPDATES = { SCENE_ATLAS_UPDATE_FEED: "http://127.0.0.1:9/" };
+// Every app these tests start takes this run's launch token from its environment.
+useAppToken();
 
 export interface LaunchOptions {
   /** Another build of the app, e.g. an installed copy (default: the unpacked build) */
@@ -159,7 +174,11 @@ export interface LaunchOptions {
  * and only notifies of updates. Set it as the FUSE runtime would.
  */
 function appImageEnv(exe: string): Record<string, string> {
-  if (!exe.endsWith(".AppImage") || process.env.APPIMAGE_EXTRACT_AND_RUN !== "1") return {};
+  if (
+    !exe.endsWith(".AppImage") ||
+    process.env.APPIMAGE_EXTRACT_AND_RUN !== "1"
+  )
+    return {};
   return { APPIMAGE: path.resolve(exe) };
 }
 
@@ -173,16 +192,32 @@ export async function launch(
   const exe = options.exe ?? appExecutable();
   const child = spawn(
     exe,
-    [`--user-data-dir=${profile.userData}`, `--remote-debugging-port=${cdpPort}`, ...extraArgs],
+    [
+      `--user-data-dir=${profile.userData}`,
+      `--remote-debugging-port=${cdpPort}`,
+      // Chromium won't start as root without it (a container); never set on CI runners
+      ...(process.env.PACKAGED_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
+      ...extraArgs,
+    ],
     {
       stdio: "ignore",
-      env: { ...process.env, ...NO_UPDATES, ...appImageEnv(exe), ...defaultFolderEnv(profile), ...options.env },
+      env: {
+        ...process.env,
+        ...NO_UPDATES,
+        ...appImageEnv(exe),
+        ...defaultFolderEnv(profile),
+        ...options.env,
+      },
     },
   );
   let exited = false;
   child.once("exit", () => (exited = true));
   // A second instance quits before it serves DevTools: stop waiting when it does.
-  return { child, cdpPort, browser: await connect(cdpPort, 60_000, () => exited) };
+  return {
+    child,
+    cdpPort,
+    browser: await connect(cdpPort, 60_000, () => exited),
+  };
 }
 
 /** Connect over CDP, retrying while the app starts (or relaunches) on that port. */
@@ -217,7 +252,9 @@ async function waitForPage(
     await sleep(250);
   }
   const urls = browser.contexts().flatMap((c) => c.pages().map((p) => p.url()));
-  throw new Error(`No page matched within ${timeoutMs} ms; open pages: ${urls.join(", ")}`);
+  throw new Error(
+    `No page matched within ${timeoutMs} ms; open pages: ${urls.join(", ")}`,
+  );
 }
 
 // The sidecar serves the UI on loopback; the loading page is a file: URL.
@@ -243,7 +280,10 @@ export function applyLibrary(
   page: Page,
   dirs: LibraryDirs,
 ): Promise<{ error: string | null; restarted: boolean }> {
-  return page.evaluate((d) => (window as any).electronAPI.applyLibrary(d), dirs);
+  return page.evaluate(
+    (d) => (window as any).electronAPI.applyLibrary(d),
+    dirs,
+  );
 }
 
 /**
@@ -260,8 +300,26 @@ export async function applyLibraryAndRestart(
   await waitForChosenLibraryUi(page);
 }
 
+/**
+ * After something that restarts the backend in the window (a move, a rebuild): wait for
+ * the backend that was running (*oldSidecarPid*) to exit, and for the UI to reload on the
+ * new one. Resolves to the new backend's origin.
+ */
+export async function waitForRestartedUi(
+  page: Page,
+  oldSidecarPid: number,
+  timeoutMs = 300_000,
+): Promise<string> {
+  await waitUntil("old backend to exit", () => !isAlive(oldSidecarPid), 60_000);
+  await waitForChosenLibraryUi(page, timeoutMs);
+  return new URL(page.url()).origin;
+}
+
 /** Wait until the window has reloaded the UI with libraryChosen set (after a restart). */
-async function waitForChosenLibraryUi(page: Page, timeoutMs = 180_000): Promise<void> {
+async function waitForChosenLibraryUi(
+  page: Page,
+  timeoutMs = 180_000,
+): Promise<void> {
   await waitUntil(
     "the UI to reload on the new backend",
     async () =>
@@ -297,7 +355,11 @@ async function listProcesses(): Promise<ProcessInfo[]> {
       ParentProcessId: number;
       CommandLine: string | null;
     }[];
-    return rows.map((r) => ({ pid: r.ProcessId, ppid: r.ParentProcessId, command: r.CommandLine ?? "" }));
+    return rows.map((r) => ({
+      pid: r.ProcessId,
+      ppid: r.ParentProcessId,
+      command: r.CommandLine ?? "",
+    }));
   }
   const { stdout } = await execFileAsync("ps", ["-eo", "pid=,ppid=,args="], {
     maxBuffer: 64 * 1024 * 1024,
@@ -310,7 +372,9 @@ async function listProcesses(): Promise<ProcessInfo[]> {
 }
 
 /** Processes whose command line mentions the given path (profile dirs are unique per test). */
-export async function processesMentioning(fragment: string): Promise<ProcessInfo[]> {
+export async function processesMentioning(
+  fragment: string,
+): Promise<ProcessInfo[]> {
   return (await listProcesses()).filter((p) => p.command.includes(fragment));
 }
 
@@ -324,7 +388,8 @@ export async function sidecars(appDataDir: string): Promise<ProcessInfo[]> {
 /** Electron main process(es) for a profile: Chromium helpers carry a --type= switch. */
 export async function mainProcesses(profile: Profile): Promise<ProcessInfo[]> {
   return (await processesMentioning(profile.userData)).filter(
-    (p) => !p.command.includes("--type=") && !/scene-atlas-backend/i.test(p.command),
+    (p) =>
+      !p.command.includes("--type=") && !/scene-atlas-backend/i.test(p.command),
   );
 }
 
@@ -348,7 +413,9 @@ export async function waitUntil(
     if (await condition()) return;
     await sleep(250);
   }
-  throw new Error(`Timed out after ${timeoutMs} ms waiting for: ${description}`);
+  throw new Error(
+    `Timed out after ${timeoutMs} ms waiting for: ${description}`,
+  );
 }
 
 /** Kill anything still running from the profile, then delete it. */

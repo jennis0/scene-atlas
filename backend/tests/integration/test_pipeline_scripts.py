@@ -1,7 +1,5 @@
 """The maintenance and CLI pipeline scripts against a real SQLite DB and image store."""
 
-import json
-
 import pytest
 
 from backend.app.models.database import Image, ImageGroup, Tag
@@ -53,6 +51,85 @@ def test_backfill_content_hash(library):
         assert all(img.content_hash for img in db.query(Image))
 
 
+def test_backfill_stored_hash_hashes_images_with_neither_hash(library):
+    from backend.app.file_hash import file_sha256
+    from backend.app.services import get_image_store
+    from backend.pipeline.backfill_content_hash import (
+        backfill_stored_hash,
+        images_missing_stored_hash,
+    )
+
+    with library() as db:
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        cave.content_hash = "ab" * 32  # migration 031's to fill in, not the job's
+        db.commit()
+        assert images_missing_stored_hash(db) == 1
+    progress = []
+
+    assert backfill_stored_hash(lambda *args: progress.append(args)) == {
+        "total": 1,
+        "updated": 1,
+        "skipped": 0,
+    }
+    assert progress[-1][:2] == (1, 1)
+    with library() as db:
+        forest = db.query(Image).filter_by(filename="Forest_Night_winter.jpg").one()
+        digest = file_sha256(get_image_store().get_path(forest.storage_key))
+        assert (forest.stored_hash, forest.content_hash) == (digest, digest)
+        assert db.query(Image).filter_by(filename="Cave.jpg").one().stored_hash is None
+        assert images_missing_stored_hash(db) == 0
+
+
+def test_backfill_stored_hash_leaves_unreadable_files_for_later(library):
+    from backend.app.services import get_image_store
+    from backend.pipeline.backfill_content_hash import backfill_stored_hash
+
+    with library() as db:
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        get_image_store().get_path(cave.storage_key).unlink()
+
+    assert backfill_stored_hash() == {"total": 2, "updated": 1, "skipped": 1}
+    with library() as db:
+        assert db.query(Image).filter_by(filename="Cave.jpg").one().stored_hash is None
+
+
+def test_backfill_stored_hash_skips_an_image_deleted_meanwhile(library, monkeypatch):
+    from backend.pipeline import backfill_content_hash as backfill
+
+    real_hash = backfill.file_sha256
+
+    def hash_then_delete(path):
+        digest = real_hash(path)
+        with library() as db:
+            db.query(Image).filter_by(filename="Cave.jpg").delete()
+            db.commit()
+        return digest
+
+    monkeypatch.setattr(backfill, "file_sha256", hash_then_delete)
+    result = backfill.backfill_stored_hash()
+    assert result["total"] == 2 and result["updated"] == 1
+
+
+def test_backfill_stored_hash_leaves_out_linked_images_while_offline(library, monkeypatch):
+    from backend.app.models.database import LibrarySource, SourceFile
+    from backend.pipeline import backfill_content_hash as backfill
+
+    with library() as db:
+        source = LibrarySource(kind="folder", location="/maps", state="online")
+        db.add(source)
+        db.flush()
+        linked_file = SourceFile(source_id=source.id, rel_key="Cave.jpg", size=1, mtime_ns=1)
+        db.add(linked_file)
+        db.flush()
+        cave = db.query(Image).filter_by(filename="Cave.jpg").one()
+        cave.storage_key, cave.source_file_id = None, linked_file.id  # read from the folder
+        db.commit()
+        monkeypatch.setattr(backfill, "linked_folder_available", lambda: False)
+        assert backfill.images_missing_stored_hash(db) == 1
+        monkeypatch.setattr(backfill, "linked_folder_available", lambda: True)
+        assert backfill.images_missing_stored_hash(db) == 2
+
+
 def test_retag_all_images_replaces_auto_tags(library):
     from backend.pipeline.retag_all_images import retag_all_images
 
@@ -85,14 +162,12 @@ def test_fix_orphaned_images(library):
         assert db.query(ImageGroup).filter_by(base_name=UNCATEGORISED_NAME).count() == 1
 
 
-def test_export_library(library, tmp_path):
+def test_export_library_cli_runs(library, tmp_path, lancedb_service):
+    """The CLI's function; the export itself is tested in test_full_export.py."""
     from backend.pipeline.export_library import export_library
 
-    result = export_library(str(tmp_path / "out"))
-    assert (result["exported"], result["skipped"]) == (2, 0)
-    metadata = json.loads((tmp_path / "out" / "metadata.json").read_text())
-    assert len(metadata["images"]) == 2
-    assert all((tmp_path / "out" / arc).is_file() for arc in metadata["images"])
+    result = export_library(tmp_path / "out")
+    assert (result["images"], result["skipped"]) == (2, 0)
 
 
 def test_backfill_grid_detection_runs(library):
@@ -160,10 +235,9 @@ def test_grid_backfill_stops_mid_batch_and_keeps_detected_images(library, monkey
     assert backfill.backfill_grid_detection()["total"] == 1
 
 
-def test_export_stops_before_writing_metadata(library, tmp_path):
+def test_export_stops_on_shutdown(library, tmp_path, lancedb_service):
     from backend.pipeline.export_library import export_library
 
     shutdown.request_shutdown()
     with pytest.raises(ShutdownRequested):
-        export_library(str(tmp_path / "out"))
-    assert not (tmp_path / "out" / "metadata.json").exists()
+        export_library(tmp_path / "out")

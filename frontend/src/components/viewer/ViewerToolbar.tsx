@@ -1,9 +1,7 @@
-import { useState } from 'react'
 import { Download, Edit, FolderDown, FolderInput, Trash2, X } from 'lucide-react'
-import { toast } from 'sonner'
-import { getGroupDownloadUrl, getImageUrl } from '@/lib/api'
-import { downloadFile, imageDownloadFilename } from '@/lib/download'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
+import { getImageDownloadUrl } from '@/lib/api'
+import { saveUrl } from '@/lib/download'
+import { useDownload } from '@/hooks/useDownload'
 import type { Image } from '@/types'
 
 const TEXT_ACTION =
@@ -26,24 +24,7 @@ export function ViewerToolbar({
   onDelete,
   onClose,
 }: ViewerToolbarProps) {
-  const [downloading, setDownloading] = useState(false)
-  const [downloadingGroup, setDownloadingGroup] = useState(false)
-
-  const download = async (
-    url: string,
-    filename: string,
-    setBusy: (busy: boolean) => void,
-    failure: string,
-  ) => {
-    setBusy(true)
-    try {
-      await downloadFile(url, filename)
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, failure))
-    } finally {
-      setBusy(false)
-    }
-  }
+  const groupDownload = useDownload()
 
   return (
     <div className="flex items-center justify-between mb-1.5">
@@ -57,14 +38,9 @@ export function ViewerToolbar({
         {image.group_id !== null && (
           <button
             onClick={() =>
-              download(
-                getGroupDownloadUrl(image.group_id!),
-                `${image.group_name ?? 'Group'}.zip`,
-                setDownloadingGroup,
-                'Group download failed',
-              )
+              void groupDownload.download({ group_ids: [image.group_id!] }, 'Group download failed')
             }
-            disabled={downloadingGroup}
+            disabled={groupDownload.busy}
             className={`${TEXT_ACTION} disabled:opacity-40`}
           >
             <FolderDown className="h-3.5 w-3.5" />
@@ -74,15 +50,8 @@ export function ViewerToolbar({
       </div>
       <div className="flex items-center gap-0.5">
         <button
-          onClick={() =>
-            download(
-              getImageUrl(image),
-              imageDownloadFilename(image),
-              setDownloading,
-              'Download failed',
-            )
-          }
-          disabled={downloading || image.file_state !== 'ok'}
+          onClick={() => saveUrl(getImageDownloadUrl(image), '')}
+          disabled={image.file_state !== 'ok'}
           aria-label="Download image"
           title={image.file_state === 'ok' ? 'Download image' : "The original file can't be read"}
           className={`${ICON_ACTION} hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-40`}

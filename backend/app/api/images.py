@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from ...pipeline.library_format import tag_category_order
+from ...pipeline.naming import ReadableLayout
 from ..config import settings
 from ..models import (
     Image,
@@ -21,8 +23,11 @@ from ..models.schemas import (
     BulkImageEditResponse,
     BulkImageRestoreRequest,
     BulkImageRestoreResponse,
+    GridCount,
+    GridType,
     ImageScope,
     ImageScopeFacets,
+    NameText,
 )
 from ..services import get_thumbnail_store, safe_delete_image
 from ..services.bulk_edit_service import (
@@ -36,6 +41,7 @@ from ..services.image_scope import resolve_scope, scope_facets
 from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 from .rate_limits import limiter
+from .responses import attachment
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +53,12 @@ mimetypes.add_type("image/webp", ".webp")
 
 
 class ImagePatch(BaseModel):
-    name: str | None = None
-    subgroup: str | None = None
+    name: NameText | None = None
+    subgroup: NameText | None = None
     gridded: bool | None = None
-    grid_width: int | None = None
-    grid_height: int | None = None
-    grid_type: str | None = None
+    grid_width: GridCount | None = None
+    grid_height: GridCount | None = None
+    grid_type: GridType | None = None
     image_type: Literal["battlemap", "scene"] | None = None
 
 
@@ -195,12 +201,17 @@ def _original_response(image: Image) -> FileResponse:
 
 
 @router.get("/{image_id}/file")
-def get_image_file(image_id: int, db: Session = Depends(get_db)):
-    """Serve the original image file."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+def get_image_file(image_id: int, download: bool = False, db: Session = Depends(get_db)):
+    """Serve the original image file. With ``download``, as an attachment named in the
+    readable layout (design/export-backup-move.md §3), for the browser to save."""
+    image = db.query(Image).options(*_WITH_RELATIONS).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    return _original_response(image)
+    response = _original_response(image)
+    if download:
+        (name,) = ReadableLayout().place_images(image.group, [image], tag_category_order(db))
+        response.headers["Content-Disposition"] = attachment(name)
+    return response
 
 
 @router.get("/{image_id}/thumbnail")

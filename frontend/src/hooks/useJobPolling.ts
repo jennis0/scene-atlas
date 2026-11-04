@@ -18,6 +18,8 @@ interface UseJobPollingResult {
   /** Integer percentage 0–100, or null if unavailable. */
   progressPct: number | null
   error: string | null
+  /** What the job returned, once it has completed. */
+  result: BackgroundJob['result']
   /** True while the job is queued or running. */
   isRunning: boolean
   isComplete: boolean
@@ -100,6 +102,7 @@ export function useJobPolling(options?: UseJobPollingOptions): UseJobPollingResu
     progress: jobState?.progress ?? null,
     progressPct: jobState?.progress_pct ?? null,
     error: jobState?.error ?? null,
+    result: jobState?.result ?? null,
     isRunning,
     isComplete,
     isFailed,

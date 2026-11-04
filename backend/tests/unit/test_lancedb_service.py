@@ -57,6 +57,18 @@ class TestLanceDBServiceCRUD:
         result = svc.get_embeddings([0, 5, 9])
         assert set(result.keys()) == {0, 5, 9}
 
+    def test_iter_vectors_returns_every_row(self, svc):
+        vectors = {i: _rand_vec() for i in range(25)}  # more than LanceDB's default limit (10)
+        assert svc.batch_add_embeddings(
+            [{"image_id": i, "embedding": v, "metadata": {}} for i, v in vectors.items()]
+        )
+        seen = {}
+        for ids, batch in svc.iter_vectors(batch_size=3):
+            assert batch.shape == (len(ids), svc.vector_size)
+            seen.update(zip(ids.tolist(), batch, strict=True))
+        assert set(seen) == set(vectors)
+        np.testing.assert_allclose(seen[4], vectors[4], rtol=1e-6)
+
     def test_upsert_overwrites(self, svc):
         vec1 = _rand_vec()
         vec2 = _rand_vec()
@@ -385,6 +397,23 @@ class TestCompaction:
 
         assert not compaction_due(1_000, 63) and compaction_due(1_000, 64)
         assert not compaction_due(200_000, 96) and compaction_due(200_000, 97)
+
+    def test_no_compaction_while_an_export_streams_the_table(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        stream = svc.iter_vectors(batch_size=1)
+        next(stream)  # an export's pass, under way
+        assert not svc.compact_if_fragmented()
+        list(stream)
+        assert svc.compact_if_fragmented()
+
+    def test_an_abandoned_stream_lets_compaction_run(self, svc, due_at_four):
+        for b in range(4):
+            self._add(svc, b * 2)
+        stream = svc.iter_vectors(batch_size=1)
+        next(stream)
+        stream.close()  # an export that failed partway
+        assert svc.compact_if_fragmented()
 
     def test_compacts_only_when_due_keeping_every_row(self, svc, due_at_four):
         for b in range(3):

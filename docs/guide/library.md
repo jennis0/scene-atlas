@@ -5,7 +5,7 @@ A Scene Atlas library is stored in up to three folders:
 | Place | Holds | Desktop default | Server setting |
 |-------|-------|-----------------|----------------|
 | **Search data** | Database, thumbnails, search index, AI models, logs | `%LOCALAPPDATA%\Scene Atlas\data` (Windows), `Documents/Scene Atlas/data` (macOS, Linux) | `SCENE_ATLAS_DATA_DIR` |
-| **Imported images** | Full-size copies of images you import, and backups | `…\Scene Atlas\images`, or `<linked library>\Scene Atlas` when you link one | `SCENE_ATLAS_IMAGES_DIR` |
+| **Imported images** | Full-size copies of images you import | `…\Scene Atlas\images`, or `<linked library>\Scene Atlas` when you link one | `SCENE_ATLAS_IMAGES_DIR` |
 | **Linked library** (optional) | A folder of images you already have, read where they are | none | `SCENE_ATLAS_LINKED_LIBRARY_DIR` |
 
 Search data is best on a fast drive. Imported images can go on any large drive.
@@ -56,31 +56,38 @@ If the folder is on a drive or network share that isn't connected, a banner says
 
 ## Backups
 
-Scene Atlas backs up its database and search index once a day to `backups/` inside *Imported images*. It keeps the 7 most recent and up to 4 older ones, one a week. It also saves a copy of the database before an update changes its structure, in `backups/pre-migration/`.
+Scene Atlas doesn't back up your library by itself. Back up both *Imported images* and *Search data* with your usual backup tool, ideally while Scene Atlas is closed. A linked library is yours to back up.
 
-Backups don't include your images. Back up *Imported images* (which holds both the images and the backups) with your usual backup tool. A linked library is yours to back up.
+**Settings → Library → Export metadata** saves your library's metadata to one file: the names, groups, tags and grids of every image, and the search data. It doesn't contain the images themselves, so keep it with a copy of *Imported images*. The desktop app asks where to save it; on a server your browser downloads it. A large library takes a few minutes, and the file is a few KB per image.
 
-### Restoring a backup
+### Rebuilding from a backup
 
-1. Close Scene Atlas (or stop the server).
-2. In *Search data*, rename `battlemap.db` to keep it, for example `battlemap.db.old`.
-3. Copy `battlemap.db` from the backup folder you want into *Search data*.
-4. Start Scene Atlas.
+**Settings → Library → Rebuild from export…** replaces your library's metadata with a file from **Export metadata**, to go back to an earlier state, say. It doesn't merge: the library becomes what the export holds.
 
-::: warning
-Images imported after the backup was taken aren't in the restored database, and the daily cleanup deletes their files from *Imported images*. Import them again afterwards if you still have the originals.
-:::
+**If *Search data* was lost** (a failed drive, a deleted folder), Scene Atlas won't open *Imported images* on its own and says its search data isn't there. The desktop app then offers **Rebuild from export…**: choose your latest metadata export and Scene Atlas builds the library from it as it starts. On a server, put the export at `rebuild/staged.jsonl` inside `SCENE_ATLAS_DATA_DIR` and start it again. Thumbnails are made again afterwards, and images are processed for search again, which takes a while for a large library.
+
+1. Choose the export. Scene Atlas reads it and tells you what would change: images in the export whose files aren't in your library any more (they're left out), and images in your library that aren't in the export (they'll be lost). Open each line to see which groups and images.
+2. Choose **Rebuild**. The new library is built alongside the current one, which you can keep using meanwhile. Nothing changes yet, and **Cancel** still leaves everything as it was.
+3. Choose **Restart now**. Scene Atlas restarts into the rebuilt library. On a server, it stops and your service manager starts it again (Docker Compose does, with `restart: unless-stopped`).
+
+After the restart, image files the export didn't have are moved to `not-in-backup/` inside *Imported images*, in folders named like a download, so you can see what they are and import them again. Thumbnails the rebuilt library needs are made again. The previous library's database is kept in `rebuild/` inside *Search data* until the next rebuild, for support. If the library changes after the check (an import, an edit), check the export again before restarting: Scene Atlas asks you to.
+
+The export can be from another library (a warning says so): what matters is that the image files are here. If the search model has changed since the export, images are processed again afterwards.
+
+Before an update changes the structure of its database, Scene Atlas saves a copy of it in `backups/pre-migration/` inside *Imported images*.
 
 To go back to an older version of Scene Atlas after an update, install the older version and restore the newest backup from `backups/pre-migration/`. A database upgraded by a newer version can't be opened by an older one.
 
 ## Moving the library
 
-Scene Atlas doesn't move its files for you yet.
+**Desktop app:** in **Settings → Storage locations**, choose **Move…** next to *Search data* or *Imported images*, and pick an empty folder (on another drive, say). Scene Atlas copies the folder there while you keep using it, checking each image as it's copied; a large library takes as long as copying its files. When it's copied, choose **Restart now** (or **Cancel** to delete the copy). Scene Atlas restarts, copies anything that changed meanwhile and the database, checks every image is there, and opens the library from its new place. If anything goes wrong it goes back to the old folder, which isn't changed until the library has opened from the new one.
 
-**Desktop app:**
+The old folder stays until you choose **Delete old copy** in the same place. It no longer opens as your library (a note in it says where it went).
+
+**Change** next to a folder doesn't move anything: it opens the library in the folder you choose. Use it after copying the folders yourself:
 
 1. Close Scene Atlas, then copy the folder to its new place.
-2. Start Scene Atlas. In **Settings → Storage locations**, choose the new folder. It should say *Scene Atlas library found.*
+2. Start Scene Atlas. In **Settings → Storage locations**, choose **Change** and the new folder. It should say *Scene Atlas library found.*
 3. Choose **Restart to apply** under the folder you changed.
 4. Once your library opens from the new place, delete the old folder.
 
@@ -92,9 +99,22 @@ Scene Atlas checks that *Search data* and *Imported images* belong to the same l
 
 On a new computer or after a reinstall, point the desktop setup's library step at an existing *Imported images* or *Search data* folder. Scene Atlas recognises it, fills in the other folder and offers **Open library**.
 
-## Exporting
+## Downloading
 
-**Settings → Library → Export library** downloads every image as a ZIP, in folders by author and group, with readable file names and a `metadata.json` of each image's name, tags and grid. It includes images from a linked library. For a very large library, the [`export_library` command](/reference/cli#export-the-library) writes the same thing straight to a folder.
+**Download** on a group's menu, in the image viewer, or for the groups selected in the group editor saves them as a ZIP. Inside, each group of two or more images has a folder named `Author_Group`, and each file is named from its group, name, grid and tags, for example `Czepeku_Golden Forest_Day_G30x30[forest,summer].webp` (`G30x30` is a square grid, `HG` a hex grid, `GL` no grid). A `scene-atlas.jsonl` file holds each image's name, group, tags, grid and search data.
+
+A download holds at most 999 images and 2 GB. Downloading a single image from the viewer or its menu saves just that file, named the same way.
+
+## Exporting the whole library
+
+**Settings → Library → Export library** copies every image into a folder, laid out like a download, with its `scene-atlas.jsonl`. The files are ordinary images in folders named after their groups, so they're yours to use without Scene Atlas; importing the folder (or a ZIP of it) into Scene Atlas brings everything back, names, groups, tags, grids and search data included.
+
+- **Desktop app:** choose an empty folder. It needs as much free space as your images take: *Imported images*, plus the linked library unless you leave it out.
+- **Server:** it's written into `exports/` inside `SCENE_ATLAS_IMAGES_DIR`, and Settings shows where. Copy it off the server from there, then delete it: the server keeps one export at a time, and a backup of the images folder would copy it too.
+
+Each file is checked against the library's record of it as it's copied. Files that can't be read are skipped, listed when it's done, and written to `scene-atlas-export-problems.txt` in the folder. A large library takes as long as copying its files: hours for a terabyte. If it stops (a full disk, the computer turned off), make room and choose **Carry on**: it picks up where it got to. **Carry on** after a finished export adds the groups that are new since. It doesn't retry files that were skipped in groups it has already written; export into a new folder for those. If you have a linked library, you can leave its images out, since you have those files already.
+
+The [`export_library` command](/reference/cli#export-the-library) does the same from the command line.
 
 ## Starting over
 

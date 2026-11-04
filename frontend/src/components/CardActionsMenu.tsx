@@ -1,8 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { MoreHorizontal, Trash2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { downloadFile } from '@/lib/download'
-import { getApiErrorMessage } from '@/lib/getErrorMessage'
 import { isAnyDialogOpen } from '@/components/ui/dialogStack'
 import {
   DropdownMenu,
@@ -17,7 +14,7 @@ interface CardActionsMenuProps {
   label: string
   /** Items above Download */
   children: ReactNode
-  download: { url: string; filename: string; failure: string; icon: ReactNode }
+  download: { onDownload: () => void; busy?: boolean; icon: ReactNode }
   onDelete?: () => void
 }
 
@@ -27,19 +24,9 @@ interface CardActionsMenuProps {
  * hover and on keyboard focus within the card, and always on touch screens.
  */
 export function CardActionsMenu({ label, children, download, onDelete }: CardActionsMenuProps) {
-  const [downloading, setDownloading] = useState(false)
-
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (downloading) return
-    setDownloading(true)
-    try {
-      await downloadFile(download.url, download.filename)
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, download.failure))
-    } finally {
-      setDownloading(false)
-    }
+    if (!download.busy) download.onDownload()
   }
 
   return (
@@ -61,9 +48,9 @@ export function CardActionsMenu({ label, children, download, onDelete }: CardAct
           onCloseAutoFocus={(e) => isAnyDialogOpen() && e.preventDefault()}
         >
           {children}
-          <DropdownMenuItem onClick={handleDownload} disabled={downloading}>
+          <DropdownMenuItem onClick={handleDownload} disabled={download.busy}>
             {download.icon}
-            {downloading ? 'Downloading…' : 'Download'}
+            {download.busy ? 'Downloading…' : 'Download'}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

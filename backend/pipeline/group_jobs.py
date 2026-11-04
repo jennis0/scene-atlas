@@ -48,10 +48,12 @@ images don't stay hidden.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
 import time
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -76,6 +78,7 @@ from backend.app.services.variant_grouping import (
 )
 
 from .grouping_features import load_grouping_features
+from .import_metadata import delete_entries
 from .ingest_queue import (
     BATTLEMAP,
     SCENE,
@@ -112,6 +115,9 @@ class Proposal:
     author: str
     subgroups: Mapping[int, str | None] = field(default_factory=dict)
     match_existing: bool = True
+    # A group from the import's Scene Atlas metadata: joins the library's group with this
+    # uid, or a new one is minted with it (design/export-backup-move.md §6)
+    uid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +130,8 @@ class JobState:
     - ``gallery_of``: import group → its gallery group (None: none, or deleted since);
     - ``group_names``: import group → its (name, author);
     - ``merged``: gallery groups this job adds to but didn't create;
-    - ``existing``: (name, author) → a gallery group of the library with that name.
+    - ``existing``: (name, author) → a gallery group of the library with that name;
+    - ``by_uid``: uid → the library's gallery group with that uid, for proposals with one.
     """
 
     import_group_of: Mapping[int, int] = field(default_factory=dict)
@@ -134,6 +141,7 @@ class JobState:
     group_names: Mapping[int, tuple[str, str]] = field(default_factory=dict)
     merged: frozenset[int] = frozenset()
     existing: Mapping[tuple[str, str], int] = field(default_factory=dict)
+    by_uid: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -153,6 +161,7 @@ class GalleryChoice:
     merged: bool  # the import group adds to a group it didn't create
     name: str = ""
     author: str = ""
+    uid: str | None = None  # a new group's uid, when its metadata gave one
 
 
 @dataclass(frozen=True)
@@ -183,6 +192,7 @@ def plan_grouping(
     galleries: dict[int, GalleryChoice] = {}
     images: dict[int, tuple[int, str | None]] = {}
     may_match: dict[int, bool] = {}  # new import group → its name may pick an existing group
+    uids: dict[int, str] = {}  # new import group → the uid its metadata gave it
     names = dict(state.group_names)
 
     for proposal in proposals:
@@ -200,6 +210,8 @@ def plan_grouping(
             )
             names[target] = (proposal.name, proposal.author)
             may_match[target] = proposal.match_existing
+            if proposal.uid:
+                uids[target] = proposal.uid
         for item in proposal.items:
             if item not in state.import_group_of:
                 item_groups[item] = target
@@ -213,7 +225,7 @@ def plan_grouping(
             if group not in galleries:
                 name = names.get(group, (proposal.name, proposal.author))
                 galleries[group] = _gallery_for(
-                    group, name, may_match.get(group, False), overlap, state
+                    group, name, may_match.get(group, False), overlap, state, uids.get(group)
                 )
     return GroupingPlan(new_groups, item_groups, galleries, images)
 
@@ -224,6 +236,7 @@ def _gallery_for(
     may_match: bool,
     overlap: Counter[int],
     state: JobState,
+    uid: str | None = None,
 ) -> GalleryChoice:
     current = state.gallery_of.get(group)
     if current is not None:
@@ -231,10 +244,12 @@ def _gallery_for(
     if overlap:
         adopted = min(overlap, key=lambda g: (-overlap[g], g))
         return GalleryChoice(adopted, adopted in state.merged)
+    if uid is not None and uid in state.by_uid:  # the same group, from another library
+        return GalleryChoice(state.by_uid[uid], True)
     existing = state.existing.get(name) if may_match else None
     if existing is not None:
         return GalleryChoice(existing, True)
-    return GalleryChoice(None, False, *name)
+    return GalleryChoice(None, False, *name, uid=uid)
 
 
 # Model availability
@@ -274,6 +289,9 @@ class _File:
     pixels: tuple[int, int] | None  # the image's (width, height)
     name: str | None
     filename: str
+    # From its entry in the import's metadata: {"group": GroupEntry dict | None,
+    # "author", "subgroup"} (ingest_process._export_parsed)
+    export: Mapping | None = None
 
 
 @dataclass(frozen=True)
@@ -306,6 +324,7 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
             Image.height,
             Image.name,
             Image.filename,
+            ImportItem.parsed,
         )
         .outerjoin(Image, (Image.id == ImportItem.image_id) & (Image.import_job_id == job.id))
         # Every file the seal parsed (or grouped, or that made an image): not archives,
@@ -320,7 +339,22 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
         .order_by(ImportItem.id)
     ).all()
     files: list[_File] = []
-    for item_id, path, item_type, ig, image_id, image_type, pending, gid, w, h, name, fname in rows:
+    for (
+        item_id,
+        path,
+        item_type,
+        ig,
+        image_id,
+        image_type,
+        pending,
+        gid,
+        w,
+        h,
+        name,
+        fname,
+        parsed,
+    ) in rows:
+        export = json.loads(parsed).get("export") if parsed and '"export"' in parsed else None
         files.append(
             _File(
                 item_id=item_id,
@@ -333,6 +367,7 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
                 pixels=(w, h) if w and h else None,
                 name=name,
                 filename=fname or PurePosixPath(path).name,
+                export=export,
             )
         )
     return files
@@ -511,6 +546,34 @@ def _proposals(
     return proposals, [g for g in (grouping, scene_grouping) if g is not None]
 
 
+def _export_proposals(files: list[_File]) -> tuple[list[Proposal], list[_File]]:
+    """Proposals for the files whose metadata entry names a group: one per group uid, named
+    as the metadata names it. The other files are returned, for grouping as usual (an
+    image the metadata has as ungrouped is grouped like any file)."""
+    by_uid: dict[str, list[_File]] = {}
+    rest: list[_File] = []
+    for f in files:
+        group = (f.export or {}).get("group")
+        if group and group.get("uid"):
+            by_uid.setdefault(group["uid"], []).append(f)
+        else:
+            rest.append(f)
+    proposals = []
+    for uid, members in by_uid.items():
+        group = members[0].export["group"]  # type: ignore[index]
+        proposals.append(
+            Proposal(
+                tuple(f.item_id for f in members),
+                group.get("base_name") or members[0].name or UNKNOWN_AUTHOR,
+                group.get("author") or UNKNOWN_AUTHOR,
+                {f.item_id: (f.export or {}).get("subgroup") for f in members},
+                match_existing=False,
+                uid=uid,
+            )
+        )
+    return proposals, rest
+
+
 def _parsed_proposals(
     files: list[_File], parser: ImageParser, authors: list[str]
 ) -> list[Proposal]:
@@ -578,6 +641,16 @@ def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Prop
         alive.update(db.scalars(select(ImageGroup.id).where(ImageGroup.id.in_(chunk))))
     names = {(p.name, p.author) for p in proposals if p.match_existing}
     existing = existing_groups(db, {name for name, _ in names})
+    uids = sorted({p.uid for p in proposals if p.uid})
+    by_uid: dict[str, int] = {}
+    for chunk in chunks(uids):
+        by_uid.update(
+            (uid, gid)
+            for gid, uid in db.execute(
+                select(ImageGroup.id, ImageGroup.uid).where(ImageGroup.uid.in_(chunk))
+            )
+            if uid is not None
+        )
     return JobState(
         import_group_of={f.item_id: f.import_group_id for f in files if f.import_group_id},
         pending={f.item_id: f.image_id for f in files if f.pending and f.image_id is not None},
@@ -596,6 +669,7 @@ def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Prop
             for (name, author), gid in existing.items()
             if author is not None and (name, author) in names
         },
+        by_uid=by_uid,
     )
 
 
@@ -614,7 +688,11 @@ def _write(
         db.scalars(
             insert(ImageGroup).returning(ImageGroup.id, sort_by_parameter_order=True),
             [
-                {"base_name": plan.galleries[k].name, "author": plan.galleries[k].author}
+                {
+                    "base_name": plan.galleries[k].name,
+                    "author": plan.galleries[k].author,
+                    "uid": plan.galleries[k].uid or uuid.uuid4().hex,
+                }
                 for k in to_mint
             ],
         ).all()
@@ -773,10 +851,13 @@ def group_job(
             return Outcome.NO_VECTORS
         if progress_fn:
             progress_fn(1, 2, "Identifying groups")
+        proposals, others = _export_proposals(read.files)
         if paths_only:
-            proposals, debug = _parsed_proposals(read.files, parser, read.authors), []
+            proposals += _parsed_proposals(others, parser, read.authors)
+            debug = []
         else:
-            proposals, debug = _proposals(read.files, features, thresholds, parser, read.authors)
+            walked, debug = _proposals(others, features, thresholds, parser, read.authors)
+            proposals += walked
         proposals += _orphans(read.files, proposals)
 
         with write_session() as db:
@@ -794,6 +875,9 @@ def group_job(
             minted = _write(db, job, read.files, plan, tags)
             job.grouped_at = utcnow()
             recompute_job_status(db, job_id)
+            # Its metadata has done its job (and is ~6 KB an image). A file retried or
+            # included later imports without it.
+            delete_entries(db, [job_id])
         get_ingest_worker().bump()
         if paths_only:
             content = "paths only"

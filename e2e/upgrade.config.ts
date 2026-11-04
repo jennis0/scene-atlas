@@ -5,7 +5,8 @@ import { defineConfig } from "@playwright/test";
 // workflow on Windows; see the top of upgrade.spec.ts for what it needs.
 const isCI = !!process.env.CI;
 // The Release workflow runs it twice (from a 0.0.0 build and from the last release).
-const htmlReport = process.env.UPGRADE_PLAYWRIGHT_REPORT ?? "playwright-report-upgrade";
+const htmlReport =
+  process.env.UPGRADE_PLAYWRIGHT_REPORT ?? "playwright-report-upgrade";
 
 export default defineConfig({
   testDir: "./upgrade",

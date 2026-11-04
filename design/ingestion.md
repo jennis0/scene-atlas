@@ -349,6 +349,10 @@ Each sweep is one query for the jobs due. A run that raises is retried by later 
 
 **Imports from before migration 029** are already grouped: the migration stamps `grouped_at` on every sealed job with nothing open. One still running is left unstamped; its remaining images commit ungrouped and, when it finishes, join the groups its seal planned (their files' import groups).
 
+### 5.9 Scene Atlas metadata
+
+An import can carry a `scene-atlas.jsonl` (a download or an export of a Scene Atlas library): its files then import with their names, types, grids, tags, groups and vectors. Loading, matching and grouping: [export-backup-move.md §6](export-backup-move.md#6-import). In short: the file is read where it arrives (a zip, a local folder, or `PUT /imports/{id}/export-metadata` before the manifest) into `import_export_entries`; the job's items stop after decoding and are matched by hash (`ingest_process.apply_exports`); matched files skip Auto, grid detection and (when the vector fits) embedding; the grouping phase puts them in their group by `uid`.
+
 ## 6. Duplicate detection
 
 | Tier | Hash | Where | Catches | Action |
@@ -370,6 +374,7 @@ All routes are under `/api/v1/imports` (`backend/app/api/imports.py`). Mutating 
 | `POST /imports` | `{label, default_image_type}` → job summary (201) |
 | `POST /imports/{id}/manifest` | Chunk of ≤2,000 `{client_ref, relative_path, size, last_modified, image_type?}`. OS junk (`._*`, `__MACOSX`, `.DS_Store`, `Thumbs.db`, `desktop.ini`) is ignored; unsupported files become `skipped`, oversized ones `failed`. Paths already in the job are ignored. 413 above `max_import_items` per import; 409 after seal. |
 | `PUT /imports/{id}/archives?name=…` | Raw zip body, expanded into items (`ingest_archive.expand_archive`). `name` is the zip's relative path, so its folder is known ([Archive member paths](#archive-member-paths)). `check_zip_safety` enforces `max_import_files` and `max_import_total_size` per archive; every member is magic-byte checked. A zip that fails becomes one failed `archive` item. Gated by the heavy-op semaphore. 409 after seal. |
+| `PUT /imports/{id}/export-metadata` | Raw body: a picked folder's `scene-atlas.jsonl` ([§5.9](#59-scene-atlas-metadata)), stored as the job's metadata entries. `{entries, note}`; a file that can't be read stores nothing and leaves a note. Size limit `max_import_file_size`. Gated by the heavy-op semaphore. 409 after seal. |
 | `POST /imports/{id}/local-sources` | Desktop app only (404 in server mode). `{paths}` (≤1,000 absolute roots): the server lists them and adds `ready` items with `source_path`; zips are expanded in place and kept. 422 for a bad path, 413 above `max_local_import_items` (250k). Listing runs before the write lock. See [local-ingest.md §4](local-ingest.md#4-backend). |
 | `POST /imports/{id}/seal` | Parse each path (no grouping: [§5.8](#58-identifying-groups)), set `planned_at`, wake the worker. Checks free space on the staging and library volumes (507 if short, with a 512 MB margin). Parsing runs before the write lock is taken (about 3.4 s for 20k maps); a file list that changed meanwhile is parsed again under the lock. Idempotent. Gated by the heavy-op semaphore. |
 | `POST /imports/{id}/hashes` | Chunk of ≤2,000 `{item_id, sha256}`. Items whose hash matches the library become `duplicate` without uploading. The client hash is only used to skip. |
@@ -440,7 +445,6 @@ create job → manifest chunks → (archives) → seal ──▶ show progress
 | `ingest_maintenance` (`run_ingest_maintenance`) | Scheduler, hourly | Finished jobs older than 24 h are dismissed and their sorted-out items expired ([§5.6](#56-auto-image-type)). `abandon_stale_uploads`: active/paused jobs with no bytes for 7 days → `awaiting_bytes` items `skipped` ("Not uploaded"). `release_staged_bytes`: staged files of `done`/`skipped` items always, except items Auto sorted out, which keep theirs until they expire (dismissal or 24 h after the job finished); of `failed`/`duplicate` items once the job is dismissed or finished more than 7 days ago. `prune_dismissed_jobs`: job/group/item rows of jobs dismissed over 30 days ago (images untouched), unless the job is still to be grouped (a cancelled job can be dismissed first). `sweep_stray_staging_files`: staging files and directories older than 1 h that no item's `staging_key` or `preview_key` refers to. |
 | `reconcile_vectors` | Startup (once the model has loaded, via `JobRunner`, shown as "Updating image embeddings" with progress) and scheduler every 24 h | Compares SQLite and LanceDB id sets; re-embeds missing images from their thumbnails and deletes orphaned vectors. |
 | `sweep_orphaned_store_files` | Scheduler, every 24 h | Deletes store files no image references. Only considers the `xx/yy/<key>` shard layout (so `.incoming/` and `backups/` are never touched), ignores files younger than 1 h, and deletes nothing if more than 25% of the store looks orphaned. |
-| `backup_database` | Scheduler, every 24 h | SQLite + LanceDB snapshot with rotation |
 
 Scheduled tasks are registered in `backend/app/main.py`. The scheduler (`backend/app/services/scheduler.py`) persists each task's last run under `{SCENE_ATLAS_DATA_DIR}/scheduler/` and runs overdue tasks shortly after startup, so short Electron sessions still get maintenance.
 

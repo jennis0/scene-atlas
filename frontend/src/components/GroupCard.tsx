@@ -1,5 +1,6 @@
 import { Pencil, Merge, Layers, FolderDown } from 'lucide-react'
-import { getThumbnailUrl, getGroupDownloadUrl } from '@/lib/api'
+import { getThumbnailUrl } from '@/lib/api'
+import { useDownload } from '@/hooks/useDownload'
 import { VideoIndicator } from '@/components/ui/video-indicator'
 import { FileMissingMark } from '@/components/FileMissingMark'
 import { CardActionsMenu } from '@/components/CardActionsMenu'
@@ -16,6 +17,7 @@ interface GroupCardProps {
 
 export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCardProps) {
   const { heroImage, mosaicImages, totalScenes, matchingCount, baseName, author, groupId } = group
+  const { download, busy } = useDownload()
 
   const maxMosaic =
     mosaicImages.length >= 4 ? 4 : mosaicImages.length >= 2 ? 2 : mosaicImages.length
@@ -50,9 +52,8 @@ export function GroupCard({ group, onClick, onEdit, onDelete, onMerge }: GroupCa
         <CardActionsMenu
           label={baseName}
           download={{
-            url: getGroupDownloadUrl(groupId),
-            filename: `${baseName}.zip`,
-            failure: 'Group download failed',
+            onDownload: () => void download({ group_ids: [groupId] }, 'Group download failed'),
+            busy,
             icon: <FolderDown className="h-4 w-4 mr-2" />,
           }}
           onDelete={onDelete}

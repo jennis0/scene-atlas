@@ -9,13 +9,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from ..config import USER_FOLDERS, settings
 from ..library_identity import rewrite_markers
 from ..models import (
     Color,
     Image,
     ImageGroup,
     ImageGroupingFeatures,
+    ImportExportEntry,
     ImportGroup,
     ImportItem,
     ImportJob,
@@ -36,11 +37,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _dir_size(path: Path) -> int:
-    """Recursively sum file sizes under *path*; returns 0 if path doesn't exist."""
+def _dir_size(path: Path, skip: tuple[str, ...] = ()) -> int:
+    """Recursively sum file sizes under *path*, leaving out its entries named in *skip*;
+    returns 0 if path doesn't exist."""
     total = 0
     try:
         for entry in os.scandir(path):
+            if entry.name in skip:
+                continue
             if entry.is_file(follow_symlinks=False):
                 total += entry.stat().st_size
             elif entry.is_dir(follow_symlinks=False):
@@ -67,7 +71,7 @@ def system_info(db: Session = Depends(get_db)):
     image_count = db.query(Image).filter(listed_images()).count()
     group_count = db.query(ImageGroup).count()
 
-    images_bytes = _dir_size(settings.store_images_dir)
+    images_bytes = _dir_size(settings.store_images_dir, skip=USER_FOLDERS)
     thumbnails_bytes = _dir_size(settings.store_thumbnails_dir)
     vector_db_bytes = _dir_size(settings.vector_db_path)
     db_path = settings.data_dir / "battlemap.db"
@@ -112,12 +116,13 @@ def update_status():
 
 def _empty_store(store: Path) -> None:
     """Delete everything in the store except its lock file, which this process holds
-    open: Windows can't delete it, and elsewhere a second backend could then lock a new
-    one. The library marker goes too, and is written again afterwards."""
+    open (Windows can't delete it, and elsewhere a second backend could then lock a new
+    one), and the user's own folders (exports, set-aside files). The library marker goes
+    too, and is written again afterwards."""
     if not store.is_dir():
         return
     for entry in os.scandir(store):
-        if entry.name == LOCK_FILENAME:
+        if entry.name == LOCK_FILENAME or entry.name in USER_FOLDERS:
             continue
         if entry.is_dir(follow_symlinks=False):
             shutil.rmtree(entry.path)
@@ -159,6 +164,7 @@ def _purge_library(
         _step("Deleting import records")
         db.query(ImportItem).delete()
         db.query(ImportGroup).delete()
+        db.query(ImportExportEntry).delete()
         db.query(ImportJob).delete()
         db.query(SourceFile).delete()
         db.query(LibrarySource).delete()
@@ -195,38 +201,57 @@ def delete_library(request: Request, db: Session = Depends(get_db)):
     """Purge the entire library (images, metadata, vectors, files).
 
     Submits a background job and returns immediately with a job ID.
-    Refuses to run if any import jobs are currently active.
+    Refuses to run if any import jobs are currently active, or while the library is being
+    exported or rebuilt (they read the files a purge deletes).
     """
+    from ...pipeline import export_library, library_move, library_rebuild
     from ...pipeline.linked_scanner import get_linked_scanner
+    from ...pipeline.metadata_export import export_lock
     from ..services.job_runner import PURGE_JOB_NAME, get_job_runner
 
     runner = get_job_runner()
-    if runner.has_active_job(PURGE_JOB_NAME):
-        raise HTTPException(status_code=409, detail="Library purge already in progress")
-    if get_linked_scanner().running:
-        raise HTTPException(
-            status_code=409, detail="The linked library is being checked; try again in a moment"
-        )
+    with export_lock:  # the full export takes it too: neither starts during the other's check
+        if runner.has_active_job(PURGE_JOB_NAME):
+            raise HTTPException(status_code=409, detail="Library purge already in progress")
+        for job, what in (
+            (export_library.JOB_NAME, "The library is being exported"),
+            (library_rebuild.JOB_NAME, "The library is being rebuilt"),
+            (library_move.JOB_NAME, "The library is being moved"),
+        ):
+            if runner.has_active_job(job):  # it reads the files a purge deletes
+                raise HTTPException(
+                    status_code=409, detail=f"{what}; try again when it has finished"
+                )
+        if library_rebuild.busy() or runner.has_active_job(library_rebuild.SET_ASIDE_JOB):
+            raise HTTPException(
+                status_code=409,
+                detail="A rebuild is in progress (restarting, or setting files aside); "
+                "try again when it has finished",
+            )
+        if get_linked_scanner().running:
+            raise HTTPException(
+                status_code=409, detail="The linked library is being checked; try again in a moment"
+            )
 
-    active_imports = (
-        db.query(ImportItem.job_id)
-        .filter(ImportItem.state.in_(("awaiting_bytes", "ready", "processing")))
-        .distinct()
-        .count()
-    )
-    if active_imports:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot purge library while {active_imports} import(s) are in progress. "
-            "Cancel or wait for them to finish first.",
+        active_imports = (
+            db.query(ImportItem.job_id)
+            .filter(ImportItem.state.in_(("awaiting_bytes", "ready", "processing")))
+            .distinct()
+            .count()
         )
+        if active_imports:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot purge library while {active_imports} import(s) are in progress. "
+                "Cancel or wait for them to finish first.",
+            )
 
-    job_id = runner.submit(
-        _purge_library,
-        request.app.state.db_engine,
-        name=PURGE_JOB_NAME,
-    )
-    return {"job_id": job_id, "message": "Library purge started"}
+        job_id = runner.submit(
+            _purge_library,
+            request.app.state.db_engine,
+            name=PURGE_JOB_NAME,
+        )
+        return {"job_id": job_id, "message": "Library purge started"}
 
 
 # Tag reset (synchronous)

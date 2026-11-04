@@ -84,6 +84,10 @@ WIZARD_STORE_HAS_MAPS = "This folder already has images in it."
 class LibraryMismatchError(RuntimeError):
     """The configured folders can't be opened as one library, so the backend won't start."""
 
+    def __init__(self, message: str, refusal: str | None = None):
+        super().__init__(message)
+        self.refusal = refusal
+
 
 # Markers
 
@@ -299,6 +303,13 @@ def _contains(outer: Path, inner: Path) -> bool:
     return _key(inner).is_relative_to(_key(outer))
 
 
+def inside_any(path: Path, folders: list[Path | None]) -> bool:
+    """Whether *path* is one of *folders* or inside one (all resolved). Exports and moves
+    use it to refuse writing into the library's own folders."""
+    target = path.resolve()
+    return any(folder is not None and _contains(folder.resolve(), target) for folder in folders)
+
+
 def _same(a: Path, b: Path) -> bool:
     return _key(a) == _key(b)
 
@@ -357,7 +368,7 @@ def check_library(*, app_data: Path, store: Path, linked: Path | None, database:
         found=_found(read_database(database), store, read_marker(store)),
     )
     if decision.refusal is not None:
-        raise LibraryMismatchError(STARTUP_MESSAGES[decision.refusal])
+        raise LibraryMismatchError(STARTUP_MESSAGES[decision.refusal], decision.refusal)
     return decision
 
 

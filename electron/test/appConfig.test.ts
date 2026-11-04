@@ -4,8 +4,11 @@ import {
   firstLaunchConfig,
   libraryDirsOf,
   parseConfig,
+  revertMove,
   withChosenLibrary,
   withDefaultLibrary,
+  withMove,
+  withoutMove,
 } from '../src/appConfig.ts'
 
 const base = { appDataDir: '/sa/data', imageLibraryDir: '/sa/images' }
@@ -180,5 +183,38 @@ describe('withDefaultLibrary', () => {
 
   test('defaults that already hold something are never provisional', () => {
     assert.equal(withDefaultLibrary(refused, defaults, false).provisional, false)
+  })
+})
+
+describe('library moves', () => {
+  const config = { ...base, provisional: false, libraryChosen: true }
+
+  test('a move switches to the new folders and remembers the old ones', () => {
+    const moved = withMove(config, { store: '/new/images' })
+    assert.equal(moved.imageLibraryDir, '/new/images')
+    assert.equal(moved.appDataDir, '/sa/data')
+    assert.deepEqual(moved.pendingMove, { store: '/sa/images' })
+  })
+
+  test('a failed move goes back; a finished one forgets where from', () => {
+    const moved = withMove(config, { appData: '/new/data', store: '/new/images' })
+    assert.deepEqual(revertMove(moved), config)
+    const done = withoutMove(moved)
+    assert.equal(done.pendingMove, undefined)
+    assert.equal(done.appDataDir, '/new/data')
+  })
+
+  test('a pending move survives the config file, and junk in it does not', () => {
+    const kept = parseConfig({ ...base, pendingMove: { store: '/old/images' } }, 'linux')
+    assert.deepEqual(kept?.config.pendingMove, { store: '/old/images' })
+    const junk = parseConfig({ ...base, pendingMove: { store: 'relative', x: 1 } }, 'linux')
+    assert.equal(junk?.config.pendingMove, undefined)
+  })
+  test('choosing folders again drops a pending move', () => {
+    const moved = withMove(config, { store: '/new/images' })
+    const defaults = { appData: '/d/data', store: '/d/images' }
+    assert.equal(withDefaultLibrary(moved, defaults, false).pendingMove, undefined)
+    const chosen = withChosenLibrary(moved, { appData: '/x', store: '/y', linked: null })
+    assert.equal(chosen.pendingMove, undefined)
   })
 })

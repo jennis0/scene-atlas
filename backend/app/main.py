@@ -24,13 +24,29 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import NoResultFound
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from .api import export, groups, images, imports, jobs, library, search, system, tags
+from .api import (
+    downloads,
+    groups,
+    images,
+    imports,
+    jobs,
+    library,
+    rebuild,
+    search,
+    system,
+    tags,
+)
 from .api import models as models_api
 from .api import settings as settings_api
 from .api.rate_limits import limiter
 from .config import settings
 from .host_check import LoopbackHostMiddleware
-from .library_identity import LibraryMismatchError, check_library, open_library
+from .library_identity import (
+    APP_DATA_NOT_HERE,
+    LibraryMismatchError,
+    check_library,
+    open_library,
+)
 from .logging_config import setup_logging
 from .models import (
     get_engine,
@@ -84,6 +100,29 @@ async def lifespan(app: FastAPI):
         logger.critical("STARTUP ERROR: %s", exc)
         raise
 
+    # A rebuilt library, built while the app ran, goes in place before anything opens the
+    # database (design/export-backup-move.md §8.3)
+    from ..pipeline.library_rebuild import (
+        build_in_place,
+        set_aside_failed_export,
+        staged_path,
+        swap_if_pending,
+    )
+
+    try:
+        swap_if_pending()
+    except (OSError, ValueError) as exc:  # RebuildError is a ValueError
+        for lock in storage_locks:
+            lock.release()
+        logger.critical("STARTUP ERROR: Could not put the rebuilt library in place: %s", exc)
+        raise
+    # The app data was lost and an export staged in its place: rebuild from it (§8.5)
+    try:
+        build_in_place()
+    except Exception:
+        logger.exception("Rebuilding from the staged export failed; it was set aside")
+        set_aside_failed_export()
+
     # Before anything touches either root: the folders must belong to one library
     # (design/library-setup.md §3.3). Read-only; open_library() below finishes it.
     library_dirs = {
@@ -105,6 +144,14 @@ async def lifespan(app: FastAPI):
             logger.critical("STARTUP ERROR: Could not read the database at %s.", _database_path())
         else:
             logger.critical("STARTUP ERROR: %s", exc)
+            if exc.refusal == APP_DATA_NOT_HERE:
+                # For the desktop app, which offers to rebuild from an export (§8.5)
+                print(f"SCENE_ATLAS_REFUSAL={exc.refusal}", file=sys.stderr, flush=True)
+                logger.critical(
+                    "To rebuild the library from a metadata export, put the export at %s "
+                    "and start again.",
+                    staged_path(),
+                )
         raise
 
     # Load Pillow's plugins while single-threaded. A lazy load (on the first
@@ -158,6 +205,16 @@ async def lifespan(app: FastAPI):
             logger.critical("STARTUP ERROR: Could not write to the library folders: %s", exc)
             raise
         logger.info("Library %s", library_id)
+
+        # A move's first start on its new folders: now they've opened, the old ones are
+        # retired (design/export-backup-move.md §10)
+        from ..pipeline.library_move import retire_finished, unretire_live
+
+        try:
+            unretire_live(session)
+            retire_finished(session)
+        except OSError:  # an old folder that can't be written: it stays, and says nothing
+            logger.exception("Could not retire the folders the library was moved from")
 
         from ..pipeline.linked_scan import reconcile_linked_source
 
@@ -235,13 +292,35 @@ async def lifespan(app: FastAPI):
         target=_reconcile_embeddings_when_ready, daemon=True, name="embedding-reconcile"
     ).start()
 
+    # Images from before stored_hash existed get it once (design/export-backup-move.md §2)
+    from ..pipeline.backfill_content_hash import (
+        STORED_HASH_JOB,
+        backfill_stored_hash,
+        images_missing_stored_hash,
+    )
+
+    # (background work, so only with the worker: tests drive it by hand)
+    if settings.ingest_worker_enabled:
+        with SessionLocal() as db:
+            if images_missing_stored_hash(db):
+                runner.submit(backfill_stored_hash, name=STORED_HASH_JOB)
+
+        # After a rebuild: the store files it doesn't use go to not-in-backup/ (§8.4)
+        from ..pipeline.library_rebuild import SET_ASIDE_JOB, after_rebuild, set_aside_pending
+
+        if set_aside_pending():
+            runner.submit(after_rebuild, name=SET_ASIDE_JOB)
+
     # Ingest worker: re-queue items interrupted by the last shutdown (nothing is
     # deleted), then start processing.
     from ..pipeline.ingest_worker import get_ingest_worker
 
     ingest_worker = get_ingest_worker()
     if settings.ingest_worker_enabled:
+        from backend.pipeline.import_metadata import recover_pending
+
         recovered = ingest_worker.recover()
+        recover_pending()  # metadata files an import was loading when it stopped
         if recovered["recovered"] or recovered["crashed"]:
             logger.warning("Ingest recovery on startup: %s", recovered)
         ingest_worker.start()
@@ -256,6 +335,14 @@ async def lifespan(app: FastAPI):
         get_linked_scanner().start("startup")
         rescan_task = asyncio.create_task(rescan_timer())
 
+    # Metadata exports a download or a crash left behind (design/export-backup-move.md §4)
+    from ..pipeline.metadata_export import clean_exports
+
+    try:
+        clean_exports()
+    except OSError:
+        logger.warning("Could not clean the metadata exports folder", exc_info=True)
+
     # Start scheduler for periodic maintenance. Overdue tasks run shortly after
     # startup, so short desktop sessions still get maintenance.
     from .services.scheduler import Scheduler
@@ -263,13 +350,14 @@ async def lifespan(app: FastAPI):
     scheduler = Scheduler(settings.data_dir / "scheduler")
     if app_config.scheduler_enabled:
         from ..pipeline.ingest_maintenance import run_ingest_maintenance
-        from ..pipeline.maintenance import backup_database, sweep_orphaned_store_files
+        from ..pipeline.maintenance import sweep_orphaned_store_files
+        from ..pipeline.metadata_export import clean_exports_when_idle
         from ..pipeline.vector_reconcile import reconcile_vectors
 
-        scheduler.register(backup_database, hours=24, name="backup_database")
         scheduler.register(run_ingest_maintenance, hours=1, name="ingest_maintenance")
         scheduler.register(sweep_orphaned_store_files, hours=24, name="sweep_orphaned_store_files")
         scheduler.register(reconcile_vectors, hours=24, name="reconcile_vectors")
+        scheduler.register(clean_exports_when_idle, hours=1, name="clean_metadata_exports")
         await scheduler.start()
         logger.info("Scheduler started")
 
@@ -399,7 +487,10 @@ class SecurityHeadersMiddleware:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers.extend(_SECURITY_HEADERS)
+                # A response may set its own framing rule (downloads' errors, shown in
+                # the app's own hidden frame: api/downloads.py); the rest are added
+                own = {name.lower() for name, _ in headers}
+                headers.extend(h for h in _SECURITY_HEADERS if h[0] not in own)
                 message = {**message, "headers": headers}
             await send(message)
 
@@ -428,8 +519,11 @@ app.include_router(tags.router, prefix=f"{settings.api_prefix}/tags", tags=["tag
 app.include_router(imports.router, prefix=f"{settings.api_prefix}/imports", tags=["imports"])
 app.include_router(groups.router, prefix=f"{settings.api_prefix}/groups", tags=["groups"])
 app.include_router(jobs.router, prefix=f"{settings.api_prefix}/jobs", tags=["jobs"])
-app.include_router(export.router, prefix=f"{settings.api_prefix}/export", tags=["export"])
+app.include_router(downloads.router, prefix=f"{settings.api_prefix}/downloads", tags=["downloads"])
 app.include_router(system.router, prefix=f"{settings.api_prefix}/system", tags=["system"])
+app.include_router(
+    rebuild.router, prefix=f"{settings.api_prefix}/library/rebuild", tags=["library"]
+)
 app.include_router(library.router, prefix=f"{settings.api_prefix}/library", tags=["library"])
 app.include_router(settings_api.router, prefix=f"{settings.api_prefix}/settings", tags=["settings"])
 app.include_router(models_api.router, prefix=f"{settings.api_prefix}/models", tags=["models"])
