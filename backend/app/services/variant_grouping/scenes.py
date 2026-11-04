@@ -248,6 +248,71 @@ def _renditions(fm: FeatureMatrix, params: GroupingParams) -> list[tuple[int, in
 # ---------------------------------------------------------------------------- grouping
 
 
+@dataclass(frozen=True)
+class _Layout[K: Hashable]:
+    """An import's maps and other files by position, in ``(path, str(key))`` order, with the
+    attach step's result: ``attach`` maps a file's position to (map group index, reason)."""
+
+    keys: list[K]
+    maps: list[int]
+    scenes: list[int]  # the files being attached (scenes, or files without an image)
+    groups: list[list[int]]  # map groups, by position
+    group_of: dict[int, int]
+    folder: list[str]  # each file's attach folder
+    stem: list[str]
+    scene_ids: dict[int, N.Seq]
+    attach: dict[int, tuple[int, str]]
+
+
+def _attach[K: Hashable](
+    map_grouping: Grouping[K] | None,
+    map_files: Sequence[GroupingFile[K]],
+    scene_files: Sequence[GroupingFile[K]],
+) -> _Layout[K]:
+    """Lay out the files and attach ``scene_files`` to the map groups (r2, then r3)."""
+    files = sorted(
+        [(f.key, f.path, True) for f in map_files] + [(f.key, f.path, False) for f in scene_files],
+        key=lambda t: (t[1], str(t[0])),
+    )
+    keys = [f[0] for f in files]
+    n = len(files)
+    index = {k: i for i, k in enumerate(keys)}
+    maps = [i for i in range(n) if files[i][2]]
+    scenes = [i for i in range(n) if not files[i][2]]
+    groups = [[index[k] for k in g.keys] for g in map_grouping.groups] if map_grouping else []
+    group_of = {i: g for g, members in enumerate(groups) for i in members}
+    if not scenes:
+        return _Layout(keys, maps, scenes, groups, group_of, [], [], {}, {})
+
+    split = [N.split_path(f[1]) for f in files]
+    raw = [folder for folder, _ in split]
+    stem = [N.file_stem(name) for _, name in split]
+    attach_of = _effective([_attach_folder(f) for f in raw])
+    folder = ["/".join(attach_of[_attach_folder(f)]) for f in raw]
+    container = _container_verdict(raw, maps, map_grouping.folders if map_grouping else {})
+
+    under, nearest = _map_groups_above(maps, scenes, folder, group_of)
+    scene_ids = {s: scene_identity(stem[s]) for s in scenes}
+    attach = _attach_by_folder(scenes, maps, folder, groups, under, nearest, container)
+    attach.update(
+        _attach_by_name(scenes, maps, folder, stem, scene_ids, groups, under, nearest, attach)
+    )
+    return _Layout(keys, maps, scenes, groups, group_of, folder, stem, scene_ids, attach)
+
+
+def attach_to_map_groups[K: Hashable](
+    map_grouping: Grouping[K] | None,
+    map_files: Sequence[GroupingFile[K]],
+    files: Sequence[GroupingFile[K]],
+) -> dict[K, SceneAttachment]:
+    """The map group each of ``files`` belongs to by its folder or name alone: the scenes'
+    attach step (r2, r3; role folders transparent), and nothing else. For files that take no
+    part in grouping (no image: sorted out by Auto, failed, duplicates), so they can be shown
+    with their map. A file that attaches nowhere is absent. Never changes a group."""
+    layout = _attach(map_grouping, map_files, files)
+    return {layout.keys[s]: SceneAttachment(g, reason) for s, (g, reason) in layout.attach.items()}
+
+
 def group_scenes[K: Hashable](
     map_grouping: Grouping[K] | None,
     map_files: Sequence[GroupingFile[K]],
@@ -263,41 +328,18 @@ def group_scenes[K: Hashable](
     still work.
     """
     out: SceneGrouping[K] = SceneGrouping()
-    files = sorted(
-        [(f.key, f.path, True) for f in map_files] + [(f.key, f.path, False) for f in scene_files],
-        key=lambda t: (t[1], str(t[0])),
-    )
-    keys = [f[0] for f in files]
-    n = len(files)
-    index = {k: i for i, k in enumerate(keys)}
-    maps = [i for i in range(n) if files[i][2]]
-    scenes = [i for i in range(n) if not files[i][2]]
-    groups = [[index[k] for k in g.keys] for g in map_grouping.groups] if map_grouping else []
-    verdicts = map_grouping.folders if map_grouping else {}
-    group_of = {i: g for g, members in enumerate(groups) for i in members}
+    layout = _attach(map_grouping, map_files, scene_files)
+    keys, maps, scenes, groups = layout.keys, layout.maps, layout.scenes, layout.groups
+    folder, stem, scene_ids, attach = layout.folder, layout.stem, layout.scene_ids, layout.attach
     if not scenes:
         return out
 
     p = params
-    split = [N.split_path(f[1]) for f in files]
-    raw = [folder for folder, _ in split]
-    stem = [N.file_stem(name) for _, name in split]
-    attach_of = _effective([_attach_folder(f) for f in raw])
-    folder = ["/".join(attach_of[_attach_folder(f)]) for f in raw]
-    container = _container_verdict(raw, maps, verdicts)
-
-    under, nearest = _map_groups_above(maps, scenes, folder, group_of)
-    scene_ids = {s: scene_identity(stem[s]) for s in scenes}
-    attach = _attach_by_folder(scenes, maps, folder, groups, under, nearest, container)
-    attach.update(
-        _attach_by_name(scenes, maps, folder, stem, scene_ids, groups, under, nearest, attach)
-    )
-
-    units = _Units(n)
+    units = _Units(len(keys))
     for s, (g, _) in attach.items():
         units.map_group[s] = g
     for i in maps:
-        units.map_group[i] = group_of[i]
+        units.map_group[i] = layout.group_of[i]
     for members in groups:
         for i in members[1:]:
             units.union(members[0], i)

@@ -6,12 +6,17 @@ are listed nowhere. When the job has nothing open (every file done, a duplicate,
 skipped), its status is ``grouping``: ``group_job`` runs the grouping once over all of the
 job's files, by their detected type, and assigns the images in one write transaction:
 
-- **maps** (battlemaps, and Auto items the image-type head called maps, plus files of a map
-  type that made no image) go through ``variant_grouping.group_with_content`` with the
-  images' content features (pHash renditions, edge maps, embeddings);
-- **scenes** (everything else: Auto skips tokens and assets, and Include imports them as maps
-  or scenes) are attached to a map group or grouped among themselves
-  (``variant_grouping.group_scenes``).
+- **maps** (battlemaps, and Auto items the image-type head called maps) go through
+  ``variant_grouping.group_with_content`` with the images' content features (pHash
+  renditions, edge maps, embeddings);
+- **scenes** (every other image: Auto skips tokens and assets, and Include imports them as
+  maps or scenes) are attached to a map group or grouped among themselves
+  (``variant_grouping.group_scenes``);
+- **files that made no image** (sorted out by Auto, failed, duplicates) take no part: the
+  type of a skipped file is a guess, and its name and folder must not sway the groups. Each
+  is placed afterwards with the map group its folder or name points to
+  (``variant_grouping.attach_to_map_groups``), so the review shows it beside that map, else
+  in the job's one **ungrouped** import group, so it is never shown nowhere.
 
 Each resulting group becomes an ``ImportGroup`` of the job (the report, Undo, the review
 editor and the sorted-out lists work from these) and, if any of its files became an image,
@@ -24,7 +29,9 @@ when it has finished again it is grouped again. The walk covers every file of th
 context, but only images still awaiting a group are placed, and nothing already grouped
 moves: a file keeps the import group it had, and its new image joins that group's gallery
 group; if it has none, the gallery group of this job that the file's group overlaps, else a
-new one (``plan_grouping``, pure).
+new one (``plan_grouping``, pure). The ungrouped group holds no file for good: one that
+makes an image leaves it for the group it is grouped into, and the group is dropped once
+empty.
 
 Three steps, so the write lock is held briefly: read (no lock), compute (no lock), and
 write (one ``write_session``), which first checks that nothing changed since the read
@@ -59,7 +66,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 
 import numpy as np
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.app.models import Image, ImageGroup, ImportGroup, ImportItem, ImportJob, Tag
@@ -96,6 +103,8 @@ logger = logging.getLogger(__name__)
 _EMBEDDING_CHUNK = 500  # ids per LanceDB lookup
 MAPS = BATTLEMAP  # the bucket grouped by the tree walk
 UNKNOWN_AUTHOR = "Unknown"
+# The name of a job's ungrouped import group (the UI shows its own label)
+UNGROUPED_NAME = "Ungrouped"
 # The map and scene groupings of a run: their decisions are logged at DEBUG
 _Debug = variant_grouping.Grouping[int] | variant_grouping.SceneGrouping[int]
 
@@ -113,6 +122,7 @@ class Proposal:
     author: str
     subgroups: Mapping[int, str | None] = field(default_factory=dict)
     match_existing: bool = True
+    ungrouped: bool = False  # files that made no image and belong to no map group
 
 
 @dataclass(frozen=True)
@@ -125,7 +135,8 @@ class JobState:
     - ``gallery_of``: import group → its gallery group (None: none, or deleted since);
     - ``group_names``: import group → its (name, author);
     - ``merged``: gallery groups this job adds to but didn't create;
-    - ``existing``: (name, author) → a gallery group of the library with that name.
+    - ``existing``: (name, author) → a gallery group of the library with that name;
+    - ``ungrouped_group``: the job's ungrouped import group, if it has one.
     """
 
     import_group_of: Mapping[int, int] = field(default_factory=dict)
@@ -135,6 +146,7 @@ class JobState:
     group_names: Mapping[int, tuple[str, str]] = field(default_factory=dict)
     merged: frozenset[int] = frozenset()
     existing: Mapping[tuple[str, str], int] = field(default_factory=dict)
+    ungrouped_group: int | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +155,7 @@ class NewImportGroup:
     name: str
     author: str
     sort_order: int
+    ungrouped: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +175,7 @@ class GroupingPlan:
     item_groups: dict[int, int]  # item → import group (new keys negative), items without one
     galleries: dict[int, GalleryChoice]  # import group → gallery, for those taking images
     images: dict[int, tuple[int, str | None]]  # pending image → (import group, subgroup)
+    dropped: int | None = None  # the ungrouped import group, emptied by this plan
 
 
 def plan_grouping(
@@ -178,6 +192,9 @@ def plan_grouping(
       an existing gallery group with its ``(name, author)``; else a new gallery group with
       its name.
     - Images already grouped never move.
+    - The ungrouped proposal's files go to the job's ungrouped import group (made if it has
+      none). It holds files only until they are grouped: a file in it counts as having no
+      import group, and once it holds none the plan drops it (``dropped``).
     """
     new_groups: list[NewImportGroup] = []
     item_groups: dict[int, int] = {}
@@ -185,11 +202,18 @@ def plan_grouping(
     images: dict[int, tuple[int, str | None]] = {}
     may_match: dict[int, bool] = {}  # new import group → its name may pick an existing group
     names = dict(state.group_names)
+    # Files and their import groups, but for the ungrouped group: its files are free to go
+    held_of = {
+        item: group
+        for item, group in state.import_group_of.items()
+        if group != state.ungrouped_group
+    }
 
     for proposal in proposals:
-        held = Counter(
-            state.import_group_of[i] for i in proposal.items if i in state.import_group_of
-        )
+        if proposal.ungrouped:
+            _plan_ungrouped(proposal, state, first_sort_order, new_groups, item_groups)
+            continue
+        held = Counter(held_of[i] for i in proposal.items if i in held_of)
         if held:
             target = min(held, key=lambda g: (-held[g], g))
         else:
@@ -202,21 +226,64 @@ def plan_grouping(
             names[target] = (proposal.name, proposal.author)
             may_match[target] = proposal.match_existing
         for item in proposal.items:
-            if item not in state.import_group_of:
+            if item not in held_of:
                 item_groups[item] = target
         overlap = Counter(state.placed[i] for i in proposal.items if i in state.placed)
         for item in proposal.items:
             image = state.pending.get(item)
             if image is None:
                 continue
-            group = state.import_group_of.get(item, target)
+            group = held_of.get(item, target)
             images[image] = (group, proposal.subgroups.get(item))
             if group not in galleries:
                 name = names.get(group, (proposal.name, proposal.author))
                 galleries[group] = _gallery_for(
                     group, name, may_match.get(group, False), overlap, state
                 )
-    return GroupingPlan(new_groups, item_groups, galleries, images)
+    return GroupingPlan(new_groups, item_groups, galleries, images, _emptied(state, item_groups))
+
+
+def _plan_ungrouped(
+    proposal: Proposal,
+    state: JobState,
+    first_sort_order: int,
+    new_groups: list[NewImportGroup],
+    item_groups: dict[int, int],
+) -> None:
+    """Put the ungrouped proposal's files that have no import group in the job's ungrouped
+    group, making it if there are any and the job has none."""
+    loose = [item for item in proposal.items if item not in state.import_group_of]
+    if not loose:
+        return
+    target = state.ungrouped_group
+    if target is None:
+        target = -(len(new_groups) + 1)
+        new_groups.append(
+            NewImportGroup(
+                target,
+                proposal.name,
+                proposal.author,
+                first_sort_order + len(new_groups),
+                ungrouped=True,
+            )
+        )
+    for item in loose:
+        item_groups[item] = target
+
+
+def _emptied(state: JobState, item_groups: Mapping[int, int]) -> int | None:
+    """The job's ungrouped import group, if this plan moves every file out of it."""
+    ungrouped = state.ungrouped_group
+    if ungrouped is None:
+        return None
+    if any(group == ungrouped for group in item_groups.values()):
+        return None
+    staying = (
+        item
+        for item, group in state.import_group_of.items()
+        if group == ungrouped and item not in item_groups
+    )
+    return None if any(True for _ in staying) else ungrouped
 
 
 def _gallery_for(
@@ -264,7 +331,7 @@ def embedding_readiness() -> Readiness:
 
 
 @dataclass(frozen=True)
-class _File:
+class JobFile:
     item_id: int
     path: str
     bucket: str  # MAPS, or another image type grouped by group_files
@@ -279,20 +346,20 @@ class _File:
 
 @dataclass(frozen=True)
 class _JobFiles:
-    files: list[_File]
+    files: list[JobFile]
     authors: list[str]
     generation: frozenset  # what the write checks is unchanged
 
 
 def _bucket(item_type: str, image_type: str | None) -> str:
     """Grouped by detected type: an image's own type, else the type the file was imported
-    as (an Auto file that made no image is grouped with the maps). Every other file is a
-    scene: Auto skips tokens and assets, and Include imports them as maps or scenes."""
+    as. Every other image is a scene: Auto skips tokens and assets, and Include imports them
+    as maps or scenes. Files that made no image are placed by ``propose``, not grouped."""
     kind = image_type if image_type is not None else item_type
     return MAPS if in_map_bucket(kind) else SCENE
 
 
-def _job_files(db: Session, job: ImportJob) -> list[_File]:
+def _job_files(db: Session, job: ImportJob) -> list[JobFile]:
     rows = db.execute(
         select(
             ImportItem.id,
@@ -320,10 +387,10 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
         )
         .order_by(ImportItem.id)
     ).all()
-    files: list[_File] = []
+    files: list[JobFile] = []
     for item_id, path, item_type, ig, image_id, image_type, pending, gid, w, h, name, fname in rows:
         files.append(
-            _File(
+            JobFile(
                 item_id=item_id,
                 path=path,
                 bucket=_bucket(item_type, image_type),
@@ -339,7 +406,7 @@ def _job_files(db: Session, job: ImportJob) -> list[_File]:
     return files
 
 
-def _generation(files: Iterable[_File]) -> frozenset:
+def _generation(files: Iterable[JobFile]) -> frozenset:
     return frozenset((f.item_id, f.image_id, f.pending, f.import_group_id) for f in files)
 
 
@@ -398,7 +465,7 @@ def _load_embeddings(
     return vectors, calibration.thresholds
 
 
-def _features(db: Session, files: list[_File]) -> dict[int, ContentFeatures]:
+def _features(db: Session, files: list[JobFile]) -> dict[int, ContentFeatures]:
     """Content features of the map and scene files that made an image, by item id, without
     their embeddings (``_with_embeddings``)."""
     grouped = [f for f in files if f.bucket in (MAPS, SCENE) and f.image_id is not None]
@@ -419,7 +486,7 @@ def _features(db: Session, files: list[_File]) -> dict[int, ContentFeatures]:
 
 
 def _with_embeddings(
-    files: list[_File], features: dict[int, ContentFeatures], readiness: Readiness, repair: bool
+    files: list[JobFile], features: dict[int, ContentFeatures], readiness: Readiness, repair: bool
 ) -> tuple[dict[int, ContentFeatures], EmbeddingThresholds | None]:
     """The features with the images' vectors, and the thresholds (``_load_embeddings``)."""
     image_of = {f.item_id: f.image_id for f in files if f.item_id in features and f.image_id}
@@ -464,18 +531,22 @@ def joined_subgroups(
     return subgroups
 
 
-def _proposals(
-    files: list[_File],
+def propose(
+    files: list[JobFile],
     features: Mapping[int, ContentFeatures],
     thresholds: EmbeddingThresholds | None,
     parser: ImageParser,
     authors: list[str],
 ) -> tuple[list[Proposal], list[_Debug]]:
     """Groups of every file: maps by the content walk; scenes attached to a map group or
-    grouped among themselves (``group_scenes``)."""
+    grouped among themselves (``group_scenes``). Files that made no image are grouped by
+    neither: each joins the map group its folder or name points to, else the ungrouped
+    proposal."""
     params = GroupingParams(embedding=thresholds)
-    maps = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == MAPS]
-    scenes = [GroupingFile(f.item_id, f.path) for f in files if f.bucket == SCENE]
+    imaged = [f for f in files if f.image_id is not None]
+    maps = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == MAPS]
+    scenes = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == SCENE]
+    imageless = [GroupingFile(f.item_id, f.path) for f in files if f.image_id is None]
     grouping = None
     map_groups: list[ProposedGroup[int]] = []
     if maps:
@@ -483,15 +554,18 @@ def _proposals(
             maps, features, params, parser, known_authors=authors
         )
         map_groups = grouping.groups
-    effective = variant_grouping.effective_folders(f.path for f in files)
-    folders = {f.item_id: effective[f.path] for f in files}
+    effective = variant_grouping.effective_folders(f.path for f in imaged)
+    folders = {f.item_id: effective[f.path] for f in imaged}
     map_keys = [g.keys for g in map_groups]
     scene_grouping = variant_grouping.group_scenes(grouping, maps, scenes, features, params)
     attached = {item: attachment.group for item, attachment in scene_grouping.attachments.items()}
     subgroups = joined_subgroups(map_keys, [g.subgroups for g in map_groups], folders, attached)
+    placed = variant_grouping.attach_to_map_groups(grouping, maps, imageless)
     joined: dict[int, list[int]] = {}
     for item, index in attached.items():
         joined.setdefault(index, []).append(item)
+    for item, attachment in placed.items():
+        joined.setdefault(attachment.group, []).append(item)
 
     proposals: list[Proposal] = []
     names = Counter((g.name, g.author or UNKNOWN_AUTHOR) for g in map_groups)
@@ -503,7 +577,7 @@ def _proposals(
                 (*group.keys, *extra),
                 group.name,
                 author,
-                {**group.subgroups, **{item: subgroups[item] for item in extra}},
+                {**group.subgroups, **{item: subgroups.get(item) for item in extra}},
                 # A fallback name, or one two of this import's maps share, says nothing
                 # about which map it is: it can't pick an existing group
                 group.name_is_identity and names[(group.name, author)] == 1,
@@ -512,35 +586,49 @@ def _proposals(
     path_of = {f.item_id: f.path for f in files}
     for items in scene_grouping.groups:
         proposals.append(_named_by_parser([(path_of[i], i) for i in items], SCENE, parser, authors))
+    proposals += _ungrouped(f.key for f in imageless if f.key not in placed)
     return proposals, [g for g in (grouping, scene_grouping) if g is not None]
 
 
-def _parsed_proposals(
-    files: list[_File], parser: ImageParser, authors: list[str]
+def _ungrouped(items: Iterable[int]) -> list[Proposal]:
+    """The ungrouped proposal of ``items``, or none if there are none."""
+    loose = tuple(items)
+    if not loose:
+        return []
+    return [Proposal(loose, UNGROUPED_NAME, UNKNOWN_AUTHOR, {}, False, ungrouped=True)]
+
+
+def propose_by_paths(
+    files: list[JobFile], parser: ImageParser, authors: list[str]
 ) -> list[Proposal]:
-    """Groups of files from their paths alone, as ``ImageParser.group_files`` makes them,
-    by type."""
-    by_type: dict[str, list[_File]] = {}
+    """Groups of the files that made an image from their paths alone, as
+    ``ImageParser.group_files`` makes them, by type. Groups of the two types with one name
+    and author are one group (one import never mints two groups of one name). Files that
+    made no image are ungrouped."""
+    by_type: dict[str, list[JobFile]] = {}
     for f in files:
-        by_type.setdefault(f.bucket, []).append(f)
-    proposals: list[Proposal] = []
+        if f.image_id is not None:
+            by_type.setdefault(f.bucket, []).append(f)
+    by_name: dict[tuple[str, str], Proposal] = {}
     for image_type, typed in sorted(by_type.items()):
         by_path = {f.path: f.item_id for f in typed}
         for group in parser.group_files(
             list(by_path), image_type=image_type, known_authors=authors
         ):
-            proposals.append(
-                Proposal(
-                    tuple(by_path[f["relative_path"]] for f in group["files"]),
-                    group["group_name"],
-                    group.get("author") or UNKNOWN_AUTHOR,
-                    {
+            name = (group["group_name"], group.get("author") or UNKNOWN_AUTHOR)
+            found = by_name.get(name, Proposal((), *name))
+            by_name[name] = replace(
+                found,
+                items=(*found.items, *(by_path[f["relative_path"]] for f in group["files"])),
+                subgroups={
+                    **found.subgroups,
+                    **{
                         by_path[f["relative_path"]]: f["parsed"].get("subgroup")
                         for f in group["files"]
                     },
-                )
+                },
             )
-    return proposals
+    return [*by_name.values(), *_ungrouped(f.item_id for f in files if f.image_id is None)]
 
 
 def _named_by_parser(
@@ -566,7 +654,9 @@ def _named_by_parser(
 # Write
 
 
-def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Proposal]) -> JobState:
+def _state(
+    db: Session, job: ImportJob, files: list[JobFile], proposals: list[Proposal]
+) -> JobState:
     import_groups = db.execute(
         select(
             ImportGroup.id,
@@ -574,6 +664,7 @@ def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Prop
             ImportGroup.merged_into_existing,
             ImportGroup.group_name,
             ImportGroup.author,
+            ImportGroup.ungrouped,
         ).where(ImportGroup.job_id == job.id)
     ).all()
     referenced = sorted({gid for _, gid, *_ in import_groups if gid is not None})
@@ -592,7 +683,7 @@ def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Prop
         },
         gallery_of={ig: gid if gid in alive else None for ig, gid, *_ in import_groups},
         group_names={
-            ig: (name, author or UNKNOWN_AUTHOR) for ig, _, _, name, author in import_groups
+            ig: (name, author or UNKNOWN_AUTHOR) for ig, _, _, name, author, _ in import_groups
         },
         merged=frozenset(gid for _, gid, merged, *_ in import_groups if merged and gid in alive),
         existing={
@@ -600,13 +691,14 @@ def _state(db: Session, job: ImportJob, files: list[_File], proposals: list[Prop
             for (name, author), gid in existing.items()
             if author is not None and (name, author) in names
         },
+        ungrouped_group=next((ig for ig, *_, ungrouped in import_groups if ungrouped), None),
     )
 
 
 def _write(
     db: Session,
     job: ImportJob,
-    files: list[_File],
+    files: list[JobFile],
     plan: GroupingPlan,
     tags: Mapping[int, list[dict]],
 ) -> int:
@@ -640,6 +732,7 @@ def _write(
                     "merged_into_existing": g.key in plan.galleries
                     and plan.galleries[g.key].merged,
                     "sort_order": g.sort_order,
+                    "ungrouped": g.ungrouped,
                 }
                 for g in plan.new_import_groups
             ],
@@ -667,6 +760,8 @@ def _write(
                 for item, key in plan.item_groups.items()
             ],
         )
+    if plan.dropped is not None:
+        db.execute(delete(ImportGroup).where(ImportGroup.id == plan.dropped))
 
     authors: dict[int, str | None] = {minted[k]: plan.galleries[k].author for k in minted}
     looked_up = sorted({gid for gid in gallery.values() if gid is not None} - set(authors))
@@ -701,7 +796,7 @@ def _write(
     return len(minted)
 
 
-def _orphans(files: list[_File], proposals: list[Proposal]) -> list[Proposal]:
+def _orphans(files: list[JobFile], proposals: list[Proposal]) -> list[Proposal]:
     """A file in no proposal (it shouldn't happen) is a group of its own, so no image is
     left awaiting a group forever."""
     covered = {item for p in proposals for item in p.items}
@@ -778,9 +873,9 @@ def group_job(
         if progress_fn:
             progress_fn(1, 2, "Identifying groups")
         if paths_only:
-            proposals, debug = _parsed_proposals(read.files, parser, read.authors), []
+            proposals, debug = propose_by_paths(read.files, parser, read.authors), []
         else:
-            proposals, debug = _proposals(read.files, features, thresholds, parser, read.authors)
+            proposals, debug = propose(read.files, features, thresholds, parser, read.authors)
         proposals += _orphans(read.files, proposals)
 
         with write_session() as db:

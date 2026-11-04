@@ -131,7 +131,7 @@ def test_a_job_whose_grouping_keeps_failing_is_grouped_by_its_paths(db_url, monk
     def broken(*_args, **_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(gj, "_proposals", broken)
+    monkeypatch.setattr(gj, "propose", broken)
     scheduler = inline()
     for _ in range(gj._MAX_FAILED_RUNS):
         assert scheduler.schedule() == [job_id]
@@ -153,8 +153,8 @@ def test_a_job_whose_paths_only_grouping_fails_too_is_left_alone(db_url, monkeyp
     def broken(*_args, **_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(gj, "_proposals", broken)
-    monkeypatch.setattr(gj, "_parsed_proposals", broken)
+    monkeypatch.setattr(gj, "propose", broken)
+    monkeypatch.setattr(gj, "propose_by_paths", broken)
     scheduler = inline()
     for _ in range(gj._MAX_FAILED_RUNS + 1):
         assert scheduler.schedule() == [job_id]

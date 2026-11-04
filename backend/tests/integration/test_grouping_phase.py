@@ -282,7 +282,9 @@ def test_an_import_of_scenes_only_groups_them_among_themselves(api):
     assert [g["group_name"] for g in api.detail(job_id)["groups"]] == ["Vistas"]
 
 
-def test_files_that_made_no_image_get_an_import_group_without_a_gallery_group(api):
+def test_a_file_that_made_no_image_beside_no_map_is_ungrouped(api):
+    """It takes no part in grouping, and no map group's folder or name claims it: it goes to
+    the job's ungrouped group, which has no gallery group."""
     files = {
         **TWINS,
         "Czepeku/Broken Tower/Broken Tower.png": b"not an image",
@@ -292,9 +294,9 @@ def test_files_that_made_no_image_get_an_import_group_without_a_gallery_group(ap
     assert api.put(job_id, ids["Czepeku/Broken Tower/Broken Tower.png"], b"x").status_code == 200
     api.worker.drain()
     detail = api.detail(job_id)
-    broken = next(g for g in detail["groups"] if g["group_name"] == "Broken Tower")
-    assert broken["image_group_id"] is None and broken["counts"]["failed"] == 1
-    assert broken["image_group_id"] not in detail["reviewable_group_ids"]
+    (ungrouped,) = [g for g in detail["groups"] if g["ungrouped"]]
+    assert ungrouped["image_group_id"] is None and ungrouped["counts"]["failed"] == 1
+    assert "Broken Tower" not in {g["group_name"] for g in detail["groups"]}
 
 
 def test_a_unique_map_name_adds_to_its_existing_group(api):

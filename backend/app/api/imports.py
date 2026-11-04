@@ -128,7 +128,7 @@ def _counts(by_state: dict[str, int], sorted_out: int = 0) -> ImportCounts:
 
 @dataclass
 class _GroupTotals:
-    total: int = 0  # import groups: none until the job's grouping phase has run
+    total: int = 0  # import groups, but the ungrouped one: none until the job is grouped
     reviewable: int = 0  # gallery groups the review editor can open (_is_reviewable)
 
 
@@ -181,7 +181,7 @@ def _group_totals(db: Session, ids: list[str]) -> dict[str, _GroupTotals]:
     totals = {job_id: _GroupTotals() for job_id in ids}
     rows = (
         db.query(ImportGroup.job_id, func.count(ImportGroup.id))
-        .filter(ImportGroup.job_id.in_(ids))
+        .filter(ImportGroup.job_id.in_(ids), ImportGroup.ungrouped.is_(False))
         .group_by(ImportGroup.job_id)
     )
     for job_id, total in rows:
@@ -200,25 +200,32 @@ def _summaries(db: Session, jobs: list[ImportJob]) -> list[ImportJobSummary]:
     ids = [job.id for job in jobs]
     by_job: dict[str, dict[str, int]] = {job_id: {} for job_id in ids}
     sorted_out: dict[str, int] = dict.fromkeys(ids, 0)
+    ungrouped: dict[str, int] = dict.fromkeys(ids, 0)
     groups = {job_id: _GroupTotals() for job_id in ids}
     if ids:
+        is_sorted_out = ImportItem.error_kind == q.KIND_SORTED_OUT
         rows = (
             db.query(
                 ImportItem.job_id,
                 ImportItem.state,
                 func.count(ImportItem.id),
-                func.count(case((ImportItem.error_kind == q.KIND_SORTED_OUT, 1))),
+                func.count(case((is_sorted_out, 1))),
+                func.count(case((is_sorted_out & ImportGroup.ungrouped.is_(True), 1))),
             )
+            .outerjoin(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
             .filter(ImportItem.job_id.in_(ids))
             .group_by(ImportItem.job_id, ImportItem.state)
         )
-        for job_id, state, count, sorted_count in rows:
+        for job_id, state, count, sorted_count, ungrouped_count in rows:
             by_job[job_id][state] = count
             sorted_out[job_id] += sorted_count
+            ungrouped[job_id] += ungrouped_count
         groups = _group_totals(db, ids)
     now = q.utcnow()
     return [
-        _summary(job, _counts(by_job[job.id], sorted_out[job.id]), groups[job.id], now)
+        _summary(
+            job, _counts(by_job[job.id], sorted_out[job.id]), groups[job.id], now, ungrouped[job.id]
+        )
         for job in jobs
     ]
 
@@ -235,7 +242,9 @@ def _waiting_for(job: ImportJob, counts: ImportCounts) -> list[str]:
     return missing
 
 
-def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) -> ImportJobSummary:
+def _summary(
+    job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now, ungrouped_sorted_out: int = 0
+) -> ImportJobSummary:
     last_activity = job.last_upload_at or job.created_at or now
     interrupted = (
         job.status == st.JOB_ACTIVE
@@ -258,6 +267,7 @@ def _summary(job: ImportJob, counts: ImportCounts, groups: _GroupTotals, now) ->
         counts=counts,
         group_count=groups.total,
         groups_reviewable=groups.reviewable,
+        ungrouped_sorted_out=ungrouped_sorted_out,
         created_at=job.created_at,
         updated_at=job.updated_at,
         completed_at=job.completed_at,
@@ -306,7 +316,8 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
     groups = (
         db.query(ImportGroup)
         .filter(ImportGroup.job_id == job.id)
-        .order_by(ImportGroup.sort_order, ImportGroup.id)
+        # The files in no group come last
+        .order_by(ImportGroup.ungrouped, ImportGroup.sort_order, ImportGroup.id)
         .all()
     )
     return ImportJobDetail(
@@ -324,6 +335,7 @@ def _detail(db: Session, job: ImportJob) -> ImportJobDetail:
                 cover_image_id=covers.get(g.id, (None, 0, 0))[0],
                 map_count=covers.get(g.id, (None, 0, 0))[1],
                 scene_count=covers.get(g.id, (None, 0, 0))[2],
+                ungrouped=g.ungrouped,
             )
             for g in groups
         ],
@@ -372,16 +384,25 @@ def sorted_out_counts(db: Session = Depends(get_db)):
 
 @router.get("/sorted-out", response_model=SortedOutList)
 def list_sorted_out(
-    image_group_id: int,
+    image_group_id: int | None = None,
+    job_id: str | None = None,
     limit: int = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    """Items Auto sorted out of one gallery group, across imports."""
+    """Items Auto sorted out of one gallery group, across imports (``image_group_id``), or
+    those of one import in no group (``job_id``: its ungrouped group). Exactly one."""
+    if (image_group_id is None) == (job_id is None):
+        raise HTTPException(status_code=422, detail="Give image_group_id or job_id")
+    in_scope = (
+        ImportGroup.image_group_id == image_group_id
+        if image_group_id is not None
+        else (ImportGroup.job_id == job_id) & ImportGroup.ungrouped.is_(True)
+    )
     rows = (
         db.query(ImportItem)
         .join(ImportGroup, ImportGroup.id == ImportItem.import_group_id)
         .filter(
-            ImportGroup.image_group_id == image_group_id,
+            in_scope,
             ImportItem.state == st.SKIPPED,
             ImportItem.error_kind == q.KIND_SORTED_OUT,
         )

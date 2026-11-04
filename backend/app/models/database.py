@@ -463,6 +463,10 @@ class ImportGroup(Base):
     Resolves to a gallery ``ImageGroup``: an existing one (``merged_into_existing``), one
     minted for it, or none when none of its files became an image (all duplicates, failed or
     sorted out).
+
+    ``ungrouped``: the job's one group of files that made no image and belong to no map group
+    by folder or name (design/variant-grouping.md §3). It never has a gallery group; a file
+    leaves it when it makes an image (Include, Retry) and is grouped.
     """
 
     __tablename__ = "import_groups"
@@ -478,6 +482,7 @@ class ImportGroup(Base):
     )
     merged_into_existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ungrouped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
     job: Mapped["ImportJob"] = relationship("ImportJob", back_populates="import_groups")

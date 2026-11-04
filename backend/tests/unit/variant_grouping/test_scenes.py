@@ -6,6 +6,7 @@ import random
 from backend.app.services.variant_grouping import (
     GroupingFile,
     SceneGrouping,
+    attach_to_map_groups,
     group_scenes,
     group_with_content,
 )
@@ -215,6 +216,45 @@ class TestSceneGroups:
             scenes
         )
         assert frozenset({"Downloads/tower.jpg"}) in partition(scenes)
+
+
+class TestAttachToMapGroups:
+    """Files that made no image (sorted out, failed, duplicates) are placed with a map group by
+    the attach step alone: they never group among themselves and never change a group."""
+
+    @staticmethod
+    def place(files: dict[str, tuple[str, Look]], skipped: list[str]) -> dict[str, str | None]:
+        """Each skipped path → the first map key of the group it is placed with, or None."""
+        maps = [GroupingFile(p, p) for p, (kind, _) in files.items() if kind == MAP]
+        content = {p: features(look) for p, (_, look) in files.items()}
+        grouping = group_with_content(maps, content, CONTENT_PARAMS, parser())
+        placed = attach_to_map_groups(grouping, maps, [GroupingFile(p, p) for p in skipped])
+        return {
+            p: grouping.groups[placed[p].group].keys[0] if p in placed else None for p in skipped
+        }
+
+    def test_beside_one_map_or_in_its_tokens_folder(self):
+        placed = self.place(
+            keep_maps(), ["Maker/Keep/Goblin.png", "Maker/Keep/Tokens/Orc Chief.png"]
+        )
+        assert set(placed.values()) == {"Maker/Keep/Keep_Day.jpg"}
+
+    def test_named_after_one_of_two_maps(self):
+        placed = self.place(
+            TestAttachByName.wharf_and_mine(),
+            ["TC/TC_Anglers Wharf Crane Asset.png", "TC/TC_Bellhammer Mine Cart Token.png"],
+        )
+        assert "Anglers" in (placed["TC/TC_Anglers Wharf Crane Asset.png"] or "")
+        assert "Bellhammer" in (placed["TC/TC_Bellhammer Mine Cart Token.png"] or "")
+
+    def test_nowhere_beside_two_maps_it_names_neither_of(self):
+        """A pack's tokens belong to no single map."""
+        files = keep_maps("Pack/Keep") | keep_maps("Pack/Fort")
+        placed = self.place(files, ["Pack/Barkeep.png", "Pack/Tokens/Drunk.png"])
+        assert placed == {"Pack/Barkeep.png": None, "Pack/Tokens/Drunk.png": None}
+
+    def test_no_maps(self):
+        assert not attach_to_map_groups(None, [], [GroupingFile("a.png", "a.png")])
 
 
 class TestInvariance:

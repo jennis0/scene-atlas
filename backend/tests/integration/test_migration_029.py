@@ -171,6 +171,8 @@ def test_imports_sealed_before_029_are_already_grouped(tmp_path, monkeypatch):
     with engine.begin() as conn:
         _seed_imports(conn)
     command.upgrade(cfg, "029")
+    # Today's code runs on what 029 left; later migrations only add to it
+    command.upgrade(cfg, "head")
 
     with Session(engine) as db:
         jobs = {j.id: j for j in db.query(ImportJob)}

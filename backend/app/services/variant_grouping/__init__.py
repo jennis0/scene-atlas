@@ -8,6 +8,8 @@ Pure: no database, no filesystem, no model loading. Entry points:
   join withheld; content only adds joins, so groups with content are unions of those;
 - ``group_scenes``: an import's scenes, attached to the map groups or grouped among themselves,
   after the maps were grouped alone;
+- ``attach_to_map_groups``: the map group files without an image belong to, by folder or name
+  alone (they take no part in grouping);
 - ``effective_folders``: each file's effective folder (ingest finds a file's siblings by it).
 
 The groupings are deterministic and independent of input order.
@@ -29,7 +31,7 @@ from . import names as N
 from .evidence import ContentFeatures, FeatureMatrix
 from .naming import GroupNamer
 from .params import EmbeddingThresholds, GroupingParams
-from .scenes import SceneAttachment, SceneGrouping, group_scenes
+from .scenes import SceneAttachment, SceneGrouping, attach_to_map_groups, group_scenes
 from .schema import (
     FolderDecision,
     FolderReason,
@@ -59,6 +61,7 @@ __all__ = [
     "SceneAttachment",
     "SceneGrouping",
     "Suggestion",
+    "attach_to_map_groups",
     "effective_folders",
     "group_scenes",
     "group_with_content",
