@@ -60,13 +60,15 @@ correcting later.
      among themselves. Tokens and assets are skipped by Auto and imported via Include as maps or
      scenes; tokens are more often mistyped maps than scenes (Joe), worth revisiting if a token
      import type is added;
-   - **files that made no image** (sorted out by Auto, failed, duplicates) take no part (ADR-029):
+   - **files that made no image** (sorted out by Auto, failed, duplicates) take no part (ADR-030):
      their type is a guess, and their names and folders must not sway the groups. Afterwards each
      is placed with the map group its folder or name points to (`attach_to_map_groups`: the scene
      attach step, r2 and r3, role folders such as `Tokens/` transparent), so the editor's skipped
      strip shows it with that map. Anything else goes to the job's one **ungrouped** import group
      (`import_groups.ungrouped`, never a gallery group), which the review shows as the **Skipped
      by Auto** entry, so a classifier mistake is never left nowhere.
+     Files the import's Scene Atlas metadata puts in a group join that group first, image or
+     not: that is a recorded group, not a guess ([export-backup-move.md](export-backup-move.md) §6).
 
    A scene joining a map group takes no subgroup unless it sits in a folder whose maps of that
    group share a sub-group label.
@@ -219,7 +221,7 @@ The port's deliberate deviations from the research method are listed in the rese
   `variant_grouping/scenarios.py` plus a mixed map/scene import, with and without content): planting
   tokens and assets beside the maps, in `Tokens/` folders, named after a map and at the root changes
   no group's files, name, author, subgroups or existing-group matching, and every file is in exactly
-  one proposal. With them walked as maps (the code before ADR-029) the same test fails on every
+  one proposal. With them walked as maps (the code before ADR-030) the same test fails on every
   scenario: a token beside a map split it from its scene, and creators, subgroups and
   existing-group matching changed. `test_auto_image_type.py` runs Auto end to end: a token is shown
   with its map, an asset in no map's folder is ungrouped, and including it groups it and drops the

@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
@@ -26,6 +26,7 @@ from backend.app.services.ingest_state import ItemEvent
 from backend.app.services.validation import check_zip_safety, verify_media_mime
 
 from .error_classifier import KIND_FILE
+from .import_metadata import is_metadata_file
 from .ingest_queue import (
     ManifestSealedError,
     is_os_junk,
@@ -45,6 +46,10 @@ class ArchiveCounts:
     created: int = 0
     skipped: int = 0
     failed: int = 0
+    # Its Scene Atlas metadata files, extracted to staging, with their folder in the zip:
+    # the caller loads them after its transaction (import_metadata.load_export), then
+    # deletes them
+    metadata: list[Path] = field(default_factory=list)
 
 
 def _new_item(job: ImportJob, relative_path: str, kind: str, size: int | None) -> ImportItem:
@@ -168,6 +173,14 @@ def expand_archive(
                 path = normalise_relative_path(member.filename)
                 if path and not is_os_junk(path):
                     members.append((member, path))
+            # The zip's metadata is extracted for the caller to load, not imported
+            # (pipeline/import_metadata.py)
+            for member, path in members:
+                if is_metadata_file(path):
+                    dest = staging / f"metadata-{uuid.uuid4().hex}.jsonl"
+                    _extract(zf, member, dest)
+                    counts.metadata.append(dest)
+            members = [(m, path) for m, path in members if not is_metadata_file(path)]
             placed = place_members([path for _, path in members], archive_name)
             for member, member_path in members:
                 path = placed[member_path]
@@ -217,6 +230,10 @@ def expand_archive(
                 counts.created += 1
         db.flush()
         return counts
+    except BaseException:
+        for path in counts.metadata:  # nobody will load them now
+            path.unlink(missing_ok=True)
+        raise
     finally:
         if not keep_source:
             zip_path.unlink(missing_ok=True)

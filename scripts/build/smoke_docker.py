@@ -4,7 +4,9 @@ Runs it as an arbitrary user on a fresh data volume, so it also checks that the 
 image works for any SCENE_ATLAS_UID:SCENE_ATLAS_GID: the database must open in the volume, and the API
 must report the release version. With --compose, it is then started again through that
 docker-compose.yml with a .env like a user's, which catches mistakes in the Compose file's
-own settings. Runs in the Release workflow before the image is pushed.
+own settings, and a rebuild from a metadata export is run through the API: the server
+stops itself to swap the rebuilt library in, and the file's restart policy must bring it
+back on it. Runs in the Release workflow before the image is pushed.
 
 Usage:
     python scripts/build/smoke_docker.py --image IMAGE --version 0.2.0 \
@@ -40,6 +42,34 @@ def _get(port: int, path: str, accept: str) -> tuple[int, str]:
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={"Accept": accept})
     with urllib.request.urlopen(request, timeout=10) as resp:  # noqa: S310  # nosec B310 - fixed http URL
         return resp.status, resp.read().decode("utf-8", errors="replace")
+
+
+def _send(port: int, method: str, path: str, body: bytes | dict | None = None) -> dict:
+    """An API request; JSON in (a dict) or raw bytes, JSON out."""
+    data, headers = None, {"Accept": "application/json"}
+    if isinstance(body, dict):
+        data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+    elif body is not None:
+        data, headers["Content-Type"] = body, "application/octet-stream"
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1{path}", data=data, method=method, headers=headers
+    )
+    with urllib.request.urlopen(request, timeout=60) as resp:  # noqa: S310  # nosec B310 - fixed http URL
+        raw = resp.read()
+    return json.loads(raw) if raw[:1] in (b"{", b"[") else {"bytes": raw}
+
+
+def _job(port: int, job_id: str, timeout: float) -> dict:
+    """The finished job's result; raises if it failed or took too long."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = _send(port, "GET", f"/jobs/{job_id}")
+        if job["status"] == "completed":
+            return job.get("result") or {}
+        if job["status"] == "failed":
+            raise RuntimeError(f"job {job_id} failed: {job.get('error')}")
+        time.sleep(1)
+    raise TimeoutError(f"job {job_id} didn't finish within {timeout:.0f}s")
 
 
 def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -80,7 +110,7 @@ def _check(port: int, version: str, timeout: float) -> list[str]:
     return problems
 
 
-_FAILURES = (TimeoutError, subprocess.CalledProcessError, urllib.error.URLError)
+_FAILURES = (TimeoutError, RuntimeError, subprocess.CalledProcessError, urllib.error.URLError)
 
 
 def smoke_run(image: str, version: str, timeout: float) -> list[str]:
@@ -115,6 +145,39 @@ def smoke_run(image: str, version: str, timeout: float) -> list[str]:
     return problems
 
 
+def _rebuild_and_restart(port: int, container: str, timeout: float) -> list[str]:
+    """Rebuild from a metadata export (design/export-backup-move.md §8) through the API:
+    the server stops itself to swap the library in, and the Compose restart policy must
+    start it again on the rebuilt one."""
+    problems = []
+    name = _job(port, _send(port, "POST", "/library/metadata-export", {})["job_id"], timeout)[
+        "name"
+    ]
+    export = _send(port, "GET", f"/library/metadata-export/{name}")["bytes"]
+    # A change after the export: the rebuilt library mustn't have it
+    _send(port, "POST", "/tags/categories", {"name": "smoke-after-export"})
+    _send(port, "PUT", "/library/rebuild/upload", export)
+    _job(port, _send(port, "POST", "/library/rebuild/check", {})["job_id"], timeout)
+    _job(port, _send(port, "POST", "/library/rebuild/build", {})["job_id"], timeout)
+    restarts = int(_docker("inspect", "-f", "{{.RestartCount}}", container).stdout)
+    if _send(port, "POST", "/library/rebuild/apply", {}) != {"restart": "server"}:
+        problems.append("applying the rebuild didn't say the server restarts")
+    deadline = time.monotonic() + timeout
+    while int(_docker("inspect", "-f", "{{.RestartCount}}", container).stdout) == restarts:
+        if time.monotonic() > deadline:
+            return [*problems, "the server didn't restart after applying the rebuild"]
+        time.sleep(1)
+    _wait_for_health(port, timeout)
+    names = {c["name"] for c in _send(port, "GET", "/tags/categories")}
+    if "smoke-after-export" in names:
+        problems.append("the rebuilt library still has a change made after the export")
+    if _send(port, "GET", "/library/rebuild").get("check") is not None:
+        problems.append("the rebuild's check is still staged after the restart")
+    if not problems:
+        print("Rebuilt from a metadata export; the restart policy brought the server back on it")
+    return problems
+
+
 def smoke_compose(image: str, version: str, timeout: float, compose_file: Path) -> list[str]:
     """Problems found running the image through *compose_file*, or an empty list. Only
     the .env a user would write is supplied (port, user, release); the rest is the file's."""
@@ -138,6 +201,11 @@ def smoke_compose(image: str, version: str, timeout: float, compose_file: Path) 
         try:
             _docker(*compose, "--profile", "cpu", "up", "--detach", "--no-build", "--pull", "never")
             problems = _check(port, version, timeout)
+            if not problems:
+                container = _docker(
+                    *compose, "--profile", "cpu", "ps", "--quiet", "scene-atlas"
+                ).stdout.strip()
+                problems = _rebuild_and_restart(port, container, timeout)
         except _FAILURES as err:
             problems.append(f"{type(err).__name__}: {err}")
         finally:

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Check, EyeOff, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Check, EyeOff, FolderDown, Loader2, Merge, MoreHorizontal, Trash2 } from 'lucide-react'
+import { useDownload } from '@/hooks/useDownload'
 import { TypeCounts } from '@/components/imports/TypeCounts'
 import { plural } from '@/components/imports/format'
 import {
@@ -203,6 +204,7 @@ interface SidebarFooterProps {
 
 function SidebarFooter({ canMergeAll }: SidebarFooterProps) {
   const { selectedGroupIds, setPending, ops } = useEditGroupContext()
+  const { download, busy } = useDownload()
   const disabled = ops.merging || ops.saving
   const multiSelected = selectedGroupIds.size >= 2
   if (!multiSelected && !canMergeAll) return null
@@ -222,6 +224,23 @@ function SidebarFooter({ canMergeAll }: SidebarFooterProps) {
             >
               <Merge className="h-3 w-3" />
               Merge
+            </button>
+            <button
+              onClick={() =>
+                void download(
+                  {
+                    group_ids: [...selectedGroupIds]
+                      .map(serverId)
+                      .filter((id): id is number => id !== null),
+                  },
+                  'Download failed',
+                )
+              }
+              disabled={disabled || busy}
+              className={`flex-1 ${FOOTER_BUTTON} border-border/40 bg-secondary/30 text-muted-foreground hover:bg-secondary/60 hover:text-foreground`}
+            >
+              <FolderDown className="h-3 w-3" />
+              Download
             </button>
             <button
               onClick={() => setPending({ kind: 'bulkDelete' })}

@@ -55,10 +55,12 @@ images don't stay hidden.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
 import time
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -82,6 +84,7 @@ from backend.app.services.variant_grouping import (
 )
 
 from .grouping_features import load_grouping_features
+from .import_metadata import delete_entries
 from .ingest_queue import (
     BATTLEMAP,
     SCENE,
@@ -99,7 +102,6 @@ from .ingest_queue import (
 
 logger = logging.getLogger(__name__)
 
-_EMBEDDING_CHUNK = 500  # ids per LanceDB lookup
 MAPS = BATTLEMAP  # the bucket grouped by the tree walk
 UNKNOWN_AUTHOR = "Unknown"
 # The name of a job's ungrouped import group (the UI shows its own label)
@@ -122,6 +124,9 @@ class Proposal:
     subgroups: Mapping[int, str | None] = field(default_factory=dict)
     match_existing: bool = True
     ungrouped: bool = False  # files that made no image and belong to no map group
+    # A group from the import's Scene Atlas metadata: joins the library's group with this
+    # uid, or a new one is minted with it (design/export-backup-move.md §6)
+    uid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +140,7 @@ class JobState:
     - ``group_names``: import group → its (name, author);
     - ``merged``: gallery groups this job adds to but didn't create;
     - ``existing``: (name, author) → a gallery group of the library with that name;
+    - ``by_uid``: uid → the library's gallery group with that uid, for proposals with one;
     - ``ungrouped_group``: the job's ungrouped import group, if it has one.
     """
 
@@ -145,6 +151,7 @@ class JobState:
     group_names: Mapping[int, tuple[str, str]] = field(default_factory=dict)
     merged: frozenset[int] = frozenset()
     existing: Mapping[tuple[str, str], int] = field(default_factory=dict)
+    by_uid: Mapping[str, int] = field(default_factory=dict)
     ungrouped_group: int | None = None
 
 
@@ -166,6 +173,7 @@ class GalleryChoice:
     merged: bool  # the import group adds to a group it didn't create
     name: str = ""
     author: str = ""
+    uid: str | None = None  # a new group's uid, when its metadata gave one
 
 
 @dataclass(frozen=True)
@@ -200,6 +208,7 @@ def plan_grouping(
     galleries: dict[int, GalleryChoice] = {}
     images: dict[int, tuple[int, str | None]] = {}
     may_match: dict[int, bool] = {}  # new import group → its name may pick an existing group
+    uids: dict[int, str] = {}  # new import group → the uid its metadata gave it
     names = dict(state.group_names)
     # Files and their import groups, but for the ungrouped group: its files are free to go
     held_of = {
@@ -224,6 +233,8 @@ def plan_grouping(
             )
             names[target] = (proposal.name, proposal.author)
             may_match[target] = proposal.match_existing
+            if proposal.uid:
+                uids[target] = proposal.uid
         for item in proposal.items:
             if item not in held_of:
                 item_groups[item] = target
@@ -237,7 +248,7 @@ def plan_grouping(
             if group not in galleries:
                 name = names.get(group, (proposal.name, proposal.author))
                 galleries[group] = _gallery_for(
-                    group, name, may_match.get(group, False), overlap, state
+                    group, name, may_match.get(group, False), overlap, state, uids.get(group)
                 )
     return GroupingPlan(new_groups, item_groups, galleries, images, _emptied(state, item_groups))
 
@@ -291,6 +302,7 @@ def _gallery_for(
     may_match: bool,
     overlap: Counter[int],
     state: JobState,
+    uid: str | None = None,
 ) -> GalleryChoice:
     current = state.gallery_of.get(group)
     if current is not None:
@@ -298,10 +310,12 @@ def _gallery_for(
     if overlap:
         adopted = min(overlap, key=lambda g: (-overlap[g], g))
         return GalleryChoice(adopted, adopted in state.merged)
+    if uid is not None and uid in state.by_uid:  # the same group, from another library
+        return GalleryChoice(state.by_uid[uid], True)
     existing = state.existing.get(name) if may_match else None
     if existing is not None:
         return GalleryChoice(existing, True)
-    return GalleryChoice(None, False, *name)
+    return GalleryChoice(None, False, *name, uid=uid)
 
 
 # Model availability
@@ -341,6 +355,9 @@ class JobFile:
     pixels: tuple[int, int] | None  # the image's (width, height)
     name: str | None
     filename: str
+    # From its entry in the import's metadata: {"group": GroupEntry dict | None,
+    # "author", "subgroup"} (ingest_process._export_parsed)
+    export: Mapping | None = None
 
 
 @dataclass(frozen=True)
@@ -373,6 +390,7 @@ def _job_files(db: Session, job: ImportJob) -> list[JobFile]:
             Image.height,
             Image.name,
             Image.filename,
+            ImportItem.parsed,
         )
         .outerjoin(Image, (Image.id == ImportItem.image_id) & (Image.import_job_id == job.id))
         # Every file the seal parsed (or grouped, or that made an image): not archives,
@@ -387,7 +405,22 @@ def _job_files(db: Session, job: ImportJob) -> list[JobFile]:
         .order_by(ImportItem.id)
     ).all()
     files: list[JobFile] = []
-    for item_id, path, item_type, ig, image_id, image_type, pending, gid, w, h, name, fname in rows:
+    for (
+        item_id,
+        path,
+        item_type,
+        ig,
+        image_id,
+        image_type,
+        pending,
+        gid,
+        w,
+        h,
+        name,
+        fname,
+        parsed,
+    ) in rows:
+        export = json.loads(parsed).get("export") if parsed and '"export"' in parsed else None
         files.append(
             JobFile(
                 item_id=item_id,
@@ -400,6 +433,7 @@ def _job_files(db: Session, job: ImportJob) -> list[JobFile]:
                 pixels=(w, h) if w and h else None,
                 name=name,
                 filename=fname or PurePosixPath(path).name,
+                export=export,
             )
         )
     return files
@@ -424,15 +458,12 @@ def _is_due(db: Session, job: ImportJob) -> bool:
 
 
 def _lookup_vectors(image_ids: list[int]) -> dict[int, np.ndarray]:
-    """The images' vectors; a failed lookup finds none (``get_embeddings`` logs it)."""
+    """The images' float32 vectors; a failed lookup finds none (``get_embedding_arrays``
+    logs it). A whole job's are read by one streaming scan, not chunks of ``id IN`` lookups,
+    which held hundreds of MB of native memory (design/resource-management.md)."""
     from backend.app.services import get_lancedb_service
 
-    service = get_lancedb_service()
-    vectors: dict[int, np.ndarray] = {}
-    for chunk in chunks(image_ids, _EMBEDDING_CHUNK):
-        for image_id, vector in service.get_embeddings(list(chunk)).items():
-            vectors[image_id] = np.asarray(vector, dtype=np.float32)
-    return vectors
+    return get_lancedb_service().get_embedding_arrays(image_ids)
 
 
 def _load_embeddings(
@@ -629,6 +660,34 @@ def _ungrouped(items: Iterable[int]) -> list[Proposal]:
     return [Proposal(loose, UNGROUPED_NAME, UNKNOWN_AUTHOR, {}, False, ungrouped=True)]
 
 
+def _export_proposals(files: list[JobFile]) -> tuple[list[Proposal], list[JobFile]]:
+    """Proposals for the files whose metadata entry names a group: one per group uid, named
+    as the metadata names it. The other files are returned, for grouping as usual (an
+    image the metadata has as ungrouped is grouped like any file)."""
+    by_uid: dict[str, list[JobFile]] = {}
+    rest: list[JobFile] = []
+    for f in files:
+        group = (f.export or {}).get("group")
+        if group and group.get("uid"):
+            by_uid.setdefault(group["uid"], []).append(f)
+        else:
+            rest.append(f)
+    proposals = []
+    for uid, members in by_uid.items():
+        group = members[0].export["group"]  # type: ignore[index]
+        proposals.append(
+            Proposal(
+                tuple(f.item_id for f in members),
+                group.get("base_name") or members[0].name or UNKNOWN_AUTHOR,
+                group.get("author") or UNKNOWN_AUTHOR,
+                {f.item_id: (f.export or {}).get("subgroup") for f in members},
+                match_existing=False,
+                uid=uid,
+            )
+        )
+    return proposals, rest
+
+
 def propose_by_paths(
     files: list[JobFile], parser: ImageParser, authors: list[str]
 ) -> list[Proposal]:
@@ -743,6 +802,21 @@ def _existing(db: Session, proposals: list[Proposal]) -> dict[tuple[str, str], i
     }
 
 
+def _by_uid(db: Session, proposals: list[Proposal]) -> dict[str, int]:
+    """The library's gallery groups with a uid a proposal's metadata gave it."""
+    uids = sorted({p.uid for p in proposals if p.uid})
+    by_uid: dict[str, int] = {}
+    for chunk in chunks(uids):
+        by_uid.update(
+            (uid, gid)
+            for gid, uid in db.execute(
+                select(ImageGroup.id, ImageGroup.uid).where(ImageGroup.uid.in_(chunk))
+            )
+            if uid is not None
+        )
+    return by_uid
+
+
 def _state(
     db: Session, job: ImportJob, files: list[JobFile], proposals: list[Proposal]
 ) -> JobState:
@@ -752,6 +826,7 @@ def _state(
         **_file_state(files, alive),
         **_group_state(rows, alive),
         existing=_existing(db, proposals),
+        by_uid=_by_uid(db, proposals),
     )
 
 
@@ -770,7 +845,11 @@ def _write(
         db.scalars(
             insert(ImageGroup).returning(ImageGroup.id, sort_by_parameter_order=True),
             [
-                {"base_name": plan.galleries[k].name, "author": plan.galleries[k].author}
+                {
+                    "base_name": plan.galleries[k].name,
+                    "author": plan.galleries[k].author,
+                    "uid": plan.galleries[k].uid or uuid.uuid4().hex,
+                }
                 for k in to_mint
             ],
         ).all()
@@ -932,10 +1011,13 @@ def group_job(
             return Outcome.NO_VECTORS
         if progress_fn:
             progress_fn(1, 2, "Identifying groups")
+        proposals, others = _export_proposals(read.files)
         if paths_only:
-            proposals, debug = propose_by_paths(read.files, parser, read.authors), []
+            proposals += propose_by_paths(others, parser, read.authors)
+            debug = []
         else:
-            proposals, debug = propose(read.files, features, thresholds, parser, read.authors)
+            walked, debug = propose(others, features, thresholds, parser, read.authors)
+            proposals += walked
         proposals += _orphans(read.files, proposals)
 
         with write_session() as db:
@@ -953,6 +1035,9 @@ def group_job(
             minted = _write(db, job, read.files, plan, tags)
             job.grouped_at = utcnow()
             recompute_job_status(db, job_id)
+            # Its metadata has done its job (and is ~6 KB an image). A file retried or
+            # included later imports without it.
+            delete_entries(db, [job_id])
         get_ingest_worker().bump()
         if paths_only:
             content = "paths only"
@@ -1030,6 +1115,17 @@ _MAX_FAILED_RUNS = 3
 # is grouped without them. Each run repairs what it can first; this covers a vector index that
 # is briefly unreadable.
 _VECTOR_WAIT_SECONDS = 300.0
+
+
+def _release_memory() -> None:
+    """After a run: give the memory its features, pairs and plan used back to the OS
+    (``process_utils.release_freed_memory``); never raises."""
+    from backend.app.process_utils import release_freed_memory
+
+    try:
+        release_freed_memory()
+    except Exception:
+        logger.debug("Couldn't release freed memory", exc_info=True)
 
 
 class GroupingScheduler:
@@ -1122,6 +1218,11 @@ class GroupingScheduler:
                 elif outcome != Outcome.DEFERRED:
                     self._failures.pop(job_id, None)
                     self._waiting_since.pop(job_id, None)
+        # Only after a run that grouped, or failed (None: it may have got as far as the plan).
+        # Not on NO_VECTORS waits, which a sweep repeats after every batch: a full collection
+        # of a large heap is the cost, not malloc_trim.
+        if outcome in (None, Outcome.GROUPED):
+            _release_memory()
 
 
 _scheduler: GroupingScheduler | None = None

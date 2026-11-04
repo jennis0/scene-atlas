@@ -54,6 +54,7 @@ images
 
 variant_groups                         -- ORM: ImageGroup
   id               INTEGER PK
+  uid              TEXT UNIQUE                   -- Random UUID hex; kept by export and import (migration 030)
   base_name        TEXT NOT NULL
   author           TEXT
   primary_image_id INTEGER FK → images.id
@@ -215,6 +216,14 @@ Some physical names predate renames and are aliased in the ORM (ADR-011): `varia
 
 Row schema: `id` (int64), `vector` (fixed-size float32 list, normalised), `image_id`, `filename`, `author`, `base_name`.
 
+**Compaction.** Each `merge_insert` (one per import batch) adds a fragment, and each write a version (a delete adds a version and a deletion file, not a fragment). Nothing used to compact them. After a 20k-image import, every write scanned ~1,250 fragments (13 ms per batch at 2k rows, 100 ms at 20k), and a search took 156 ms where a compacted table took 35 ms. `LanceDBService.compact_if_fragmented()` runs `optimize(cleanup_older_than=CLEANUP_AFTER)` once the table's own fragment count (`stats()`) reaches `max(64, rows // 2048)` (`compaction_due`).
+
+- **Why the threshold grows:** `optimize()` rewrites every fragment under ~1M rows, the previous compaction's output included, so each compaction costs the whole table (~13 µs a row). A threshold that grows with the table keeps the rewriting to a few percent of total ingest time; a 200k-row table compacts every ~100 batches, ~2.6 s each. Writes, and searches, no longer degrade with fragment count; a search still grows linearly with rows, since there is no vector index.
+- **Why `CLEANUP_AFTER` is 60 s:** superseded files are deleted once they are that old. The default (7 days) kept every rewritten copy: 41 → 235 MB over four compactions at 20k rows. Zero would pull files from under a search already running on an older version (pinned by a test). Searches don't take the service lock; writes do, so they never overlap a compaction. An export's single pass over the table (`iter_vectors`) can outlast the 60 s, so compaction is skipped while one runs, and picked up by the next write after it.
+- **Who triggers it:** background writers only: the ingest worker after a vector write, and vector reconciliation after each re-embed batch and once at the end (a cheap retry when nothing is due). The decision comes from the table, so it holds across restarts.
+- **Failures:** a failure is logged (with a traceback the first time) and never fails anything. Compaction is then skipped for 10 minutes (`COMPACT_RETRY_AFTER`), since every attempt rewrites the whole table.
+- Rows and vectors are unchanged.
+
 LanceDB is linked to SQLite by `image_id`. Vectors are written after the SQLite commit; `vector_reconcile.reconcile_vectors` (startup and every 24 h) re-embeds images without a vector and deletes vectors without an image.
 
 ## Filesystem — ImageStore
@@ -222,7 +231,7 @@ LanceDB is linked to SQLite by `image_id`. Vectors are written after the SQLite 
 Two storage roots, so originals can live on a different volume:
 
 - **`SCENE_ATLAS_DATA_DIR`** — SQLite, LanceDB, thumbnails, staging, config, scheduler state, logs, models.
-- **`SCENE_ATLAS_IMAGES_DIR`** — original files and backups.
+- **`SCENE_ATLAS_IMAGES_DIR`** — original files and pre-migration snapshots.
 
 | Content | Path |
 |---------|------|
@@ -230,7 +239,7 @@ Two storage roots, so originals can live on a different volume:
 | Thumbnails | `{SCENE_ATLAS_DATA_DIR}/store/thumbnails/ab/cd/<key>` |
 | Staging | `{SCENE_ATLAS_DATA_DIR}/staging/{job_id}/{staging_key}` |
 | Ingest temp files | `{store_root}/.incoming/` (one per store) |
-| Backups | `{SCENE_ATLAS_IMAGES_DIR}/backups/{YYYYmmdd_HHMMSS}/` |
+| Pre-migration snapshots | `{SCENE_ATLAS_IMAGES_DIR}/backups/pre-migration/` |
 
 ### Library identity
 
@@ -309,6 +318,6 @@ By default the library keeps each upload's original bytes. The `stored_format` s
 
 ## Backups
 
-`pipeline/maintenance.py:backup_database()` runs every 24 h. Each run writes a SQLite snapshot (sqlite3 backup API, consistent while writes continue) and a LanceDB copy into `{SCENE_ATLAS_IMAGES_DIR}/backups/{timestamp}/`, then rotates: the 7 most recent backups are kept, plus one per 7-day window for up to 4 older ones. Rotation only counts and deletes directories named `YYYYmmdd_HHMMSS`; anything else in `backups/` is left alone.
+There are no scheduled backups: the daily SQLite-plus-LanceDB copy was removed (user decision 2026-10-31). Users back up their folders with their own tools; a manual metadata export and rebuild are designed in [export-backup-move.md](export-backup-move.md).
 
 **Pre-migration snapshots.** Migrations are one-way, so before `init_db()` applies pending migrations to an Alembic-managed, file-backed SQLite database it writes a SQLite snapshot (same backup API) to `backups/pre-migration/{timestamp}_{from_rev}/battlemap.db` and keeps the 5 most recent (`maintenance.backup_before_migration`). This is the way back after an app update: reinstall the old version and restore that file. Fresh databases, pre-Alembic stamping, databases at head, and databases at a revision the build doesn't know (from a newer version; the upgrade fails anyway) get none. LanceDB is not included: no migration touches it. If the snapshot fails, `init_db()` raises `MigrationBackupError` ("Could not back up the database before migrating it: …") and startup stops without migrating. The snapshot is taken in a separate connection before the migration transaction opens; the storage lock keeps other writers out.

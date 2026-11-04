@@ -29,6 +29,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...pipeline import import_metadata
 from ...pipeline import ingest_queue as q
 from ...pipeline.group_jobs import schedule_grouping
 from ...pipeline.ingest_archive import expand_archive
@@ -50,6 +51,7 @@ from ..models.import_schemas import (
     ContentResult,
     CreateImportRequest,
     DismissedResult,
+    ExportMetadataResult,
     HashRequest,
     HashResponse,
     HashResult,
@@ -273,6 +275,8 @@ def _summary(
         completed_at=job.completed_at,
         last_upload_at=job.last_upload_at,
         grouped_at=job.grouped_at,
+        with_metadata=job.export_model is not None,
+        metadata_note=job.export_note,
     )
 
 
@@ -583,7 +587,7 @@ def add_manifest(job_id: str, body: ManifestRequest, db: Session = Depends(get_d
     )
 
 
-async def _stream_body(request: Request, dest: Path, max_bytes: int) -> tuple[int, str]:
+async def stream_body(request: Request, dest: Path, max_bytes: int) -> tuple[int, str]:
     """Stream the request body to ``dest``, hashing as it goes. Returns (bytes, sha256)."""
     digest = hashlib.sha256()
     written = 0
@@ -627,7 +631,7 @@ async def upload_archive(
 
     app_settings = await asyncio.to_thread(_limits)
     tmp = q.staging_dir_for(job_id) / f".{uuid.uuid4().hex}.zip.part"
-    await _stream_body(request, tmp, app_settings.max_import_file_size)
+    await stream_body(request, tmp, app_settings.max_import_file_size)
 
     def _expand() -> ArchiveResult:
         db = _open_session(request)
@@ -646,16 +650,55 @@ async def upload_archive(
                 max_uncompressed_bytes=app_settings.max_import_total_size,
                 max_file_size=app_settings.max_import_file_size,
             )
+            import_metadata.add_pending(db, job, counts.metadata)
             job.last_upload_at = q.utcnow()
             db.commit()
-            return ArchiveResult(name=name, **vars(counts))
         finally:
             tmp.unlink(missing_ok=True)
             db.close()
+        import_metadata.kick()
+        return ArchiveResult(
+            name=name, created=counts.created, skipped=counts.skipped, failed=counts.failed
+        )
 
     result = await asyncio.to_thread(_expand)
     _changed()
     return result
+
+
+@router.put("/{job_id}/export-metadata", response_model=ExportMetadataResult)
+async def upload_export_metadata(
+    job_id: str,
+    request: Request,
+    _admission: None = Depends(acquire_heavy_op),
+):
+    """Upload the ``scene-atlas.jsonl`` of a folder the browser is importing (raw body), so
+    its files import with their metadata (design/export-backup-move.md §6). Only before
+    seal; the client sends it before the manifest. A file that can't be used imports
+    nothing and leaves a note on the job; the import goes on without it."""
+
+    tmp = q.staging_dir_for(job_id) / f"metadata-{uuid.uuid4().hex}.jsonl"
+
+    def _begin():
+        # Recorded before the body arrives, so a seal meanwhile holds the files for it
+        with _open_session(request) as db:
+            q.begin_immediate(db)
+            job = _job_or_404(db, job_id)
+            _require_unsealed(job)
+            import_metadata.add_pending(db, job, [tmp], ready=False)
+            db.commit()
+            return get_app_settings(db)
+
+    app_settings = await asyncio.to_thread(_begin)
+    try:
+        await stream_body(request, tmp, app_settings.max_import_file_size)
+    except BaseException:
+        await asyncio.to_thread(import_metadata.forget_pending, job_id, tmp)
+        tmp.unlink(missing_ok=True)
+        raise
+    await asyncio.to_thread(import_metadata.set_ready, job_id, tmp)
+    import_metadata.kick()
+    return ExportMetadataResult(loading=True)
 
 
 @router.post("/{job_id}/local-sources", response_model=LocalSourcesResult)
@@ -711,8 +754,19 @@ async def add_local_sources(
                     max_uncompressed_bytes=app_settings.max_import_total_size,
                 ),
             )
+            extracted = set(counts.extracted)
+            import_metadata.add_pending(
+                db, job, [p for p in counts.metadata if p not in extracted], delete=False
+            )
+            import_metadata.add_pending(db, job, counts.extracted)
             db.commit()
-            return LocalSourcesResult(**vars(counts))
+        import_metadata.kick()
+        return LocalSourcesResult(
+            created=counts.created,
+            skipped=counts.skipped,
+            failed=counts.failed,
+            ignored=counts.ignored,
+        )
 
     result = await asyncio.to_thread(_add)
     _changed()
@@ -858,7 +912,7 @@ async def upload_content(job_id: str, item_id: int, request: Request):
     staging_key = f"{uuid.uuid4().hex}{ext}"
     final = q.staged_path(job_id, staging_key)
     tmp = final.with_name(f".{staging_key}.part")
-    written, digest = await _stream_body(request, tmp, limit)
+    written, digest = await stream_body(request, tmp, limit)
     if written == 0:
         tmp.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Empty upload")

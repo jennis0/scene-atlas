@@ -19,7 +19,7 @@ Set these in your `.env` file, Docker Compose environment, or system environment
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SCENE_ATLAS_DATA_DIR` | `./data` | Database (`battlemap.db`), vector index, thumbnails, staging, logs |
-| `SCENE_ATLAS_IMAGES_DIR` | `./images`, or `<SCENE_ATLAS_DATA_DIR>/images` when only `SCENE_ATLAS_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and backups (`backups/`) |
+| `SCENE_ATLAS_IMAGES_DIR` | `./images`, or `<SCENE_ATLAS_DATA_DIR>/images` when only `SCENE_ATLAS_DATA_DIR` is set | Managed image storage (Scene Atlas writes its own file structure here) and pre-migration database copies (`backups/pre-migration/`) |
 | `SCENE_ATLAS_LINKED_LIBRARY_DIR` | unset | The linked library: a folder of your own maps that Scene Atlas reads where they are and never writes to. Optional; mount it read-only (e.g. `-v /srv/maps:/library:ro` with `SCENE_ATLAS_LINKED_LIBRARY_DIR=/library`). It may be missing at startup: its maps then show as unavailable until it's back. See [Linked library](/deploy/server#linked-library) |
 
 A data folder that already has a database but no `images` folder (a library made before that default) keeps using `./images`, and the log says so; set `SCENE_ATLAS_IMAGES_DIR` or move the folder.
@@ -139,7 +139,7 @@ The colour distance threshold is a CIE76 delta E between 0 and 100 (lower is str
 | Max job workers | `max_job_workers` | min(4, CPUs/2), at least 1 | API |
 | Scheduler enabled | `scheduler_enabled` | On | API (restart) |
 
-Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `SCENE_ATLAS_INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the daily backup and maintenance tasks.
+Parallel image processing is how many images are prepared at once (hashing, thumbnails, colours, grid detection), shared by all running imports rather than a number of simultaneous imports. Import memory use is also capped by `SCENE_ATLAS_INGEST_MEMORY_BUDGET_MB`. The concurrency defaults are computed from the host's CPU count and total RAM when settings are first seeded. The scheduler runs the maintenance tasks.
 
 ## Model Details
 

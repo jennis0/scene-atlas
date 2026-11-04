@@ -14,6 +14,8 @@ import { useLibraryStatus } from '@/hooks/useLibraryStatus'
 import { useStorageDirs } from '@/hooks/useStorageDirs'
 import type { InspectResult } from '@/lib/api/libraryApi'
 import type { RestartPromptProps } from './RestartBadge'
+import { useLibraryMove } from '@/hooks/useLibraryMove'
+import { MoveButton, MoveStatus } from './MoveLibrary'
 import { UnlinkLibrary } from './UnlinkLibrary'
 
 type Pending = Partial<Record<LibraryFolderKind, string>>
@@ -105,6 +107,7 @@ export function StorageSection({ open }: { open: boolean }) {
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
 
+  const move = useLibraryMove(open)
   const changed = Object.keys(pending).length > 0
   const proposed = proposedDirs(dirs, pending)
   const inspection = useLibraryInspect(proposed)
@@ -164,6 +167,7 @@ export function StorageSection({ open }: { open: boolean }) {
         pending={pending.appData}
         onBrowse={() => void browse('appData')}
         restart={restart}
+        extra={!changed && <MoveButton kind="appData" move={move} />}
       />
       <StoragePathRow
         label="Imported images"
@@ -172,6 +176,7 @@ export function StorageSection({ open }: { open: boolean }) {
         pending={pending.store}
         onBrowse={() => void browse('store')}
         restart={restart}
+        extra={!changed && <MoveButton kind="store" move={move} />}
       />
       <StoragePathRow
         label="Linked library"
@@ -184,6 +189,8 @@ export function StorageSection({ open }: { open: boolean }) {
         restart={restart}
         extra={dirs?.linked && status?.linked && <UnlinkLibrary linked={status.linked} />}
       />
+
+      <MoveStatus move={move} />
 
       {changed && (
         <PendingChange
@@ -227,7 +234,8 @@ function PendingChange({
     <div className="space-y-2 rounded border border-warning/30 bg-warning/5 p-3">
       {movesFiles && (
         <p className="text-xs text-muted-foreground">
-          Changing a folder doesn&apos;t move your files. Move them yourself before restarting.
+          Changing a folder doesn&apos;t move your files: it opens the library in the folder you
+          chose. To take the library with you, cancel and use Move… instead.
         </p>
       )}
       <p role="status" className="text-xs text-muted-foreground">

@@ -11,9 +11,7 @@ faint drawn grid, in folders with different names, so only their content joins t
 from __future__ import annotations
 
 import io
-import json
 import logging
-import zipfile
 
 import numpy as np
 import pytest
@@ -101,8 +99,10 @@ def library_count(api) -> int:
 
 
 def exported_count(api) -> int:
-    with zipfile.ZipFile(io.BytesIO(api.client.get("/api/v1/export/library").content)) as zf:
-        return json.loads(zf.read("metadata.json"))["total_images"]
+    """How many of the library's images a download of all of them would hold."""
+    with api.SessionLocal() as db:
+        ids = [i for (i,) in db.query(Image.id)]
+    return api.client.post("/api/v1/downloads/check", json={"image_ids": ids}).json()["image_count"]
 
 
 def run(job_id: str, readiness: Readiness = Readiness.OFF) -> Outcome:

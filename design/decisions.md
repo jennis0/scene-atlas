@@ -179,7 +179,7 @@ This document records all significant architectural decisions for the Scene Atla
 
 **Decision:** Two separate concerns addressed together:
 
-1. **Automated backups**: A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a LanceDB backup. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
+1. **Automated backups** (removed 2026-10-31, user decision: no scheduled backups): A `backup_database` function in `backend/pipeline/maintenance.py` creates a consistent SQLite snapshot (using the `sqlite3.backup()` API, not file copy) and a LanceDB backup. It rotates old backups: keep last 7 daily + 4 weekly. Scheduled every 24h via the Scheduler. A companion `cleanup_staging` function removes stale import staging directories (>24h old) every 6h.
 
 2. **Alembic for schema migrations**: The hand-rolled migration code in `init_db()` is replaced with Alembic. A single initial migration (`001_initial_schema.py`) captures the complete current schema including FTS5 virtual table and triggers. `init_db()` now detects whether the database is fresh (runs all migrations), pre-Alembic (stamps at head), or already Alembic-managed (runs pending migrations). Future schema changes are added as numbered Alembic migration files.
 
@@ -190,7 +190,7 @@ This document records all significant architectural decisions for the Scene Atla
 - The `alembic.ini` at project root allows CLI use: `uv run alembic upgrade head`
 - Image store files are not backed up by the script — they are large, append-only blobs and the originals typically exist elsewhere; document this assumption
 - LanceDB embeddings can be regenerated from images via `write_new_embeddings` if the LanceDB backup is unavailable
-- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `backup_database` (24h), `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
+- **Status note (2026-10):** `cleanup_staging` no longer exists; staging is cleaned by item state (ADR-018). Scheduled tasks are now `ingest_maintenance` (hourly), `sweep_orphaned_store_files` (24h) and `reconcile_vectors` (24h); see [ingestion.md](ingestion.md#9-maintenance-and-recovery). There is no `reset_database.py`.
 
 ---
 
@@ -803,7 +803,32 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 - Every listing or count of images excludes those awaiting a group (`models.listed_images()`).
 - Libraries imported before this keep their groups; an import still running at the upgrade finishes into the groups its seal planned.
 
-## ADR-029: Files without an image take no part in grouping
+## ADR-029: Compact the vector table as it grows; ingest stays prepare → embed → commit
+
+**Date:** 2026-11-04
+**Status:** Accepted
+
+**Context:** Profiling a 10k–20k first import (`stress_tests/ingest_scale.py`) found that nothing ever compacted the LanceDB vector table. Each batch's `merge_insert` added a fragment and a version, so writes slowed with the table (13 ms per batch at 2k rows, 100 ms at 20k) and so did searches (156 ms at 16k rows, against 35 ms compacted). Lance's `optimize()` rewrites every fragment under ~1M rows, the previous compaction's output included, and by default it keeps every superseded copy for 7 days (41 → 235 MB over four compactions at 20k rows).
+
+**Decision:**
+
+1. **Compaction is decided from the table itself.** `LanceDBService.compact_if_fragmented()` compacts once the fragment count reaches `max(64, rows // 2048)`. Because each compaction costs the whole table, the interval grows with it, keeping the rewriting to a few percent of total ingest time.
+   - Superseded files are removed after 60 s (`CLEANUP_AFTER`), long enough for a search already running on an older version.
+   - Only background writers call it: the ingest worker after a vector write, and vector reconciliation.
+   - After a failure it waits 10 minutes before trying again.
+   - The details are in storage.md, LanceDB Vector Store, Compaction.
+2. **Pipelining was tried and dropped.** The worker claimed batch k+1 and prepared it on the pool while batch k embedded and committed.
+   - On 4 CPU cores it gained nothing alone: ONNX Runtime's spinning threads took the cores the prepare threads needed. With spinning turned off for the image encoder, it gained +8% (3k A/B).
+   - It cost a second in-flight batch with its own claim and release states: a new item event, releasing the batch claimed ahead on pause, hold, stop and system pause, attempts charged to two batches on a crash, and stop and hold waiting on the extra batch.
+   - That isn't worth +8%. It may pay where embedding runs on a GPU (not measured).
+
+**Consequences:**
+
+- Vector writes and searches no longer degrade with fragment count (searches still grow linearly with rows), and the vector directory stays near the table's own size.
+- A compaction holds the vector write lock for ~13 µs a row (0.3 s at 20k rows, ~2.6 s at 200k). A single-image delete from the gallery (`deletion_service.py`, which deletes the vector after `db.flush()` while holding the SQLite write lock) can wait that long behind one.
+- The batch loop is unchanged. The bigger ingest win of this round was in grid detection (`annulus_medians`, about +11–14%).
+
+## ADR-030: Files without an image take no part in grouping
 
 **Date:** 2026-11-04
 **Status:** Accepted
@@ -814,7 +839,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 1. **Grouping is type-aware and sees only images.** Maps go through the walk and scenes through `group_scenes` as before; files that made no image take no part (user, 2026-11-03).
 2. **They are placed afterwards**, never changing a group: with the map group their folder or name points to (the scene attach step, r2 and r3), so the editor shows them with that map.
-3. **The rest go to the job's one ungrouped import group** (`import_groups.ungrouped`, migration 030), never a gallery group. The import review lists its skipped images as **Skipped by Auto**, and the report as **Not in a group**. Nothing is dropped from view (user, 2026-11-03).
+3. **The rest go to the job's one ungrouped import group** (`import_groups.ungrouped`, migration 033), never a gallery group. The import review lists its skipped images as **Skipped by Auto**, and the report as **Not in a group**. Nothing is dropped from view (user, 2026-11-03).
 4. A file in the ungrouped group that makes an image (Include, Retry) is grouped like any other image; the group is deleted once empty.
 5. Naming is unchanged: the learned namer names map groups, the parser names scene groups, until there is a scene namer (user, 2026-11-03).
 
@@ -827,6 +852,6 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 **Consequences:**
 
-- Migration 030 adds `import_groups.ungrouped`. `group_count` and the report's group count leave the ungrouped group out; it is listed last.
+- Migration 033 adds `import_groups.ungrouped`. `group_count` and the report's group count leave the ungrouped group out; it is listed last.
 - `GET /imports/sorted-out` also takes `job_id` (an import's skipped images in no group); job summaries carry `ungrouped_sorted_out`.
 - A failed file alone in its folder no longer gets an import group named after it; it is in the ungrouped group (the report's Failed list is unchanged).

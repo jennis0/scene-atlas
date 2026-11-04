@@ -78,7 +78,8 @@ function statusLine(
   const grouped = groups.filter((g) => !g.ungrouped).length
   const where = grouped ? ` in ${plural(grouped, 'group')}` : ''
   const author = sharedAuthor ? ` · ${sharedAuthor}` : ''
-  return `${prefix}${outcomeText(job.counts)}${skipped}${where}${author}`
+  const metadata = job.with_metadata ? ' · with its Scene Atlas metadata' : ''
+  return `${prefix}${outcomeText(job.counts)}${skipped}${where}${author}${metadata}`
 }
 
 export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: ResultViewProps) {
@@ -187,6 +188,11 @@ export function ResultView({ jobId, open, onClose, onReviewGroups, onUndone }: R
         </>
       }
     >
+      {job?.metadata_note && (
+        <p role="note" className="px-6 pb-3 shrink-0 text-xs text-warning">
+          {job.metadata_note}
+        </p>
+      )}
       {sections.length > 1 && (
         <div className="px-6 pb-3 shrink-0">
           <div

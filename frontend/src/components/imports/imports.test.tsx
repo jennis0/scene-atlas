@@ -352,6 +352,28 @@ describe('ImportDialog: result', () => {
     }))
   }
 
+  it('says when an import came with its Scene Atlas metadata, or why that was not used', async () => {
+    const withMetadata = { ...finished, with_metadata: true }
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [withMetadata],
+      details: { job1: jobDetail({ ...withMetadata, groups: [group()] }) },
+    }))
+    const { unmount } = renderWithProviders(
+      <ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />,
+    )
+    expect(await screen.findByText(/with its Scene Atlas metadata/)).toBeInTheDocument()
+    unmount()
+
+    const note = "The Scene Atlas metadata in this import couldn't be read (Line 1: not valid JSON)"
+    const unread = { ...finished, metadata_note: note }
+    ;({ manager, client } = await installFakeImportManager({
+      jobs: [unread],
+      details: { job1: jobDetail({ ...unread, groups: [group()] }) },
+    }))
+    renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)
+    expect(await screen.findByRole('note')).toHaveTextContent(note)
+  })
+
   it('only shows sections that have entries', async () => {
     await setup()
     renderWithProviders(<ImportDialog onStarted={noop} jobId="job1" open onClose={noop} />)

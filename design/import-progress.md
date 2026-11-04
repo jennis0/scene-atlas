@@ -113,7 +113,7 @@ With groups minted at the end, the editor is opened on a running import only whe
 
 ### Skipped images in no group
 
-Images Auto skipped that no map group claims (ADR-029) are the import's ungrouped group. They
+Images Auto skipped that no map group claims (ADR-030) are the import's ungrouped group. They
 must stay findable: the classifier can be wrong.
 
 - **Report:** the ungrouped group is the ledger's last row, **Not in a group**, without a creator;

@@ -139,6 +139,53 @@ The event-loop heartbeat (every 15 s, `main.py`) logs thread count and process R
 
 This is diagnostic only. A `MemoryError` during preparation is classified by `pipeline/error_classifier.py` and recorded on the item. On non-Windows, SIGUSR1 logs a stack dump of every thread.
 
+### Memory of a bulk import
+
+What grows with the size of an import, measured with `stress_tests/ingest_scale.py`:
+
+- **LanceDB's caches** (`lancedb_service._session`). Each vector write (one per ingest batch of
+  16) is a new table version whose manifest lists every fragment; lance's default session keeps
+  every manifest it reads in a metadata cache of up to 1 GiB (and an index cache of up to 6 GiB),
+  so through a first import it grew quadratically: about 120 MB after 11k images, toward 1 GiB
+  at 50k. Both caches are bounded at 64 MiB; writes and searches were no slower with the bound.
+  Each batch still adds a fragment and a version, but the table is now compacted as it grows
+  (`compact_if_fragmented`, design/storage.md, ADR-029), so the fragment count, and with it
+  each manifest, stays bounded and the 64 MiB cache holds them.
+- **The grouping phase** (`group_jobs.group_job`), measured on a 10k-image import grouped alone
+  (RSS above the process before the run):
+
+  | | peak | held after | held after `malloc_trim` |
+  |---|---|---|---|
+  | before | +990 MB | +470 MB | +160 MB |
+  | after | +270 MB | +230 MB | +140 MB |
+
+  Two allocations made it: the pair signals gathered the feature rows of 65536 pairs at a time
+  (`evidence._rowwise_dot`: 2 × 256 MB of 1024-float edge rows; now chunks of 8 MB), and the
+  job's vectors were read by twenty `id IN (500 ids)` LanceDB queries, each scanning every
+  fragment and leaving ~300 MB of native buffers held (`LanceDBService.get_embedding_arrays`
+  now reads a whole job's by one streaming scan holding one batch at a time: 4096 rows, about
+  12.6 MB at 768 dimensions, and faster). The scan is used when the ids are at least 10% of
+  the table's rows or 5000 or more; fewer ids go through filtered queries of 500, as does a
+  scan that fails twice. Rows with a null vector are skipped. What is left of the peak
+  is linear in the import: the feature matrix (4 KB of edge map and 2 KB of embedding per image,
+  float32), the candidate pairs and the walk's Python state.
+- **Freed but held.** glibc keeps freed pages in its arenas. After a grouping run that grouped
+  or failed (not deferred runs or waits for vectors, which sweeps repeat), `GroupingScheduler._run` calls
+  `process_utils.release_freed_memory` (`gc.collect`, then `malloc_trim(0)` on Linux): ~90 MB
+  back at 10k. macOS and Windows allocators return memory on their own terms; there it only
+  collects.
+
+**10k local import, whole server** (`ingest_scale --images 10000 --paths local`, battlemap,
+small model, 4 cores):
+
+| | peak RSS | images/s | total | first → last decile |
+|---|---|---|---|---|
+| main (busy machine) | 1859 MB | 9.1 | 18.4 min | erratic |
+| these fixes + compaction + annulus (quiet machine) | 1211 MB | 14.2 | 11.7 min | 15.2 → 13.8 |
+
+RSS stays near 1 GB through the import; the peak is the grouping step at the end. The
+main run shared the machine with other benchmarks, so only its memory figure compares.
+
 ## Startup and Shutdown
 
 In the `main.py` lifespan:
@@ -165,7 +212,7 @@ JobRunner jobs and scheduler tasks run on pool threads that can't be killed, and
 | `export_library` (CLI) | per batch | re-running; an interrupted export has no `metadata.json` |
 | `run_ingest_maintenance`, `sweep_orphaned_store_files` | between steps / stores | next scheduled run |
 
-Not interruptible: `backup_database` (a partial backup could be rotated in as a good one), library purge (stopping half way leaves rows and files out of step), and model download (one `snapshot_download` call). The ZIP export endpoint is a streaming response, which uvicorn drains before the lifespan shutdown runs.
+Not interruptible: library purge (stopping half way leaves rows and files out of step), and model download (one `snapshot_download` call). The ZIP export endpoint is a streaming response, which uvicorn drains before the lifespan shutdown runs.
 
 ## Why Not Async SQLAlchemy
 

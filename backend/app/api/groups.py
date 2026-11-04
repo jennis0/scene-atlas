@@ -3,13 +3,10 @@
 import re
 from typing import cast
 
-import zipstream
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func
 from sqlalchemy.orm import Session, selectinload
 
-from ...pipeline.naming import download_filename, sanitize_segment
 from ..models import (
     Image,
     ImageGroup,
@@ -35,7 +32,6 @@ from ..models.schemas import (
 from ..services.bulk_edit_service import set_groups_author
 from ..services.deletion_service import delete_image_rows
 from ..services.fts_service import search_text_for
-from ..services.originals import OriginalUnavailable, original_path
 from .dependencies import get_db, write_locked
 
 router = APIRouter()
@@ -60,14 +56,6 @@ def _token_jaccard(a: set[str], b: set[str]) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
-
-
-def _zip_path(img: Image, group_name: str) -> str:
-    """Return the archive path for an image: group[/subgroup]/filename."""
-    folder = sanitize_segment(group_name)
-    if img.subgroup:
-        folder = f"{folder}/{sanitize_segment(img.subgroup)}"
-    return f"{folder}/{download_filename(img, group_name)}"
 
 
 @router.get("/search", response_model=GroupPickerResponse)
@@ -229,49 +217,6 @@ def get_group(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     return group
-
-
-@router.get("/{group_id}/download")
-def download_group(
-    group_id: int,
-    db: Session = Depends(get_db),
-):
-    """Download all images in a group as a ZIP archive.
-
-    ZIP structure:
-        {group_name}/
-            {subgroup}/         ← only when the image has a subgroup
-                {filename}
-            {filename}          ← images without a subgroup sit directly in group folder
-    """
-    group = db.query(ImageGroup).filter(ImageGroup.id == group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-
-    images = (
-        db.query(Image)
-        .options(selectinload(Image.source_file))
-        .filter(Image.group_id == group_id)
-        .all()
-    )
-
-    zs = zipstream.ZipStream(compress_type=zipstream.ZIP_STORED, sized=True)
-    for img in images:
-        try:
-            file_path = original_path(img)
-        except OriginalUnavailable:
-            continue  # missing, or its folder is offline: left out of the download
-        zs.add_path(file_path, arcname=_zip_path(img, group.base_name))
-
-    zip_name = sanitize_segment(group.base_name) + ".zip"
-    return StreamingResponse(
-        zs,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{zip_name}"',
-            "Content-Length": str(len(zs)),
-        },
-    )
 
 
 @router.put("/{group_id}", response_model=GroupEditResponse)

@@ -78,6 +78,10 @@ class ImportJobSummary(BaseModel):
     # When the grouping phase last grouped the job's images; None until then, and while
     # files it re-opened are importing. The gallery refreshes when it changes.
     grouped_at: datetime | None = None
+    # It carried Scene Atlas metadata, and why that wasn't used, if it wasn't
+    # (design/export-backup-move.md §6)
+    with_metadata: bool = False
+    metadata_note: str | None = None
 
 
 class ImportJobDetail(ImportJobSummary):
@@ -179,6 +183,11 @@ class LocalSourcesResult(BaseModel):
     skipped: int
     failed: int
     ignored: int  # OS junk and paths already in the import
+
+
+class ExportMetadataResult(BaseModel):
+    # Loading in the background: the job's files wait for it (import_metadata)
+    loading: bool
 
 
 class ArchiveResult(BaseModel):

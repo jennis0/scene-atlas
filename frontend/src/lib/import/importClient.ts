@@ -105,6 +105,22 @@ export const importClient = {
     return data
   },
 
+  /** A picked folder's Scene Atlas metadata (`scene-atlas.jsonl`), sent before the
+   * manifest so its files import with it (design/export-backup-move.md §6). */
+  async uploadExportMetadata(
+    jobId: string,
+    file: File,
+    options: UploadOptions = {},
+  ): Promise<{ loading: boolean }> {
+    // It loads in the background; the server holds the job's files until it's done
+    const { data } = await api.put<{ loading: boolean }>(`${BASE}/${jobId}/export-metadata`, file, {
+      headers: rawBody,
+      timeout: 0,
+      signal: options.signal,
+    })
+    return data
+  },
+
   /** Desktop app: add files and folders by path; the server lists and reads them. */
   async localSources(jobId: string, paths: string[]): Promise<LocalSourcesResult> {
     const { data } = await api.post<LocalSourcesResult>(

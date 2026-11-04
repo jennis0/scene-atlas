@@ -132,6 +132,28 @@ class TestDeleteLibrary:
         assert db.query(ImportGroup).count() == 0
         db.close()
 
+    def test_purge_keeps_the_users_folders_in_the_store(self, test_client):
+        from backend.app.config import USER_FOLDERS, settings
+
+        store = settings.store_images_dir
+        for name in USER_FOLDERS:
+            (store / name).mkdir(parents=True, exist_ok=True)
+            (store / name / "kept.png").write_bytes(b"x")
+        (store / "ab").mkdir(exist_ok=True)
+        (store / "ab" / "gone.png").write_bytes(b"x")
+
+        job_id = test_client.delete("/api/v1/system/library").json()["job_id"]
+        for _ in range(30):
+            if test_client.get(f"/api/v1/jobs/{job_id}").json()["status"] in (
+                "completed",
+                "failed",
+            ):
+                break
+            time.sleep(0.2)
+
+        assert all((store / name / "kept.png").exists() for name in USER_FOLDERS)
+        assert not (store / "ab").exists()
+
     def test_purge_preserves_tag_categories(self, test_client, tmp_db):
         """Purging the library should NOT delete tag categories."""
         engine, SessionLocal = tmp_db

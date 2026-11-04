@@ -35,7 +35,7 @@ import shutil
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 from PIL import Image as PILImage
@@ -45,6 +45,7 @@ from backend.app.config import settings
 from backend.app.file_hash import file_sha256
 from backend.app.models import Color, Image, ImportItem, Tag
 from backend.app.models.database import GRID_FIELDS, GRID_SOURCE_DETECTOR, GRID_SOURCE_FILENAME
+from backend.app.models.schemas import TAG_MAX_LENGTH
 from backend.app.services import (
     get_image_store,
     get_lancedb_service,
@@ -59,12 +60,15 @@ from backend.app.services.linked_files import sync_files
 from backend.app.services.memory_budget import get_memory_budget
 from backend.app.services.originals import OriginalUnavailable, linked_folder
 from backend.app.services.validation import verify_media_mime
+from backend.pipeline import library_format as lf
+from backend.pipeline.naming import sanitize_segment
 
 from .error_classifier import KIND_FILE, KIND_SYSTEM, classify_ingest_error
 from .filename_grid import filename_grid_counts
 from .group_jobs import schedule_grouping
 from .grouping_features import GroupingFeatures, compute_grouping_features, store_grouping_features
 from .image_hashes import perceptual_hash, pixel_hash
+from .import_metadata import ExportMatch, match_exports
 from .ingest_queue import (
     AUTO,
     BATTLEMAP,
@@ -78,6 +82,7 @@ from .ingest_queue import (
     ItemFailure,
     RefreshUnchanged,
     SortedOut,
+    _session,
     effective_parsed,
     finish_committed,
     finish_refresh_gone,
@@ -148,6 +153,7 @@ class DecodedItem:
     grouping: GroupingFeatures | None = None  # variant-grouping features; None for videos
     embedding: list[float] | None = None
     classification: dict | None = None  # Auto items: the image-type head's verdict
+    export: ExportMatch | None = None  # its entry in the import's Scene Atlas metadata
 
     def temp_paths(self) -> list[Path]:
         return [*self.temp_thumbnails.values(), *([self.source] if self.owned else [])]
@@ -513,9 +519,10 @@ def _decode_and_finish(
     stem: str | None = None,
     owned: bool = False,
 ) -> PreparedItem | DecodedItem:
-    """Decode, then finish in the same memory reservation, unless the type isn't known yet."""
+    """Decode, then finish in the same memory reservation, unless the type isn't known yet
+    (Auto), or the item may have an entry in its import's metadata, which sets it."""
     decoded = _decode(item, cfg, staged, plan, progress, stem=stem, owned=owned)
-    if item.image_type == AUTO:
+    if item.image_type == AUTO or item.export_job:
         return decoded
     return _finish(decoded, cfg, progress)
 
@@ -642,7 +649,19 @@ def _finish(decoded: DecodedItem, cfg: PipelineConfig, progress: _Progress) -> P
     """Grid detection (battlemaps) and the stored original: the steps that need the type."""
     item = decoded.item
     progress.stage = "grid_detection"
-    if item.refresh is not None:  # only the columns re-detection may change
+    if decoded.export is not None and decoded.export.image.grid.gridded is not None:
+        # The grid as its metadata records it: nothing to detect. (Not known there: detected
+        # as for any file.)
+        g = decoded.export.image.grid
+        grid = {
+            "gridded": g.gridded,
+            "grid_type": g.type,
+            "grid_width": g.width,
+            "grid_height": g.height,
+            "grid_confidence": g.confidence,
+            "grid_source": g.source,
+        }
+    elif item.refresh is not None:  # only the columns re-detection may change
         grid = refresh_grid(item.refresh, decoded.source, decoded.width, decoded.height, cfg)
     elif item.kind != "video":
         grid = _detect_grid(item, decoded.source, decoded.width, decoded.height, cfg)
@@ -745,6 +764,8 @@ def _store_original(
 
 def embed(decoded: list[DecodedItem]) -> list[ItemFailure]:
     """Generate embeddings for the batch in one call. On error every item fails together."""
+    if not decoded:
+        return []
     try:
         embeddings = embedding_generation.batch_generate_clip_embeddings(
             [str(d.clip_source) for d in decoded]
@@ -755,6 +776,92 @@ def embed(decoded: list[DecodedItem]) -> list[ItemFailure]:
     for d, embedding in zip(decoded, embeddings, strict=True):
         d.embedding = embedding
     return []
+
+
+# Scene Atlas metadata (design/export-backup-move.md §6)
+
+
+_FILENAME_MAX = 255
+
+
+def restored_filename(recorded: str | None, current: str) -> str:
+    """The file name the metadata recorded for a file now named *current*, made safe: a
+    plain name (untrusted text: no folders, no control characters) with the same extension
+    as *current*, or else *current*."""
+    if not recorded:
+        return current
+    name = sanitize_segment(PurePosixPath(recorded.replace("\\", "/")).name)
+    suffix = PurePosixPath(current).suffix.lower()
+    if not name or PurePosixPath(name).suffix.lower() != suffix or len(name) > _FILENAME_MAX:
+        return current
+    return name
+
+
+def _export_tags(image: lf.ImageEntry) -> list[dict]:
+    """The entry's tags, cut to what the API takes (so they can be edited), once each."""
+    tags: dict[tuple[str, str], dict] = {}
+    for t in image.tags:
+        key = (t.category[:TAG_MAX_LENGTH], t.value[:TAG_MAX_LENGTH])
+        tags.setdefault(
+            key,
+            {
+                "category": key[0],
+                "value": key[1],
+                "confidence": 1.0 if t.confidence is None else t.confidence,
+                "source": t.source or "manual",
+            },
+        )
+    return list(tags.values())
+
+
+def _export_parsed(parsed: dict, match: ExportMatch, filename: str) -> dict:
+    """The parse an item with an entry commits with: the entry's name and tags in place
+    of what the file name said, and its group and subgroup for the grouping phase."""
+    image = match.image
+    return {
+        **parsed,
+        "name": image.name or Path(filename).stem,
+        "tags": _export_tags(image),
+        "export": {
+            "group": match.group.model_dump(mode="json", exclude_none=True)
+            if match.group
+            else None,
+            "author": image.author,
+            "subgroup": image.subgroup,
+        },
+    }
+
+
+def apply_exports(decoded: list[DecodedItem]) -> None:
+    """Match the batch's items to their entries in their import's metadata, by the hash of
+    the bytes decoded. A matched item takes its entry's type, name, tags, grid and (when it
+    fits the installed model) vector; the rest go on as they would without it."""
+    by_job: dict[str, list[DecodedItem]] = {}
+    for d in decoded:
+        if d.item.export_job:
+            by_job.setdefault(d.item.job_id, []).append(d)
+    if not by_job:
+        return
+    with _session() as db:
+        for job_id, items in by_job.items():
+            matches = match_exports(
+                db, job_id, [(d.item.id, d.source_hash, d.item.filename) for d in items]
+            )
+            for d in items:
+                match = matches.get(d.item.id)
+                if match is None:
+                    continue
+                # Its name in the library it came from, not the export's readable one
+                filename = restored_filename(match.image.filename, d.item.filename)
+                d.item = replace(
+                    d.item,
+                    image_type=match.image.image_type,
+                    filename=filename,
+                    parsed=_export_parsed(d.item.parsed, match, filename),
+                )
+                d.export = match
+                if match.vector is not None:
+                    d.embedding = match.vector.tolist()
 
 
 # Sort (Auto items, design §5.6)
@@ -1014,6 +1121,8 @@ def commit_batch(prepared: list[PreparedItem]) -> CommitResult:
                 finish_committed(row, image.id, d.source_hash)
                 if d.classification is not None:
                     row.classification = json.dumps(d.classification)
+                if d.export is not None:  # its entry's group and subgroup, for grouping
+                    row.parsed = json.dumps(p.item.parsed)
                 # The staged file is deleted right after commit; a crash in between
                 # leaves an unreferenced file for the stray-staging sweep.
                 row.staging_key = None
@@ -1164,6 +1273,8 @@ def write_vectors(done: list[CommittedImage], refreshed: Iterable[int] = ()) -> 
             "Vector write failed for %d image(s); reconciliation will repair", len(items)
         )
         _drop_stale_vectors(list(refreshed))
+    else:
+        get_lancedb_service().compact_if_fragmented()  # a fragment per batch otherwise
     return bool(ok)
 
 
@@ -1222,8 +1333,14 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
     record_early_duplicates(split.early)
     record_refresh_unchanged(split.unchanged)
 
+    if decoded:
+        apply_exports(decoded)
+
     if prepared or decoded:
-        embed_failures = embed([*(p.decoded for p in prepared), *decoded])
+        # Items whose metadata carried a vector for this model aren't embedded again
+        embed_failures = embed(
+            [d for d in [*(p.decoded for p in prepared), *decoded] if d.embedding is None]
+        )
         if embed_failures:
             for p in [*prepared, *decoded]:
                 p.discard()
@@ -1231,8 +1348,13 @@ def process_batch(items: list[ClaimedItem], cfg: PipelineConfig, pool) -> BatchO
             prepared, decoded = [], []
 
     if decoded:
-        kept, outcome.sorted_out, sort_failures = _sort(decoded)
+        # Split before sorting, which gives the Auto items their type: matched to metadata,
+        # or not Auto in the first place, an item's type is known already
+        auto = [d for d in decoded if d.item.image_type == AUTO]
+        typed = [d for d in decoded if d.item.image_type != AUTO]
+        kept, outcome.sorted_out, sort_failures = _sort(auto) if auto else ([], 0, [])
         outcome.failures += sort_failures
+        kept += typed
         finished = _split([f.result() for f in [pool.submit(finish_item, d, cfg) for d in kept]])
         prepared += finished.prepared
         outcome.failures += finished.failures

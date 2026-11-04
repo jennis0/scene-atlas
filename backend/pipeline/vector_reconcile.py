@@ -88,6 +88,7 @@ def _embed_and_write(pending: list[tuple[int, str, str, str | None, str]], tally
         )
     ]
     if get_lancedb_service().batch_add_embeddings(items):
+        get_lancedb_service().compact_if_fragmented()
         tally.repaired += len(items)
         tally.failed_writes = 0
         return
@@ -122,6 +123,7 @@ def reconcile_vectors(
         svc.delete_embeddings(orphaned[start : start + _DELETE_CHUNK])
 
     tally = _reembed(missing, batch_size, progress_fn)
+    svc.compact_if_fragmented()  # cheap if not due: a retry, e.g. after a failed one
     if progress_fn and missing:
         progress_fn(len(missing), len(missing), f"{len(missing):,} images")
 

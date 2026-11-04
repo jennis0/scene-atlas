@@ -6,14 +6,11 @@ import { ImageCardMenu } from './ImageCardMenu'
 import type { Image } from '@/types'
 
 vi.mock('@/lib/api', () => ({
-  getImageUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/file`),
+  getImageDownloadUrl: vi.fn((img: { id: number }) => `/api/v1/images/${img.id}/file?download=1`),
 }))
-vi.mock('@/lib/download', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/download')>()),
-  downloadFile: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('@/lib/download', () => ({ saveUrl: vi.fn() }))
 
-import { downloadFile } from '@/lib/download'
+import { saveUrl } from '@/lib/download'
 
 const image = {
   id: 3,
@@ -54,8 +51,9 @@ describe('ImageCardMenu', () => {
     const { user } = setup()
     await user.click(screen.getByRole('button', { name: 'Actions for Caves Entrance' }))
     await user.click(screen.getByRole('menuitem', { name: 'Download' }))
+    // The server names it (readable layout), so the browser is given no name of its own
     await waitFor(() =>
-      expect(downloadFile).toHaveBeenCalledWith('/api/v1/images/3/file', expect.any(String)),
+      expect(saveUrl).toHaveBeenCalledWith('/api/v1/images/3/file?download=1', ''),
     )
   })
 

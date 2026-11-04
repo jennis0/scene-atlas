@@ -78,6 +78,12 @@ In a browser, files are uploaded to the server. An import can hold up to 50,000 
 
 If the tab was closed or the connection was lost, the import shows **Upload interrupted**. Choose the same folder or files again to send only the missing ones, or **Finish without them**.
 
+## Importing a Download or Export
+
+A ZIP or folder downloaded from Scene Atlas holds a `scene-atlas.jsonl` with each image's name, group, tags, grid and search data. Import it like any other ZIP or folder and Scene Atlas uses that file: the images come back named, typed, tagged and grouped as they were, and with search data from the same AI model they aren't processed by the model again. An image that is already in your library is skipped as a duplicate. A file whose metadata is missing imports as usual.
+
+If the metadata file can't be read, the import report says so and the images import without it.
+
 ## The Import Report
 
 Open the report from the import's notification or from Activity.
