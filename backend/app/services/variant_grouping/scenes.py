@@ -264,27 +264,42 @@ class _Layout[K: Hashable]:
     attach: dict[int, tuple[int, str]]
 
 
+def _positions[K: Hashable](
+    map_files: Sequence[GroupingFile[K]], scene_files: Sequence[GroupingFile[K]]
+) -> tuple[list[K], list[str], list[int], list[int]]:
+    """(keys, paths, map positions, scene positions) in ``(path, str(key))`` order."""
+    files = sorted(
+        [(f.key, f.path, True) for f in map_files] + [(f.key, f.path, False) for f in scene_files],
+        key=lambda t: (t[1], str(t[0])),
+    )
+    maps = [i for i, f in enumerate(files) if f[2]]
+    scenes = [i for i, f in enumerate(files) if not f[2]]
+    return [f[0] for f in files], [f[1] for f in files], maps, scenes
+
+
+def _group_positions[K: Hashable](
+    map_grouping: Grouping[K] | None, keys: list[K]
+) -> tuple[list[list[int]], dict[int, int]]:
+    """The map groups by position, and each map's group."""
+    if map_grouping is None:
+        return [], {}
+    index = {k: i for i, k in enumerate(keys)}
+    groups = [[index[k] for k in g.keys] for g in map_grouping.groups]
+    return groups, {i: g for g, members in enumerate(groups) for i in members}
+
+
 def _attach[K: Hashable](
     map_grouping: Grouping[K] | None,
     map_files: Sequence[GroupingFile[K]],
     scene_files: Sequence[GroupingFile[K]],
 ) -> _Layout[K]:
     """Lay out the files and attach ``scene_files`` to the map groups (r2, then r3)."""
-    files = sorted(
-        [(f.key, f.path, True) for f in map_files] + [(f.key, f.path, False) for f in scene_files],
-        key=lambda t: (t[1], str(t[0])),
-    )
-    keys = [f[0] for f in files]
-    n = len(files)
-    index = {k: i for i, k in enumerate(keys)}
-    maps = [i for i in range(n) if files[i][2]]
-    scenes = [i for i in range(n) if not files[i][2]]
-    groups = [[index[k] for k in g.keys] for g in map_grouping.groups] if map_grouping else []
-    group_of = {i: g for g, members in enumerate(groups) for i in members}
+    keys, paths, maps, scenes = _positions(map_files, scene_files)
+    groups, group_of = _group_positions(map_grouping, keys)
     if not scenes:
         return _Layout(keys, maps, scenes, groups, group_of, [], [], {}, {})
 
-    split = [N.split_path(f[1]) for f in files]
+    split = [N.split_path(path) for path in paths]
     raw = [folder for folder, _ in split]
     stem = [N.file_stem(name) for _, name in split]
     attach_of = _effective([_attach_folder(f) for f in raw])

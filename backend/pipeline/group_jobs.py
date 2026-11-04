@@ -79,7 +79,6 @@ from backend.app.services.variant_grouping import (
     EmbeddingThresholds,
     GroupingFile,
     GroupingParams,
-    ProposedGroup,
 )
 
 from .grouping_features import load_grouping_features
@@ -531,6 +530,68 @@ def joined_subgroups(
     return subgroups
 
 
+@dataclass
+class _ImageGroups:
+    """An import's images grouped: the maps by the walk, the scenes attached to a map group or
+    grouped among themselves, and what joins each map group (by index): its attached scenes."""
+
+    maps: list[GroupingFile[int]]
+    grouping: variant_grouping.Grouping[int] | None
+    scenes: variant_grouping.SceneGrouping[int]
+    joined: dict[int, list[int]]
+    subgroups: dict[int, str | None]  # an attached scene's subgroup
+
+
+def _group_images(
+    imaged: list[JobFile],
+    features: Mapping[int, ContentFeatures],
+    params: GroupingParams,
+    parser: ImageParser,
+    authors: list[str],
+) -> _ImageGroups:
+    maps = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == MAPS]
+    scenes = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == SCENE]
+    grouping = (
+        variant_grouping.group_with_content(maps, features, params, parser, known_authors=authors)
+        if maps
+        else None
+    )
+    map_groups = grouping.groups if grouping else []
+    effective = variant_grouping.effective_folders(f.path for f in imaged)
+    folders = {f.item_id: effective[f.path] for f in imaged}
+    scene_grouping = variant_grouping.group_scenes(grouping, maps, scenes, features, params)
+    attached = {item: attachment.group for item, attachment in scene_grouping.attachments.items()}
+    joined: dict[int, list[int]] = {}
+    for item, index in attached.items():
+        joined.setdefault(index, []).append(item)
+    subgroups = joined_subgroups(
+        [g.keys for g in map_groups], [g.subgroups for g in map_groups], folders, attached
+    )
+    return _ImageGroups(maps, grouping, scene_grouping, joined, subgroups)
+
+
+def _map_proposals(found: _ImageGroups) -> list[Proposal]:
+    """A proposal per map group, with the files that join it."""
+    map_groups = found.grouping.groups if found.grouping else []
+    names = Counter((g.name, g.author or UNKNOWN_AUTHOR) for g in map_groups)
+    proposals: list[Proposal] = []
+    for index, group in enumerate(map_groups):
+        author = group.author or UNKNOWN_AUTHOR
+        extra = found.joined.get(index, [])
+        proposals.append(
+            Proposal(
+                (*group.keys, *extra),
+                group.name,
+                author,
+                {**group.subgroups, **{item: found.subgroups.get(item) for item in extra}},
+                # A fallback name, or one two of this import's maps share, says nothing
+                # about which map it is: it can't pick an existing group
+                group.name_is_identity and names[(group.name, author)] == 1,
+            )
+        )
+    return proposals
+
+
 def propose(
     files: list[JobFile],
     features: Mapping[int, ContentFeatures],
@@ -544,50 +605,20 @@ def propose(
     proposal."""
     params = GroupingParams(embedding=thresholds)
     imaged = [f for f in files if f.image_id is not None]
-    maps = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == MAPS]
-    scenes = [GroupingFile(f.item_id, f.path) for f in imaged if f.bucket == SCENE]
     imageless = [GroupingFile(f.item_id, f.path) for f in files if f.image_id is None]
-    grouping = None
-    map_groups: list[ProposedGroup[int]] = []
-    if maps:
-        grouping = variant_grouping.group_with_content(
-            maps, features, params, parser, known_authors=authors
-        )
-        map_groups = grouping.groups
-    effective = variant_grouping.effective_folders(f.path for f in imaged)
-    folders = {f.item_id: effective[f.path] for f in imaged}
-    map_keys = [g.keys for g in map_groups]
-    scene_grouping = variant_grouping.group_scenes(grouping, maps, scenes, features, params)
-    attached = {item: attachment.group for item, attachment in scene_grouping.attachments.items()}
-    subgroups = joined_subgroups(map_keys, [g.subgroups for g in map_groups], folders, attached)
-    placed = variant_grouping.attach_to_map_groups(grouping, maps, imageless)
-    joined: dict[int, list[int]] = {}
-    for item, index in attached.items():
-        joined.setdefault(index, []).append(item)
+    found = _group_images(imaged, features, params, parser, authors)
+    placed = variant_grouping.attach_to_map_groups(found.grouping, found.maps, imageless)
     for item, attachment in placed.items():
-        joined.setdefault(attachment.group, []).append(item)
+        found.joined.setdefault(attachment.group, []).append(item)
 
-    proposals: list[Proposal] = []
-    names = Counter((g.name, g.author or UNKNOWN_AUTHOR) for g in map_groups)
-    for index, group in enumerate(map_groups):
-        author = group.author or UNKNOWN_AUTHOR
-        extra = joined.get(index, [])
-        proposals.append(
-            Proposal(
-                (*group.keys, *extra),
-                group.name,
-                author,
-                {**group.subgroups, **{item: subgroups.get(item) for item in extra}},
-                # A fallback name, or one two of this import's maps share, says nothing
-                # about which map it is: it can't pick an existing group
-                group.name_is_identity and names[(group.name, author)] == 1,
-            )
-        )
     path_of = {f.item_id: f.path for f in files}
-    for items in scene_grouping.groups:
-        proposals.append(_named_by_parser([(path_of[i], i) for i in items], SCENE, parser, authors))
+    proposals = _map_proposals(found)
+    proposals += [
+        _named_by_parser([(path_of[i], i) for i in items], SCENE, parser, authors)
+        for items in found.scenes.groups
+    ]
     proposals += _ungrouped(f.key for f in imageless if f.key not in placed)
-    return proposals, [g for g in (grouping, scene_grouping) if g is not None]
+    return proposals, [g for g in (found.grouping, found.scenes) if g is not None]
 
 
 def _ungrouped(items: Iterable[int]) -> list[Proposal]:
@@ -654,44 +685,73 @@ def _named_by_parser(
 # Write
 
 
-def _state(
-    db: Session, job: ImportJob, files: list[JobFile], proposals: list[Proposal]
-) -> JobState:
-    import_groups = db.execute(
-        select(
-            ImportGroup.id,
-            ImportGroup.image_group_id,
-            ImportGroup.merged_into_existing,
-            ImportGroup.group_name,
-            ImportGroup.author,
-            ImportGroup.ungrouped,
-        ).where(ImportGroup.job_id == job.id)
-    ).all()
-    referenced = sorted({gid for _, gid, *_ in import_groups if gid is not None})
+def _import_groups(db: Session, job: ImportJob) -> list:
+    """The job's import groups: (id, gallery group, merged, name, author, ungrouped)."""
+    return list(
+        db.execute(
+            select(
+                ImportGroup.id,
+                ImportGroup.image_group_id,
+                ImportGroup.merged_into_existing,
+                ImportGroup.group_name,
+                ImportGroup.author,
+                ImportGroup.ungrouped,
+            ).where(ImportGroup.job_id == job.id)
+        ).all()
+    )
+
+
+def _alive(db: Session, group_ids: Iterable[int]) -> set[int]:
+    """Which of these gallery groups still exist."""
     alive: set[int] = set()
-    for chunk in chunks(referenced):
+    for chunk in chunks(sorted(set(group_ids))):
         alive.update(db.scalars(select(ImageGroup.id).where(ImageGroup.id.in_(chunk))))
-    names = {(p.name, p.author) for p in proposals if p.match_existing}
-    existing = existing_groups(db, {name for name, _ in names})
-    return JobState(
-        import_group_of={f.item_id: f.import_group_id for f in files if f.import_group_id},
-        pending={f.item_id: f.image_id for f in files if f.pending and f.image_id is not None},
-        placed={
+    return alive
+
+
+def _file_state(files: list[JobFile], alive: set[int]) -> dict:
+    """The ``JobState`` fields read from the job's files."""
+    return {
+        "import_group_of": {f.item_id: f.import_group_id for f in files if f.import_group_id},
+        "pending": {f.item_id: f.image_id for f in files if f.pending and f.image_id is not None},
+        "placed": {
             f.item_id: f.group_id
             for f in files
             if not f.pending and f.group_id is not None and f.group_id in alive
         },
-        gallery_of={ig: gid if gid in alive else None for ig, gid, *_ in import_groups},
-        group_names={
-            ig: (name, author or UNKNOWN_AUTHOR) for ig, _, _, name, author, _ in import_groups
-        },
-        merged=frozenset(gid for _, gid, merged, *_ in import_groups if merged and gid in alive),
-        existing={
-            (name, author): gid
-            for (name, author), gid in existing.items()
-            if author is not None and (name, author) in names
-        },
-        ungrouped_group=next((ig for ig, *_, ungrouped in import_groups if ungrouped), None),
+    }
+
+
+def _group_state(rows: list, alive: set[int]) -> dict:
+    """The ``JobState`` fields read from the job's import groups (``_import_groups``)."""
+    return {
+        "gallery_of": {ig: gid if gid in alive else None for ig, gid, *_ in rows},
+        "group_names": {ig: (name, author or UNKNOWN_AUTHOR) for ig, _, _, name, author, _ in rows},
+        "merged": frozenset(gid for _, gid, merged, *_ in rows if merged and gid in alive),
+        "ungrouped_group": next((ig for ig, *_, ungrouped in rows if ungrouped), None),
+    }
+
+
+def _existing(db: Session, proposals: list[Proposal]) -> dict[tuple[str, str], int]:
+    """Gallery groups of the library named as a proposal that may pick one."""
+    names = {(p.name, p.author) for p in proposals if p.match_existing}
+    existing = existing_groups(db, {name for name, _ in names})
+    return {
+        (name, author): gid
+        for (name, author), gid in existing.items()
+        if author is not None and (name, author) in names
+    }
+
+
+def _state(
+    db: Session, job: ImportJob, files: list[JobFile], proposals: list[Proposal]
+) -> JobState:
+    rows = _import_groups(db, job)
+    alive = _alive(db, (gid for _, gid, *_ in rows if gid is not None))
+    return JobState(
+        **_file_state(files, alive),
+        **_group_state(rows, alive),
+        existing=_existing(db, proposals),
     )
 
 

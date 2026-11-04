@@ -69,6 +69,19 @@ export function GroupLedger({
   )
 }
 
+/** What clicking a row opens: its gallery group, or for the files in no group the Skipped
+ * entry; nothing for a group without images, or ungrouped files Auto didn't skip. */
+function rowAction(
+  group: ImportGroupSummary,
+  onOpenGroup?: (imageGroupId: number) => void,
+  onOpenSkipped?: () => void,
+): (() => void) | undefined {
+  if (group.ungrouped) return group.counts.sorted_out > 0 ? onOpenSkipped : undefined
+  const id = group.image_group_id
+  if (!onOpenGroup || id === null || group.counts.done === 0) return undefined
+  return () => onOpenGroup(id)
+}
+
 function ReportRow({
   group,
   top,
@@ -84,13 +97,7 @@ function ReportRow({
 }) {
   const { counts } = group
   const [thumbFailed, setThumbFailed] = useState(false)
-  const open = group.ungrouped
-    ? counts.sorted_out > 0
-      ? onOpenSkipped
-      : undefined
-    : onOpenGroup && group.image_group_id !== null && counts.done > 0
-      ? () => onOpenGroup(group.image_group_id!)
-      : undefined
+  const open = rowAction(group, onOpenGroup, onOpenSkipped)
   const name = group.ungrouped ? UNGROUPED_LABEL : group.group_name
   const notes = [
     counts.failed > 0 && { text: `${counts.failed} failed`, problem: true },
