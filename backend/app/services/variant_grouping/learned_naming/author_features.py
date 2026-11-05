@@ -12,7 +12,7 @@ import numpy as np
 
 from .. import names as N
 from .. import vocab as V
-from .text import MAX_SPAN, Tables, author_key, by_credits, mean, word_texts
+from .text import MAX_SPAN, Tables, author_key, by_credits, mean, singular, word_texts
 
 if TYPE_CHECKING:
     from ..names import Folder
@@ -43,6 +43,20 @@ def is_library_folder(namer: WalkNamer, name: str) -> bool:
         return False
     ident = [x for x in N.name_identity(name) if not x.isdigit()]
     return all(x in namer.tables.library_words or x in V.GENERIC for x in ident)
+
+
+CATEGORY_MIN = 5  # gold group names a word must appear in to name a category folder
+
+
+def is_category_folder(namer: WalkNamer, name: str) -> bool:
+    """A folder named by one content word, as libraries sorted by category are ("Forests",
+    "Taverns"): the word, or its singular, is in at least ``CATEGORY_MIN`` of the training
+    groups' names, and it is no known author. A phrase ("Loot Tavern") is never a category."""
+    ident = [x for x in N.name_identity(name) if not x.isdigit()]
+    if len(ident) != 1 or namer.authors.get(author_key(name)):
+        return False
+    vocab = namer.tables.names_vocab
+    return any(vocab.get(w, 0) >= CATEGORY_MIN for w in (ident[0], singular(ident[0])))
 
 
 def is_frag_word(t: Tables, c: ACand) -> bool:

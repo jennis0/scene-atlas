@@ -19,6 +19,7 @@ from .author_features import (
     ACand,
     author_candidates,
     author_features,
+    is_category_folder,
     is_frag_word,
     is_library_folder,
 )
@@ -160,7 +161,8 @@ class WalkNamer:
 
         Top-level folders are the first level where the import's files part ways, below any
         folder that every file shares and that cannot be an author (``Battle Maps/``, a
-        rendition folder). An import with fewer than two has none."""
+        rendition folder). A folder named by one content word ("Forests") is a category, not a
+        maker's folder: its groups get None. An import with fewer than two has none."""
         folders = self.files.folders
         first = folders[0] if folders else ()
         d = 0
@@ -173,7 +175,8 @@ class WalkNamer:
         tops: list[Folder | None] = []
         for members in self.groups:
             at = {folders[i][: d + 1] if len(folders[i]) > d else None for i in members}
-            tops.append(at.pop() if len(at) == 1 else None)
+            top = at.pop() if len(at) == 1 else None
+            tops.append(None if top is None or is_category_folder(self, top[-1]) else top)
         if len({t for t in tops if t is not None}) < 2:
             return [None] * len(tops)
         return tops
@@ -273,10 +276,12 @@ class WalkNamer:
         frequencies, the import's size) fall outside that range, and most creators' folders,
         unseen ones above all, end up below the threshold. So when scoring over the whole import
         already credits ``LIBRARY_TOPS`` or more top-level folders as their groups' author, the
-        import is a library: each top-level folder is scored as if imported alone, and its groups
-        left without an author take the folder when at least half of them have it. An import of one
-        maker's packs or categories credits at most one, and keeps the whole-import scores (its
-        packs would otherwise pass for makers)."""
+        import is a library: groups left without an author are scored again over their top-level
+        folder, as if it were imported alone, and those still without one take the folder when at
+        least half its groups have it. A whole-import pick is kept: scored alone, a folder looks
+        like its groups' maker, so it would override a creator found below it. An import of one
+        maker's packs credits at most one pack, and keeps the whole-import scores (its packs would
+        otherwise pass for makers); category folders ("Forests") are never top-level folders."""
         picks = [self._author(g, self.stats) for g in grps]
         credited = {
             top
@@ -286,7 +291,7 @@ class WalkNamer:
         if len(credited) >= LIBRARY_TOPS:
             picks = [
                 self._author(g, self.top_stats[top])
-                if (top := self.tops[g.index]) is not None
+                if c is None and (top := self.tops[g.index]) is not None
                 else c
                 for g, c in zip(grps, picks, strict=True)
             ]

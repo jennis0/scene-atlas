@@ -472,12 +472,23 @@ share it, and its overlap with the rule name.
   the import's groups instead of all of them, and most creators, unseen ones above all, scored
   below the threshold. So the groups are first scored over the whole import. When that credits
   `LIBRARY_TOPS` (2) or more *top-level folders* as their own groups' author, the import is a
-  library, and each top-level folder is scored again as if imported alone; its groups left
-  without an author then take the folder when it is the author of at least half of them. Top
-  level is below any folder every file shares that cannot be an author (`Battle Maps/`,
-  rendition folders). One maker's packs at the top (maker folder dropped) credit at most one
-  pack, so they keep the whole-import scores rather than passing for makers
-  (`test_learned_authors.py`).
+  library: groups left without an author are scored again over their top-level folder, as if it
+  were imported alone, and those still without one take the folder when it is the author of at
+  least half its groups. Top level is below any folder every file shares that cannot be an
+  author (`Battle Maps/`, rendition folders). Guards, each pinned by `test_learned_authors.py`:
+  - *A whole-import pick is kept.* Scored alone, any top folder looks like its groups' maker,
+    so it would override a creator found below it (`Kickstarter/Tom Cartos/…`,
+    `Forests/dww/…`).
+  - *A category folder is never a top-level folder.* A folder named by one content word whose
+    word or singular is in ≥ 5 training group names, and that is no known author ("Forests",
+    "Taverns", "Cities"), keeps the whole-import scores. A phrase ("Loot Tavern",
+    "Stoneguard Tiles") still counts as a maker's folder.
+  - *One maker's packs* at the top (maker folder dropped) credit at most one pack, so the rule
+    does not fire and packs do not pass for makers.
+
+  Not fixed, as the model decides them: a category folder may still be credited over the whole
+  import ("Forests", as before the rule), and a maker whose name reads like a map may be
+  declined even scored alone ("Loot Tavern": "tavern" is in 36 of 40 training names).
 - **Shown author.** A known author is shown by its name. Otherwise the picked text is the
   cleaned folder or credit, with a trailing "Maps" that cleaning dropped put back from the
   folder ("Gloamwood Maps", not "Gloamwood"); `author_key` still ignores it for matching.
@@ -491,11 +502,11 @@ token table and the creator list in `backend/app/data/group_naming/`.
 | Bad or awful names, held-out makers | 14% | 27% |
 | Author accuracy | 0.91 | ≈ 0.5 |
 | Time per group (CPU, one thread; imports of 2.4k–9.9k files) | median 2–11 ms, max ≈ 35 ms | median ≤ 2 ms |
-| Library import: files under a creator folder whose author isn't it (a real 40k-file `creator/[pack]/…` library, paths only) | 0.003% (was 10.1% before the library rule) | 8.5% |
+| Library import: files under a creator folder whose author isn't it (a real 40k-file `creator/[pack]/…` library, paths only) | 0.3% (was 10.1% before the library rule; the rest are whole-import picks, e.g. a `Raw Maps` subfolder) | 8.5% |
 | Ingest benchmark, 600 files (`Creator/Map/files`, unseen creators) | 0 wrong (was 204) | 0 wrong |
 
 Held-out numbers are from scene-atlas-learning's reference test groups (523 groups, 18 makers).
-The library rule and the shown author left them unchanged (author accuracy 0.918 with the
+The library rule and the shown author left them unchanged, as they did authors on category layouts (category folders beside creators, `category/creator/…`) (author accuracy 0.918 with the
 packaged creators, 0.908 with the research gazetteer, 0.887 with no known authors); the
 two-part split rule moved severity from 0.947 to 0.945, bad or awful names unchanged. A library
 import costs about 0.5 ms more per group (its authors are scored twice).

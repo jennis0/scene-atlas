@@ -17,6 +17,9 @@ import pytest
 from backend.app.services.image_parser import ImageParser
 from backend.app.services.variant_grouping import GroupingFile, learned_naming
 from backend.app.services.variant_grouping.learned_naming import namer
+from backend.app.services.variant_grouping.learned_naming.author_features import (
+    is_category_folder,
+)
 from backend.app.services.variant_grouping.learned_naming.text import Cleaner, shown_author
 from stress_tests.ingest_scale_data import plan
 
@@ -106,6 +109,71 @@ def test_one_makers_packs_are_not_taken_for_makers(monkeypatch):
     assert authors() <= allowed
     monkeypatch.setattr(namer, "LIBRARY_TOPS", 0)  # every import a library
     assert not authors() <= allowed
+
+
+def plan_with(extra: dict[str, dict[str, list[str]]]) -> list[str]:
+    """The benchmark library plus ``{top folder: {sub folder: [map names]}}``."""
+    paths = [p.rel for p in plan(600, 1)]
+    for top, subs in extra.items():
+        for sub, maps in subs.items():
+            paths += library({f"{top}/{sub}" if sub else top: maps})
+    return paths
+
+
+MAPS = ["Misty Grove", "Elder Keep", "Thorn Wharf", "Sunken Crypt", "Lost Mill", "Golden Inn"]
+
+
+def test_a_category_folder_in_a_library_is_not_scored_as_a_maker(monkeypatch):
+    """A folder named by one content word is a category: its groups keep the whole-import
+    scores. Scored alone it would pass for its maker."""
+    adjectives = ["Misty", "Elder", "Thorn", "Sunken", "Lost", "Golden"]
+    paths = [p.rel for p in plan(600, 1)] + [
+        f"{category}/{a} {noun}/{a} {noun}_{v}.jpg"
+        for category, noun in (("Forests", "Grove"), ("Taverns", "Inn"))
+        for a in adjectives
+        for v in ("Day", "Night")
+    ]
+    with monkeypatch.context() as m:
+        m.setattr(namer, "LIBRARY_TOPS", 10**9)  # no library rule: whole-import scores
+        whole = authors_by_top(paths)
+    got = authors_by_top(paths)
+    assert (got["Forests"], got["Taverns"]) == (whole["Forests"], whole["Taverns"])
+    monkeypatch.setattr(namer, "is_category_folder", lambda namer, name: False)
+    assert authors_by_top(paths)["Forests"] != whole["Forests"]
+
+
+@pytest.mark.parametrize(
+    ("name", "category"),
+    [
+        ("Forests", True),
+        ("Taverns", True),
+        ("Cities", True),
+        ("Dungeons", True),
+        ("Loot Tavern", False),  # a phrase, never a category
+        ("Stoneguard Tiles", False),
+        ("Copperquill", False),
+        ("limithron", False),
+        ("czepeku", False),
+    ],
+)
+def test_only_a_single_content_word_names_a_category(name, category):
+    walk = run_paths([GroupingFile("a/b.jpg", "a/b.jpg")])  # loads the namer
+    assert walk.groups
+    model = learned_naming.load()
+    assert model is not None
+    probe = SimpleNamespace(tables=model.tables, authors=model.creators)
+    assert is_category_folder(probe, name) is category
+
+
+def test_a_creator_below_a_top_level_folder_keeps_it():
+    """A creator found over the whole import is kept: scored alone, the top-level folder above
+    it ("Kickstarter") would pass for its maker."""
+    paths = plan_with({"Kickstarter": {"Czepeku": MAPS, "Tom Cartos": MAPS}})
+    got: dict[str, set[str | None]] = defaultdict(set)
+    for g in run_paths([GroupingFile(p, p) for p in paths]).groups:
+        if g.keys[0].startswith("Kickstarter/"):
+            got[g.keys[0].split("/")[1]].add(g.author)
+    assert got == {"Czepeku": {"Czepeku"}, "Tom Cartos": {"Tom Cartos"}}
 
 
 @pytest.mark.parametrize(

@@ -60,6 +60,17 @@ class _Named(Protocol):
     raw: str
 
 
+def singular(word: str) -> str:
+    """A plural's singular, by spelling alone ("cities" -> "city", "forests" -> "forest")."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith("es") and word[:-2].endswith(("ss", "sh", "ch", "x")):
+        return word[:-2]
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+        return word[:-1]
+    return word
+
+
 def loose(word: str) -> str:
     return re.sub(r"[^0-9a-z]", "", word.casefold())
 
