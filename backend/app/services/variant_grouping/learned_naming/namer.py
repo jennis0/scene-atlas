@@ -168,23 +168,33 @@ class WalkNamer:
         folder that every file shares and that cannot be an author (``Battle Maps/``, a
         rendition folder). A folder named by one content word ("Forests") is a category, not a
         maker's folder: its groups get None. An import with fewer than two has none."""
-        folders = self.files.folders
-        first = folders[0] if folders else ()
-        d = 0
-        while (
-            d < len(first)
-            and all(len(f) > d and f[d] == first[d] for f in folders)
-            and (N.is_rendition_folder_name(first[d]) or is_library_folder(self, first[d]))
-        ):
-            d += 1
-        tops: list[Folder | None] = []
-        for members in self.groups:
-            at = {folders[i][: d + 1] if len(folders[i]) > d else None for i in members}
-            top = at.pop() if len(at) == 1 else None
-            tops.append(None if top is None or is_category_folder(self, top[-1]) else top)
+        d = self._top_depth()
+        tops = [self._top(members, d) for members in self.groups]
         if len({t for t in tops if t is not None}) < 2:
             return [None] * len(tops)
         return tops
+
+    def _top_depth(self) -> int:
+        """The depth of the top-level folders: below the folders every file shares that
+        cannot be an author."""
+        folders = self.files.folders
+        first = folders[0] if folders else ()
+        d = 0
+        while d < len(first) and self._is_container(first[d], d):
+            d += 1
+        return d
+
+    def _is_container(self, name: str, d: int) -> bool:
+        """Whether every file has the folder ``name`` at depth ``d``, and it is no author."""
+        shared = all(len(f) > d and f[d] == name for f in self.files.folders)
+        return shared and (N.is_rendition_folder_name(name) or is_library_folder(self, name))
+
+    def _top(self, members: Sequence[int], d: int) -> Folder | None:
+        """A group's folder at depth ``d`` when its members share it and it is no category."""
+        folders = self.files.folders
+        at = {folders[i][: d + 1] if len(folders[i]) > d else None for i in members}
+        top = at.pop() if len(at) == 1 else None
+        return None if top is None or is_category_folder(self, top[-1]) else top
 
     def _index_tokens(self) -> None:
         """Per group its stem tokens; for the import and for each group's author statistics,

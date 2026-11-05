@@ -228,6 +228,11 @@ def _trim(words: list[str]) -> list[str]:
     return words
 
 
+def _split_ok(parts: tuple[str, ...]) -> bool:
+    """2-4 parts, and two only around "of" or "the"."""
+    return 2 <= len(parts) <= 4 and (len(parts) > 2 or bool(GLUE_WORDS & set(parts)))
+
+
 class Cleaner:
     """A picked run into a display name: drop a ``by`` credit, ``clean_group_name``, separators,
     size leftovers and sequence numbers, split glued words, then case."""
@@ -256,26 +261,22 @@ class Cleaner:
         best: dict[int, tuple[int, float, tuple[str, ...]]] = {0: (0, 0.0, ())}
         for e in range(1, n + 1):
             for s in range(max(0, e - 14), e - 1):
-                if s not in best:
-                    continue
-                part = w[s:e]
-                if len(part) < 3 and part not in ("an", "of", "on", "in", "to"):
-                    continue
-                count = self._t.vocab.get(part)
-                if count is None:
+                cost = self._part_cost(w[s:e]) if s in best else None
+                if cost is None:
                     continue
                 prev = best[s]
-                cand = (
-                    prev[0] + 1,
-                    prev[1] - math.log(count / self._t.vocab_total),
-                    (*prev[2], part),
-                )
+                cand = (prev[0] + 1, prev[1] + cost, (*prev[2], w[s:e]))
                 if e not in best or cand[:2] < best[e][:2]:
                     best[e] = cand
         parts = best[n][2] if n in best else ()
-        if not 2 <= len(parts) <= 4 or (len(parts) == 2 and not GLUE_WORDS & set(parts)):
+        return parts if _split_ok(parts) else None
+
+    def _part_cost(self, part: str) -> float | None:
+        """A known word's cost as one part of a split (-log frequency), or None."""
+        if len(part) < 3 and part not in ("an", "of", "on", "in", "to"):
             return None
-        return parts
+        count = self._t.vocab.get(part)
+        return None if count is None else -math.log(count / self._t.vocab_total)
 
     def _unglue(self, words: list[str]) -> list[str]:
         out = []
