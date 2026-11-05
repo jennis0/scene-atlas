@@ -12,6 +12,7 @@ import time
 from typing import Literal
 
 from backend.app.services.app_settings import get_settings as get_app_settings
+from backend.app.services.linked_files import linked_import_active
 from backend.app.services.originals import forget_availability
 from backend.app.services.shutdown import ShutdownRequested
 
@@ -109,21 +110,23 @@ def get_linked_scanner() -> LinkedScanner:
     return _scanner
 
 
-def _rescan_minutes() -> int:
+def _timer_state() -> tuple[int, bool]:
+    """``linked_rescan_minutes``, and whether the linked folder's import is running."""
     with _session() as db:
-        return get_app_settings(db).linked_rescan_minutes
+        return get_app_settings(db).linked_rescan_minutes, linked_import_active(db)
 
 
 async def rescan_timer(wake_seconds: float = TIMER_WAKE_SECONDS) -> None:
-    """Scan every ``linked_rescan_minutes`` (0: only at startup). The setting is read at
-    each wake, so a change applies without a restart; any scan restarts the interval."""
+    """Scan every ``linked_rescan_minutes`` (0: only at startup), except while the linked
+    import is running: the first wake after it finishes scans. The setting is read at each
+    wake, so a change applies without a restart; any scan restarts the interval."""
     scanner = get_linked_scanner()
     while True:
         await asyncio.sleep(wake_seconds)
         try:
-            minutes = await asyncio.to_thread(_rescan_minutes)
+            minutes, importing = await asyncio.to_thread(_timer_state)
         except Exception:
             logger.warning("Couldn't read linked_rescan_minutes", exc_info=True)
             continue
-        if scanner.due(minutes):
+        if not importing and scanner.due(minutes):
             scanner.start("timer")

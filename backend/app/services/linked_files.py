@@ -337,6 +337,17 @@ def open_linked_jobs(db: Session, source_id: int) -> list[ImportJob]:
     )
 
 
+def linked_import_active(db: Session) -> bool:
+    """Whether an import of the linked folder is being processed. Timer and focus rescans
+    wait for it: they would list the whole folder on the disk the import is reading
+    (design/library-setup.md §4.3). A paused import doesn't hold them back."""
+    return bool(
+        db.query(ImportJob.id)
+        .filter(ImportJob.library_source_id.isnot(None), ImportJob.status == st.JOB_ACTIVE)
+        .first()
+    )
+
+
 def linked_jobs_busy(db: Session, source_id: int) -> bool:
     """Whether a batch of the source's items is being processed right now."""
     return bool(

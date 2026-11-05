@@ -3,6 +3,7 @@ Applying a scan to the database is covered by integration/test_linked_library.py
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 
@@ -13,6 +14,7 @@ from backend.app.models.database import (
     FILE_REMOVED,
 )
 from backend.app.services.originals import LinkedEntry
+from backend.pipeline import linked_scanner
 from backend.pipeline.linked_scan import KnownFile, ScanResult, diff_files
 from backend.pipeline.linked_scanner import LinkedScanner
 
@@ -141,6 +143,30 @@ def test_timer_is_due_after_the_interval(monkeypatch):
     assert not scanner.due(15)
     now[0] += 1
     assert scanner.due(15)
+
+
+async def test_the_timer_scans_once_the_linked_import_is_done(monkeypatch):
+    states = iter([(15, True), (15, True), (15, False)])
+    scanned = asyncio.Event()
+
+    def scan() -> ScanResult:
+        scanned.set()
+        return ScanResult("online")
+
+    wakes = []
+
+    def timer_state() -> tuple[int, bool]:
+        wakes.append(1)
+        return next(states, (15, False))
+
+    monkeypatch.setattr(linked_scanner, "_scanner", LinkedScanner(scan=scan))
+    monkeypatch.setattr(linked_scanner, "_timer_state", timer_state)
+    task = asyncio.create_task(linked_scanner.rescan_timer(wake_seconds=0.001))
+    try:
+        await asyncio.wait_for(scanned.wait(), 5)
+    finally:
+        task.cancel()
+    assert len(wakes) >= 3  # the two wakes during the import didn't scan
 
 
 def test_a_failed_scan_frees_the_scanner():

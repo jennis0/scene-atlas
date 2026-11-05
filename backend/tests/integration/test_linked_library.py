@@ -815,6 +815,45 @@ def test_scan_endpoint(linked):
     assert linked.client.post(f"{LIBRARY}/scan", json={"reason": "bogus"}).status_code == 422
 
 
+def test_rescans_wait_while_the_linked_import_runs(linked):
+    """A rescan lists the whole folder, on the disk the import is reading (on a hard
+    disk it slowed a 48k-file import), so timer and focus rescans wait for it."""
+    write_tree(linked.root, {"A/Map.png": image_bytes(1)})
+    linked.scan()  # its import is queued, not yet processed
+    scanner = linked_scanner.get_linked_scanner()
+
+    def focus_starts() -> bool:
+        scanner._last_started = None  # past the minute between focus scans
+        return linked.client.post(f"{LIBRARY}/scan", json={"reason": "focus"}).json()["started"]
+
+    def wait_for_scan() -> None:
+        for _ in range(200):
+            if not scanner.running:
+                return
+            time.sleep(0.02)
+
+    (job,) = linked.jobs()
+    assert linked_scanner._timer_state() == (15, True)
+    assert not focus_starts()
+
+    # A paused import reads nothing, so it doesn't hold rescans back
+    assert linked.client.post(f"{BASE}/{job.id}/pause").status_code == 200
+    assert linked_scanner._timer_state() == (15, False)
+    assert focus_starts()
+    wait_for_scan()
+    assert linked.client.post(f"{BASE}/{job.id}/resume").status_code == 200
+
+    # Check for changes is asked for, so it runs
+    r = linked.client.post(f"{LIBRARY}/scan", json={"reason": "manual"})
+    assert r.json() == {"started": True}
+    wait_for_scan()
+
+    linked.api.worker.drain()
+    assert linked_scanner._timer_state() == (15, False)
+    assert focus_starts()
+    wait_for_scan()
+
+
 def test_scan_endpoint_without_a_linked_folder(test_client):
     r = test_client.post(f"{LIBRARY}/scan", json={"reason": "manual"})
     assert r.status_code == 409

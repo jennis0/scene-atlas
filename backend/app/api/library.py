@@ -43,6 +43,7 @@ from ..services.linked_files import (
     current_source,
     detach_source,
     linked_image_ids,
+    linked_import_active,
     linked_jobs_busy,
     missing_image_ids,
     open_linked_jobs,
@@ -155,9 +156,12 @@ def _require_linked(db: Session) -> None:
 def scan_linked_folder(body: LibraryScanRequest, db: Session = Depends(get_db)):
     """Check the linked folder for changes, in the background. ``manual`` (Check for
     changes) runs unless a scan is running. ``focus`` (the desktop window regained focus)
-    is ignored within a minute of the last scan, or when rescans are off."""
+    is ignored within a minute of the last scan, when rescans are off, or while the linked
+    folder's import is running."""
     _require_linked(db)
-    if body.reason == "focus" and get_app_settings(db).linked_rescan_minutes == 0:
+    if body.reason == "focus" and (
+        get_app_settings(db).linked_rescan_minutes == 0 or linked_import_active(db)
+    ):
         return LibraryScanStarted(started=False)
     forget_availability()
     return LibraryScanStarted(started=get_linked_scanner().start(body.reason))
