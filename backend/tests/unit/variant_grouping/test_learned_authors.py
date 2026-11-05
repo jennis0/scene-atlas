@@ -16,9 +16,10 @@ import pytest
 
 from backend.app.services.image_parser import ImageParser
 from backend.app.services.variant_grouping import GroupingFile, learned_naming
-from backend.app.services.variant_grouping.learned_naming import namer
+from backend.app.services.variant_grouping.learned_naming import author_features, namer
 from backend.app.services.variant_grouping.learned_naming.author_features import (
     is_category_folder,
+    known_hits,
 )
 from backend.app.services.variant_grouping.learned_naming.text import Cleaner, shown_author
 from stress_tests.ingest_scale_data import plan
@@ -87,13 +88,58 @@ def test_a_collection_folder_in_a_library_is_not_an_author():
     assert got["Copperquill"] == {"Copperquill"}
 
 
-def test_the_ingest_benchmark_library_gets_its_creators():
+@pytest.mark.parametrize("n", [600, 2000])
+def test_the_ingest_benchmark_library_gets_its_creators(n):
     """The ingest benchmark's layout (stress_tests/ingest_scale.py): every group under a
-    creator folder, one author per folder, and that author is the folder."""
-    paths = [p.rel for p in plan(600, 1)]
+    creator folder, one author per folder, and that author is the folder. At 2000 files, maps
+    such as "Gilded Keep" are present, which once named the packaged creator Gilded Maps."""
+    paths = [p.rel for p in plan(n, 1)]
     got = authors_by_top(paths)
     assert got == {c: {c} for c in got}
     assert len(got) == 12
+
+
+def test_a_wrong_whole_import_pick_is_scored_again_in_a_library(monkeypatch):
+    """Only a folder below the top-level one keeps its whole-import pick. Any other pick is
+    scored again over the creator folder: with the old loose match, "Gilded Keep" named Gilded
+    Maps over the whole import, and the creator folder still wins."""
+
+    def loose_hits(authors, words):
+        return {
+            authors[k]
+            for s in range(len(words))
+            for e in range(s + 1, min(len(words), s + 3) + 1)
+            if len(k := learned_naming.author_key("".join(words[s:e]))) >= 3 and k in authors
+        }
+
+    monkeypatch.setattr(author_features, "known_hits", loose_hits)
+    got = authors_by_top([p.rel for p in plan(2000, 1)])
+    assert got == {c: {c} for c in got}
+
+
+@pytest.mark.parametrize(
+    ("words", "hits"),
+    [
+        (["Gilded", "Keep"], set()),
+        (["Gilded", "Maps", "Keep"], {"Gilded Maps"}),
+        (["GildedMaps"], {"Gilded Maps"}),
+        (["Fantasy", "Forest"], set()),
+        (["TC", "Throne"], {"Tom Cartos"}),
+        (["Tom", "Cartos"], {"Tom Cartos"}),
+    ],
+)
+def test_a_maps_creator_is_only_named_with_maps(words, hits):
+    """``author_key`` makes "Gilded" and "Gilded Maps" one key; a map name is not a credit."""
+    authors = {
+        learned_naming.author_key(a): n
+        for n, aliases in (
+            ("Gilded Maps", ["Gilded Maps"]),
+            ("Fantasy Battlemaps", ["Fantasy Battlemaps"]),
+            ("Tom Cartos", ["Tom Cartos", "TC"]),
+        )
+        for a in aliases
+    }
+    assert known_hits(authors, words) == hits
 
 
 def test_one_makers_packs_are_not_taken_for_makers(monkeypatch):

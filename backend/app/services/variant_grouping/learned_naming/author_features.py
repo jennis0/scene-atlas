@@ -12,7 +12,16 @@ import numpy as np
 
 from .. import names as N
 from .. import vocab as V
-from .text import MAX_SPAN, Tables, author_key, by_credits, mean, singular, word_texts
+from .text import (
+    MAX_SPAN,
+    Tables,
+    author_key,
+    by_credits,
+    ends_in_maps,
+    mean,
+    singular,
+    word_texts,
+)
 
 if TYPE_CHECKING:
     from ..names import Folder
@@ -180,26 +189,37 @@ def _credit_counts(
 
 
 def known_hits(authors: Mapping[str, str], words: list[str]) -> set[str]:
-    """Known authors named by a run of 1-3 words (2-letter keys only in capitals)."""
+    """Known authors named by a run of 1-3 words (2-letter keys only in capitals). A name
+    ending in "Maps" is only named with it: "Gilded Keep" does not name Gilded Maps, though
+    ``author_key`` makes "Gilded" and "Gilded Maps" one key."""
     hits = set()
     for s in range(len(words)):
         for e in range(s + 1, min(len(words), s + 3) + 1):
-            k = author_key("".join(words[s:e]))
-            if k in authors and (
-                len(k) >= 3 or (len(k) == 2 and e - s == 1 and words[s].isupper())
+            run = "".join(words[s:e])
+            k = author_key(run)
+            if (
+                k in authors
+                and (len(k) >= 3 or (len(k) == 2 and e - s == 1 and words[s].isupper()))
+                and (ends_in_maps(run) or not ends_in_maps(authors[k]))
             ):
                 hits.add(authors[k])
     return hits
 
 
 def _known_counts(namer: WalkNamer, members: Sequence[int]) -> Counter[str]:
+    """Per member, the known authors its path names: a whole folder name by ``author_key``
+    ("Beneos" names Beneos Battlemaps), or a run of words (``known_hits``)."""
     hits: Counter[str] = Counter()
-    if not namer.authors:
+    authors = namer.authors
+    if not authors:
         return hits
     files = namer.files
     for i in members:
+        found = {
+            authors[k] for f in files.folders[i] if len(k := author_key(f)) >= 3 and k in authors
+        }
         words = [x for f in files.folders[i] for x in word_texts(f)] + word_texts(files.stems[i])
-        hits.update(sorted(known_hits(namer.authors, words)))
+        hits.update(sorted(found | known_hits(authors, words)))
     return hits
 
 

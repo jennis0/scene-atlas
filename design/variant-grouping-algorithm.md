@@ -472,13 +472,14 @@ share it, and its overlap with the rule name.
   the import's groups instead of all of them, and most creators, unseen ones above all, scored
   below the threshold. So the groups are first scored over the whole import. When that credits
   `LIBRARY_TOPS` (2) or more *top-level folders* as their own groups' author, the import is a
-  library: groups left without an author are scored again over their top-level folder, as if it
-  were imported alone, and those still without one take the folder when it is the author of at
-  least half its groups. Top level is below any folder every file shares that cannot be an
+  library: each group is scored again over its top-level folder, as if it were imported alone,
+  and groups still without an author take the folder when it is the author of at least half its
+  groups. Top level is below any folder every file shares that cannot be an
   author (`Battle Maps/`, rendition folders). Guards, each pinned by `test_learned_authors.py`:
-  - *A whole-import pick is kept.* Scored alone, any top folder looks like its groups' maker,
-    so it would override a creator found below it (`Kickstarter/Tom Cartos/…`,
-    `Forests/dww/…`).
+  - *A whole-import pick of a folder below the top-level one is kept.* Scored alone, any top
+    folder looks like its groups' maker, so it would override a creator inside it
+    (`Kickstarter/Tom Cartos/…`). Other whole-import picks are scored again, which corrects
+    wrong ones.
   - *A category folder is never a top-level folder.* A folder named by one content word whose
     word or singular is in ≥ 5 training group names, and that is no known author ("Forests",
     "Taverns", "Cities"), keeps the whole-import scores. A phrase ("Loot Tavern",
@@ -489,6 +490,12 @@ share it, and its overlap with the rule name.
   Not fixed, as the model decides them: a category folder may still be credited over the whole
   import ("Forests", as before the rule), and a maker whose name reads like a map may be
   declined even scored alone ("Loot Tavern": "tavern" is in 36 of 40 training names).
+- **Known authors in text.** A known author whose name ends in "Maps" is named only by text
+  that has the word ("Gilded Maps", "Dreadmaps"): `author_key` makes "Gilded" and "Gilded Maps"
+  one key, so a map called "Gilded Keep" or "Fantasy Forest" used to credit Gilded Maps or
+  Fantasy Battlemaps (28 of the packaged creators end in "Maps"). A folder named by the whole
+  key still names one ("Beneos" → Beneos Battlemaps). The research namer (`_gaz_hits`) still
+  matches loosely; held-out authors are unchanged by this.
 - **Shown author.** A known author is shown by its name. Otherwise the picked text is the
   cleaned folder or credit, with a trailing "Maps" that cleaning dropped put back from the
   folder ("Gloamwood Maps", not "Gloamwood"); `author_key` still ignores it for matching.
@@ -502,8 +509,8 @@ token table and the creator list in `backend/app/data/group_naming/`.
 | Bad or awful names, held-out makers | 14% | 27% |
 | Author accuracy | 0.91 | ≈ 0.5 |
 | Time per group (CPU, one thread; imports of 2.4k–9.9k files) | median 2–11 ms, max ≈ 35 ms | median ≤ 2 ms |
-| Library import: files under a creator folder whose author isn't it (a real 40k-file `creator/[pack]/…` library, paths only) | 0.3% (was 10.1% before the library rule; the rest are whole-import picks, e.g. a `Raw Maps` subfolder) | 8.5% |
-| Ingest benchmark, 600 files (`Creator/Map/files`, unseen creators) | 0 wrong (was 204) | 0 wrong |
+| Library import: files under a creator folder whose author isn't it (a real 40k-file `creator/[pack]/…` library, paths only) | 0.3% (was 10.1% before the library rule; nearly all a `Raw Maps` subfolder kept as a folder below) | 8.5% |
+| Ingest benchmark layouts (`Creator/Map/files`, unseen creators), paths only | 0 wrong at 600, 2,000 and 10,000 files (was 204 of 600) | 0 wrong |
 
 Held-out numbers are from scene-atlas-learning's reference test groups (523 groups, 18 makers).
 The library rule and the shown author left them unchanged, as they did authors on category layouts (category folders beside creators, `category/creator/…`) (author accuracy 0.918 with the

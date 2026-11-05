@@ -60,6 +60,11 @@ class _Named(Protocol):
     raw: str
 
 
+def ends_in_maps(text: str) -> bool:
+    """Whether a name ends in the "maps" word ``author_key`` drops ("Gilded Maps", "Dreadmaps")."""
+    return bool(_MAPS_SUFFIX.search(_NOT_KEY.sub("", text.casefold())))
+
+
 def singular(word: str) -> str:
     """A plural's singular, by spelling alone ("cities" -> "city", "forests" -> "forest")."""
     if word.endswith("ies") and len(word) > 4:

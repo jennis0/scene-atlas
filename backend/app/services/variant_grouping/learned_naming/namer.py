@@ -105,6 +105,11 @@ class Stats:
             folder = folder[:-1]
 
 
+def _below(c: ACand | None, top: Folder) -> bool:
+    """Whether an author candidate is a folder below ``top``."""
+    return c is not None and c.folder is not None and c.folder["depth"] >= len(top)
+
+
 class WalkNamer:
     """Names the groups of one walk; import-wide statistics are computed once.
 
@@ -276,12 +281,13 @@ class WalkNamer:
         frequencies, the import's size) fall outside that range, and most creators' folders,
         unseen ones above all, end up below the threshold. So when scoring over the whole import
         already credits ``LIBRARY_TOPS`` or more top-level folders as their groups' author, the
-        import is a library: groups left without an author are scored again over their top-level
-        folder, as if it were imported alone, and those still without one take the folder when at
-        least half its groups have it. A whole-import pick is kept: scored alone, a folder looks
-        like its groups' maker, so it would override a creator found below it. An import of one
-        maker's packs credits at most one pack, and keeps the whole-import scores (its packs would
-        otherwise pass for makers); category folders ("Forests") are never top-level folders."""
+        import is a library: each group is scored again over its top-level folder, as if it were
+        imported alone, and groups still without an author take the folder when at least half its
+        groups have it. A whole-import pick of a folder below the top-level one is kept: scored
+        alone, the top folder looks like its groups' maker and would override a creator inside it
+        (``Kickstarter/Tom Cartos``). An import of one maker's packs credits at most one pack,
+        and keeps the whole-import scores (its packs would otherwise pass for makers); category
+        folders ("Forests") are never top-level folders."""
         picks = [self._author(g, self.stats) for g in grps]
         credited = {
             top
@@ -291,7 +297,7 @@ class WalkNamer:
         if len(credited) >= LIBRARY_TOPS:
             picks = [
                 self._author(g, self.top_stats[top])
-                if c is None and (top := self.tops[g.index]) is not None
+                if (top := self.tops[g.index]) is not None and not _below(c, top)
                 else c
                 for g, c in zip(grps, picks, strict=True)
             ]
