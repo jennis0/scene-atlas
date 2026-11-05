@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from .. import names as N
 from .. import vocab as V
@@ -20,6 +20,7 @@ PURE_NOISE = V.REND | V.STOPWORDS | {V.DIMS}
 SMALL_WORDS = frozenset(
     {"of", "the", "a", "an", "and", "in", "on", "at", "to", "for", "by", "from", "with", "or", "n"}
 )
+GLUE_WORDS = frozenset({"of", "the"})  # the words a two-part split must hold
 TRAILING_WORDS = frozenset({"and", "of", "with", "the", "a", "by", "&", "in", "on", "at", "to"})
 SIZE_UNITS = frozenset({"mb", "kb", "gb", "pps", "ppi", "dpi", "px"})
 KEEP_NUMBER_AFTER = V.SERIES | V.LEVEL | {"part", "pt", "act", "no", "number", "chapter", "episode"}
@@ -38,6 +39,41 @@ def author_key(text: str) -> str:
     "maps" ("The Moonlight Maps" == "moonlight")."""
     k = _NOT_KEY.sub("", text.casefold()).replace("&", "and").removeprefix("the")
     return _MAPS_SUFFIX.sub("", k) or k
+
+
+_MAPS_WORD = re.compile(r"(?i)(?:^|[\s_\-.])(battlemaps|maps|map)[\W_]*$")
+
+
+def shown_author(c: _Named) -> str:
+    """A picked author's display text: its cleaned text, with a trailing "Maps" that cleaning
+    dropped put back from the folder or credit it came from ("Gloamwood Maps", not
+    "Gloamwood"). ``author_key`` ignores the word, so matching is unaffected."""
+    m = _MAPS_WORD.search(c.raw)
+    if m is None or author_key(c.raw) != author_key(c.text) or loose(c.text).endswith(loose(m[1])):
+        return c.text
+    word = m[1]
+    return f"{c.text} {word.capitalize() if word.islower() else word}"
+
+
+class _Named(Protocol):
+    text: str
+    raw: str
+
+
+def ends_in_maps(text: str) -> bool:
+    """Whether a name ends in the "maps" word ``author_key`` drops ("Gilded Maps", "Dreadmaps")."""
+    return bool(_MAPS_SUFFIX.search(_NOT_KEY.sub("", text.casefold())))
+
+
+def singular(word: str) -> str:
+    """A plural's singular, by spelling alone ("cities" -> "city", "forests" -> "forest")."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith("es") and word[:-2].endswith(("ss", "sh", "ch", "x")):
+        return word[:-2]
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+        return word[:-1]
+    return word
 
 
 def loose(word: str) -> str:
@@ -192,6 +228,11 @@ def _trim(words: list[str]) -> list[str]:
     return words
 
 
+def _split_ok(parts: tuple[str, ...]) -> bool:
+    """2-4 parts, and two only around "of" or "the"."""
+    return 2 <= len(parts) <= 4 and (len(parts) > 2 or bool(GLUE_WORDS & set(parts)))
+
+
 class Cleaner:
     """A picked run into a display name: drop a ``by`` credit, ``clean_group_name``, separators,
     size leftovers and sequence numbers, split glued words, then case."""
@@ -210,32 +251,32 @@ class Cleaner:
         return out or text.strip()
 
     def _segment(self, w: str) -> tuple[str, ...] | None:
-        """An unseen glued word as 2-4 known words (fewest parts, then most probable)."""
+        """An unseen glued word as 2-4 known words (fewest parts, then most probable).
+
+        Two parts only with "of" or "the" ("Tombof", "Underthe"): most two-part splits are
+        real compounds or names ("Watchtower", "Countryside", "Icewind", "Forrest")."""
         n = len(w)
         if n < 6 or self._t.names_vocab.get(w, 0) >= 1 or w in self._t.common_path_words:
             return None
         best: dict[int, tuple[int, float, tuple[str, ...]]] = {0: (0, 0.0, ())}
         for e in range(1, n + 1):
             for s in range(max(0, e - 14), e - 1):
-                if s not in best:
-                    continue
-                part = w[s:e]
-                if len(part) < 3 and part not in ("an", "of", "on", "in", "to"):
-                    continue
-                count = self._t.vocab.get(part)
-                if count is None:
+                cost = self._part_cost(w[s:e]) if s in best else None
+                if cost is None:
                     continue
                 prev = best[s]
-                cand = (
-                    prev[0] + 1,
-                    prev[1] - math.log(count / self._t.vocab_total),
-                    (*prev[2], part),
-                )
+                cand = (prev[0] + 1, prev[1] + cost, (*prev[2], w[s:e]))
                 if e not in best or cand[:2] < best[e][:2]:
                     best[e] = cand
-        if n not in best or not 2 <= len(best[n][2]) <= 4:
+        parts = best[n][2] if n in best else ()
+        return parts if _split_ok(parts) else None
+
+    def _part_cost(self, part: str) -> float | None:
+        """A known word's cost as one part of a split (-log frequency), or None."""
+        if len(part) < 3 and part not in ("an", "of", "on", "in", "to"):
             return None
-        return best[n][2]
+        count = self._t.vocab.get(part)
+        return None if count is None else -math.log(count / self._t.vocab_total)
 
     def _unglue(self, words: list[str]) -> list[str]:
         out = []

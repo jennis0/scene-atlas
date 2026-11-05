@@ -166,7 +166,7 @@ def _context(namer: WalkNamer, grp: Group) -> _Context:
         rule_tokens=set(N.tokenize(grp.rule.name)),
         sdf=sdf,
         n_sibs=len(sibs),
-        scope=namer.scope(grp),
+        scope=namer.stats.scope(grp),
         credit_share=len(credited) / max(1, len(sample)),
         credit_const=float(bool(credited) and len(set(credited)) == 1),
     )
@@ -263,7 +263,7 @@ def _rate_features(t: Tables, key: tuple[str, ...], content: list[str]) -> list[
 
 def _frequency_features(ctx: _Context, content: list[str], hard: int) -> list[float]:
     """How common the content tokens are across the import's groups and the siblings."""
-    df = [ctx.namer.group_share(x) for x in content] or [0.0]
+    df = [ctx.namer.stats.group_share(x) for x in content] or [0.0]
     r = [mean(df), max(df), min(df), hard if hard < 9 else -1]
     if not ctx.n_sibs:
         return [*r, -1.0, -1.0, -1.0, 0.0]
@@ -274,7 +274,11 @@ def _frequency_features(ctx: _Context, content: list[str], hard: int) -> list[fl
 def _is_house(ctx: _Context, x: str) -> bool:
     """A shared (house / series) token."""
     sib = ctx.sdf.get(x, 0) / ctx.n_sibs if ctx.n_sibs else 0.0
-    return max(ctx.namer.group_share(x), sib) >= 0.5 or x in ctx.stripped or x in ctx.global_house
+    return (
+        max(ctx.namer.stats.group_share(x), sib) >= 0.5
+        or x in ctx.stripped
+        or x in ctx.global_house
+    )
 
 
 def _house_features(ctx: _Context, key: tuple[str, ...]) -> list[float]:
@@ -296,11 +300,11 @@ def _rule_features(rule_tokens: set[str], kset: set[str]) -> list[float]:
 
 def _holder_features(ctx: _Context, key: tuple[str, ...]) -> list[float]:
     """How many groups' paths hold the run, in the import and in the group's scope."""
-    holders = ctx.namer.holders(ctx.grp, key)
+    holders = ctx.namer.stats.holders(ctx.grp, key)
     in_scope = len(holders & ctx.scope)
     return [
         math.log(len(holders)),
-        (len(holders) - 1) / ctx.namer.n_others,
+        (len(holders) - 1) / ctx.namer.stats.n_others,
         in_scope - 1,
         (in_scope - 1) / max(1, len(ctx.scope) - 1),
         math.log(len(ctx.scope)),
