@@ -254,6 +254,8 @@ A scan runs:
 - in the desktop app, **when the window regains focus**, at most once a minute. This covers copying maps in with Explorer or Finder and switching back;
 - when **Check for changes** is clicked in Settings.
 
+Timer and focus scans wait while the linked folder's import is active (`linked_import_active`); the first timer wake after it finishes scans, since the interval has long passed. A scan lists every file in the folder, on the disk the import is reading. On the user's 48k-file library on a hard disk, rescans every 15 minutes took 2 to 3.5 minutes each, while an import that ran for hours was contending for the same disk (2026-11-05). A paused import doesn't hold scans back, and startup and Check for changes always run.
+
 A scan that finds nothing new reads no files. It lists the folder and compares sizes and modification times, which takes about 3 s for 60k files on a local disk. It also creates no job, so it is invisible.
 
 **Setting.** `linked_rescan_minutes` is a DB-backed app setting (`AppSettings`), shown in Settings → Library next to Check for changes:
@@ -298,6 +300,17 @@ This is `_prepare_local` with two differences:
 - **A guard against files that change during processing.** Size and mtime are checked again before commit. If they changed, the item goes back to `ready`.
 
 Commit sets `storage_key = NULL` and `source_file_id`, and updates the `source_files` row (state, `content_hash`, `image_id`).
+
+**Read speed, measured 2026-11-05.** Reading once instead of three times was considered and not built. The test was pure I/O: 60 uncached files per pattern from the user's library on a 5400-rpm SATA hard disk (`read_patterns.py`, two runs each).
+
+| Pattern | Native Windows | WSL `/mnt/d` (9p) |
+|---|---|---|
+| Today: 4 readers, 3 reads per file | 14–17 files/s | ~2 files/s |
+| 4 readers, 1 read | 16–24 | ~2.5 |
+| 2 readers, 1 read | 19–20 | ~2.2 |
+| 1 reader, 1 read | 13–21 | 13–15 |
+
+Natively, even today's pattern delivers well above what prepare can process, which is about 1.5 files/s per worker at 20 Mpx, with full-resolution grid detection about half of it. So reading once would gain little. Over WSL's 9p, any concurrent readers collapse throughput to about 2 files/s, and reading once doesn't fix that. Only a single reader does. That case would cover Docker Desktop on Windows bind-mounting a Windows folder, and it would need a reader gate (one read at a time, then compute from memory), not fewer reads. Running the server under WSL against `/mnt/<drive>` imports at about 1.2 images/s for that reason.
 
 **Duplicates, and moves.** Early dedup (bytes tier) behaves as it does for local imports, plus one rule. If the byte match is a **linked image whose file is missing**, the file was moved. Then:
 

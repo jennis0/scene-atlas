@@ -33,7 +33,7 @@ You can link one library. Its first scan adds every map and scene in it, using [
 
 ### Keeping up with changes
 
-Scene Atlas checks the folder for changes when it starts, then every 15 minutes. The desktop app also checks when you switch back to its window. To check straight away, or to change how often it checks, use **Check for changes** under *Linked library* in **Settings → Library**.
+Scene Atlas checks the folder for changes when it starts, then every 15 minutes once it has finished adding your images. The desktop app also checks when you switch back to its window. To check straight away, or to change how often it checks, use **Check for changes** under *Linked library* in **Settings → Library**.
 
 | You... | Scene Atlas... |
 |--------|----------------|
