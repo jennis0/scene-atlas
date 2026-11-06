@@ -231,7 +231,7 @@ Electron loads the UI from the backend sidecar, so the frontend is always same-o
 
 ## Accepted scanner findings
 
-Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-11-03.
+Re-check these whenever the dependency in question is upgraded. Last reviewed 2026-11-06.
 
 | Scanner | Finding | Why accepted |
 |---|---|---|
@@ -239,13 +239,12 @@ Re-check these whenever the dependency in question is upgraded. Last reviewed 20
 | Opengrep `dangerous-subprocess-use-audit`, bandit B603 / ruff S603 | `subprocess.run` in `check_cuda_libs()`, `backend/app/services/ort_providers.py` (`# nosemgrep`, `# nosec`, `# noqa`) | An audit rule that flags every `subprocess` call whose arguments aren't string literals. The arguments are `sys.executable`, `-c`, a constant script and a library name from the constant `_CUDA_REQUIRED_LIBS`; no shell, nothing from a request, file or the environment. The child process is the point: loading a CUDA library with a broken driver can crash the dynamic loader, which no in-process handler survives (design/gpu-acceleration.md, fallback layer 1). |
 | CodeQL `py/path-injection` | Export and Move: `_export_target` and `_full_export_target` in `backend/app/api/library.py`, `inside_any` in `backend/app/library_identity.py`, `check_export_header` / `check_target` in `backend/pipeline/export_library.py` | The desktop app's user picks the file or folder an export or move writes to, so it can be anywhere on their disk: there is no fixed root to check it against. Only the app's own window can name one (a server refuses them, and the desktop backend requires the launch token): see [§6b-6](#6b-6-medium-full-library-export-and-paths-the-desktop-app-names) and [§6d](#6d-medium-who-can-call-the-desktop-backend). Dismiss as "won't fix" in code scanning. |
 | bandit B104 / ruff S104 | `api_host = "0.0.0.0"` default in `backend/app/config.py` | Only read when the backend is started with `python -m backend.app.main` (dev, E2E). Electron forces `SCENE_ATLAS_API_HOST=127.0.0.1`; Docker and the documented uvicorn commands pass `--host` explicitly. Changing the default to loopback is a reasonable follow-up but needs the E2E harness (which probes `localhost`) checked first. |
-| npm audit (frontend, dev) | `braces` (all versions), via `tailwindcss` 3 / `chokidar` / `micromatch` | Build-time glob matching over our own patterns. No patched `braces` release exists; removal needs Tailwind 4. |
-| npm audit (root, dev) | `sprintf-js` via `roarr` → `global-agent` → `@electron/get` 3 → `app-builder-lib` | Build-time only (roarr formats its own log messages); no patched `sprintf-js`. electron-builder 27 moves to `@electron/get` 5 and drops the chain; it is still alpha. |
+| npm audit (frontend + root, dev) | `minimatch` 10.x, GHSA-g3hv-75wg-m249 (globparts amplification DoS, fixed in 11.0.1), via `eslint`, `typescript-eslint` and `electron-builder` | Lint and packaging glob matching over our own patterns; nothing user-supplied reaches it. The latest eslint (10.14), typescript-eslint (8.72) and electron-builder (26.18) all still require `^10`, and an override would put a major under all three. Drop this row when they move to 11. |
 
 Overrides that clear findings without waiting for upstream (drop them once the parent accepts the fixed version):
 
 - `frontend/package.json`: `postcss-selector-parser` ^7.1.6 under `tailwindcss` 3 (which asks for ^6). The built CSS is byte-identical with and without it.
-- `docs/package.json`: `vite` ^6.4.3 under `vitepress` 1.6.4 (which asks for ^5.4). The built site is identical apart from asset hashes. Drop it with vitepress 2.
+- `docs/package.json`: `vite` ^6.4.5 under `vitepress` 1.6.4 (which asks for ^5.4). The built site is identical apart from asset hashes. Drop it with vitepress 2.
 
 ---
 

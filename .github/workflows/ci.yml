@@ -37,18 +37,9 @@ jobs:
         # --extra cpu so the shipped onnxruntime is audited too.
         run: uv sync --extra dev --extra cpu
       - name: pip-audit (Python CVE scan)
-        # Blocking. Accepted risks (see design/security.md, "Accepted scanner findings"):
-        # transformers <5 is a dev-only extra used by scripts/models to export trusted
-        # checkpoints; it is excluded from the PyInstaller sidecar and never runs in the app.
-        # transformers 5 is a major upgrade of the export pipeline, tracked separately.
-        run: >
-          uv run pip-audit --desc
-          --ignore-vuln PYSEC-2025-217
-          --ignore-vuln PYSEC-2026-2288
-          --ignore-vuln PYSEC-2026-2289
-          --ignore-vuln PYSEC-2026-2290
-          --ignore-vuln PYSEC-2026-3929
-          --ignore-vuln PYSEC-2026-4174
+        # Blocking. Accepted IDs go here as --ignore-vuln, each with a reason, and are
+        # listed in design/security.md ("Accepted scanner findings"). None at present.
+        run: uv run pip-audit --desc
       - name: bandit (Python SAST)
         # Blocking. Accepted findings are suppressed inline with `# nosec BXXX` and a reason.
         run: uv run bandit -r backend/app backend/pipeline -ll
