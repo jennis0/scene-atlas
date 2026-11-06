@@ -65,9 +65,8 @@ export function Gallery() {
   const { data: libraryStatus } = useLibraryStatus()
   useLinkedFocusRescan(libraryStatus)
   // A scan of the linked folder is adding maps (its job, or the walk before there is one)
-  const addingLinkedMaps =
-    !!libraryStatus?.linked?.scanning ||
-    importSnapshot.jobs.some((job) => job.linked && !isFinished(job))
+  const linkedJob = importSnapshot.jobs.find((job) => job.linked && !isFinished(job))
+  const addingLinkedMaps = !!libraryStatus?.linked?.scanning || !!linkedJob
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Infinite scroll sentinel for grouped view
@@ -226,6 +225,8 @@ export function Gallery() {
           <EmptyLibraryWelcome
             embeddingReady={embedding.status === 'ready'}
             addingMaps={addingLinkedMaps}
+            linkedJob={linkedJob}
+            secondsPerItem={importSnapshot.queue?.seconds_per_item}
             onImport={() => dialogs.openImport()}
           />
         ) : (

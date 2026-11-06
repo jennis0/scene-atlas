@@ -742,7 +742,7 @@ Duplicate detection was also broken under WebP conversion, and imports over ~32k
 
 **Consequences:**
 
-- Large existing libraries can be used without copying. The first scan takes hours, and the gallery fills as it goes.
+- Large existing libraries can be used without copying. The first scan takes hours. Since ADR-028 the gallery shows its images only once the scan is grouped, at the end; the empty-library screen shows its progress meanwhile (2026-11-06).
 - `images.storage_key` becomes nullable. Two deletion paths that mishandled a NULL key are fixed.
 - A library is recognised wherever its folders are. Moving it by hand works if the app is pointed at the new location; a proper Move library is still due before launch.
 - Without backups, losing app data still loses a library's metadata. Linked files can be rescanned, but stored files have generated names.
