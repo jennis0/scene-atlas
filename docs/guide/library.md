@@ -29,7 +29,7 @@ Scene Atlas's own files have generated names and no folder structure. Don't edit
 
 **Server:** set `SCENE_ATLAS_LINKED_LIBRARY_DIR` and mount the folder read-only. See [Docker Server: Linked library](/deploy/server#linked-library).
 
-You can link one library. Its first scan adds every map and scene in it, using [Auto](/guide/importing#image-types) to sort them and to skip tokens and other art. A large folder takes a few hours; the gallery fills as images are added. Folder names become authors and groups in the same way as an import.
+You can link one library. Its first scan adds every map and scene in it, using [Auto](/guide/importing#image-types) to sort them and to skip tokens and other art. A large folder takes a few hours, and its images appear once they're all added and grouped. Until then the gallery shows how far it has got and the time left. Folder names become authors and groups in the same way as an import.
 
 ### Keeping up with changes
 

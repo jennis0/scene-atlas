@@ -110,7 +110,7 @@ The paragraph under "Link a library you already have" is the exception. It shows
 
 ### 2.3 After setup
 
-- **Empty-library screen.** While a linked scan is running, the screen says "Adding your images…" in place of the import prompt. The gallery fills as batches commit: images are visible before their job finishes, and the gallery refreshes at most every 4 s during an import.
+- **Empty-library screen.** While a linked scan is running, the screen says "Adding your images…" in place of the import prompt, with the import's progress bar, files done and time left (the import dialog's `ProgressSummary`), then "Identifying groups…". Images are listed only once the whole import is grouped (ADR-028), so for a first scan the screen stays until the end: about 5 h for a 48k-file library on a hard disk (2026-11-05). Grouping the scan author by author, so the gallery fills as it goes, is on the roadmap (user decision 2026-11-06).
 - **Activity dock.** The scan is one row, "Battle Maps · 1,204 of 56,214". Its import report never opens by itself.
 - **Duration.** A large first scan takes hours, because embedding and grid detection dominate. The copy says so once and nowhere else.
 
